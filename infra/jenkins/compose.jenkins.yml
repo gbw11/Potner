@@ -1,0 +1,53 @@
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: potner-jenkins:lts-jdk21
+    container_name: potner-jenkins
+    restart: unless-stopped
+
+    # Docker 소켓에 접근해 애플리케이션 컨테이너를 빌드·배포하기 위한 설정
+    user: "0:0"
+
+    ports:
+      - "8082:8080"
+
+    volumes:
+      # Jenkins 설정, 플러그인, Job 정보를 보존
+      - jenkins-home:/var/jenkins_home
+
+      # Jenkins 컨테이너에서 EC2 호스트의 Docker를 제어
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Jenkins Pipeline에서 Potner 저장소 경로에 접근할 때 사용 가능
+      - ../../:/workspace/potner
+
+    environment:
+      TZ: Asia/Seoul
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=true
+        -Xms512m
+        -Xmx2048m
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:8080/login >/dev/null || exit 1"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  jenkins-home:
+    name: potner-jenkins-home
