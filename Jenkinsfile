@@ -13,6 +13,7 @@ pipeline {
 
         CI_IMAGE = "potner-backend-ci:${BUILD_NUMBER}"
         CI_CONTAINER = "potner-backend-ci-${BUILD_NUMBER}"
+        RELEASE_IMAGE = "potner-backend:build-${BUILD_NUMBER}"
         CI_PORT = '18081'
         DOCKER_NETWORK = 'potner-network'
     }
@@ -178,6 +179,38 @@ pipeline {
                 '''
             }
         }
+
+        stage('Prepare Release Image') {
+            steps {
+                sh '''
+                    set -eux
+
+                    docker tag "$CI_IMAGE" "$RELEASE_IMAGE"
+
+                    docker image inspect \
+                      --format 'image={{index .RepoTags 0}} id={{.Id}}' \
+                      "$RELEASE_IMAGE"
+
+                    echo "운영 배포 이미지 준비 완료: $RELEASE_IMAGE"
+                '''
+            }
+        }
+
+        stage('Deploy Production Backend') {
+            steps {
+                sh '''
+                    set -eux
+
+                    test -f compose.deploy.yml
+                    test -f infra/scripts/deploy-backend.sh
+
+                    chmod +x infra/scripts/deploy-backend.sh
+
+                    ./infra/scripts/deploy-backend.sh "$RELEASE_IMAGE"
+                '''
+            }
+        }
+
     }
 
     post {
@@ -190,11 +223,11 @@ pipeline {
         }
 
         success {
-            echo 'Potner Backend CI 및 임시 배포 검증 성공'
+            echo 'Potner Backend CI/CD 및 운영 배포 성공'
         }
 
         failure {
-            echo 'Potner Backend CI 또는 임시 배포 검증 실패 - Console Output 확인 필요'
+            echo 'Potner Backend CI/CD 실패 - Console Output 확인 필요'
         }
 
         cleanup {
