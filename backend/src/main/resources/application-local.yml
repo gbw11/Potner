@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/potner?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:potner_app}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me}
+
+logging:
+  level:
+    org.hibernate.SQL: INFO

@@ -1,0 +1,18 @@
+# 현재 Topic 명세는 초기 초안입니다.
+# 실제 MQTT 기능 구현 전에 재검토가 필요합니다.
+# 운영 전 최소 권한 원칙을 적용해야 합니다.
+# 익명 접속을 허용하면 안 됩니다.
+
+user potner-server
+topic readwrite potner/#
+
+user raspberry-01
+topic write potner/device/raspberry-01/sensor/#
+topic write potner/device/raspberry-01/status/#
+topic write potner/device/raspberry-01/result/#
+topic read potner/device/raspberry-01/command/#
+
+user jetson-01
+topic write potner/device/jetson-01/status/#
+topic write potner/device/jetson-01/result/#
+topic read potner/device/jetson-01/command/#
