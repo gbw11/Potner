@@ -1,0 +1,44 @@
+package com.potner.common.error;
+
+import org.springframework.http.HttpStatus;
+
+public enum ErrorCode {
+    EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "Email already exists", "이미 사용 중인 이메일입니다."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found", "사용자를 찾을 수 없습니다."),
+    PASSWORD_MISMATCH(HttpStatus.UNAUTHORIZED, "Password mismatch", "비밀번호가 일치하지 않습니다."),
+    LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "Login failed", "이메일 또는 비밀번호를 확인해 주세요."),
+    ACCOUNT_INACTIVE(HttpStatus.FORBIDDEN, "Inactive account", "사용할 수 없는 계정입니다."),
+    ACCESS_TOKEN_REQUIRED(HttpStatus.UNAUTHORIZED, "Access token required", "Access Token이 필요합니다."),
+    INVALID_ACCESS_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid access token", "유효하지 않은 Access Token입니다."),
+    EXPIRED_ACCESS_TOKEN(HttpStatus.UNAUTHORIZED, "Expired access token", "만료된 Access Token입니다."),
+    INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid refresh token", "유효하지 않은 Refresh Token입니다."),
+    REFRESH_TOKEN_NOT_FOUND(HttpStatus.UNAUTHORIZED, "Refresh token not found", "Refresh Token을 찾을 수 없습니다."),
+    REFRESH_TOKEN_MISMATCH(HttpStatus.UNAUTHORIZED, "Refresh token mismatch", "Refresh Token이 일치하지 않습니다."),
+    REVOKED_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Revoked refresh token", "폐기된 Refresh Token입니다."),
+    EXPIRED_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Expired refresh token", "만료된 Refresh Token입니다."),
+    INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Invalid request", "요청값이 유효하지 않습니다."),
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied", "접근 권한이 없습니다."),
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "서버 오류가 발생했습니다.");
+
+    private final HttpStatus status;
+    private final String title;
+    private final String detail;
+
+    ErrorCode(HttpStatus status, String title, String detail) {
+        this.status = status;
+        this.title = title;
+        this.detail = detail;
+    }
+
+    public HttpStatus status() {
+        return status;
+    }
+
+    public String title() {
+        return title;
+    }
+
+    public String detail() {
+        return detail;
+    }
+}
