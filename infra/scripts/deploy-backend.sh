@@ -63,9 +63,20 @@ prepare_compose_environment() {
         grep -E '^(MQTT_HEALTH_USERNAME|MQTT_HEALTH_PASSWORD)=' \
         >> "$DEPLOY_ENV_FILE"
 
+    if [ -z "${JWT_SECRET:-}" ]; then
+        echo "JWT_SECRET environment variable is required."
+        return 1
+    fi
+
+    printf '%s\n' \
+        "JWT_SECRET=${JWT_SECRET}" \
+        "JWT_ACCESS_TOKEN_EXPIRATION=${JWT_ACCESS_TOKEN_EXPIRATION:-1800000}" \
+        "JWT_REFRESH_TOKEN_EXPIRATION=${JWT_REFRESH_TOKEN_EXPIRATION:-1209600000}" \
+        >> "$DEPLOY_ENV_FILE"
+
     env_count="$(wc -l < "$DEPLOY_ENV_FILE" | tr -d ' ')"
 
-    if [ "$env_count" -lt 6 ]; then
+    if [ "$env_count" -lt 9 ]; then
         echo "Compose 실행에 필요한 환경변수를 모두 가져오지 못했습니다."
         return 1
     fi

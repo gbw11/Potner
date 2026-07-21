@@ -10,6 +10,9 @@ pipeline {
     environment {
         TESTCONTAINERS_HOST_OVERRIDE = '127.0.0.1'
         TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = '/var/run/docker.sock'
+        JWT_SECRET = credentials('potner-jwt-secret')
+        JWT_ACCESS_TOKEN_EXPIRATION = '1800000'
+        JWT_REFRESH_TOKEN_EXPIRATION = '1209600000'
 
         CI_IMAGE = "potner-backend-ci:${BUILD_NUMBER}"
         CI_CONTAINER = "potner-backend-ci-${BUILD_NUMBER}"
@@ -51,8 +54,9 @@ pipeline {
                       -e GRADLE_USER_HOME=/tmp/gradle-home \
                       -e TESTCONTAINERS_HOST_OVERRIDE="$TESTCONTAINERS_HOST_OVERRIDE" \
                       -e TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="$TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE" \
+                      -e JWT_SECRET="$JWT_SECRET" \
                       eclipse-temurin:21-jdk \
-                      ./gradlew clean test --no-daemon
+                      ./gradlew clean test integrationTest --no-daemon
                 '''
             }
         }
@@ -96,9 +100,15 @@ pipeline {
                       | grep -E '^(SPRING_PROFILES_ACTIVE|SPRING_DATASOURCE_URL|SPRING_DATASOURCE_USERNAME|SPRING_DATASOURCE_PASSWORD)=' \
                       > .ci-backend.env
 
+                    printf '%s\n' \
+                      "JWT_SECRET=$JWT_SECRET" \
+                      "JWT_ACCESS_TOKEN_EXPIRATION=$JWT_ACCESS_TOKEN_EXPIRATION" \
+                      "JWT_REFRESH_TOKEN_EXPIRATION=$JWT_REFRESH_TOKEN_EXPIRATION" \
+                      >> .ci-backend.env
+
                     ENV_COUNT="$(wc -l < .ci-backend.env)"
 
-                    if [ "$ENV_COUNT" -lt 4 ]; then
+                    if [ "$ENV_COUNT" -lt 7 ]; then
                         echo "임시 컨테이너 실행에 필요한 환경변수를 모두 가져오지 못했습니다."
                         rm -f .ci-backend.env
                         exit 1
@@ -216,10 +226,10 @@ pipeline {
     post {
         always {
             junit allowEmptyResults: true,
-                  testResults: 'backend/build/test-results/test/*.xml'
+                  testResults: 'backend/build/test-results/*/*.xml'
 
             archiveArtifacts allowEmptyArchive: true,
-                             artifacts: 'backend/build/reports/tests/test/**'
+                             artifacts: 'backend/build/reports/tests/**'
         }
 
         success {

@@ -7,3 +7,12 @@ spring:
 logging:
   level:
     org.hibernate.SQL: INFO
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
