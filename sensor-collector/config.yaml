@@ -1,0 +1,94 @@
+# 실행 환경: mock | raspberry_pi | jetson
+platform: mock
+
+# 수집 주기 (초)
+interval_sec: 5
+
+# 저장
+storage:
+  type: csv
+  path: data/readings.csv
+
+# I2C 버스 번호 (라즈베리파이: 1, 젯슨 나노: 보통 1)
+i2c_bus: 1
+
+sensors:
+  light:
+    enabled: true
+    driver: bh1750
+    address: 0x23
+
+  climate:
+    enabled: true
+    driver: dht22
+    pin: 4
+    address: 0x38
+
+  soil:
+    enabled: true
+    driver: ads1115
+    address: 0x48
+    channel: 0
+    dry_raw: 20000
+    wet_raw: 8000
+
+# 로컬 규칙 판단 임계값 (LLM 호출 전 단계)
+status_rules:
+  soil_moisture_pct:
+    low: 30
+    high: 80
+  temperature_c:
+    low: 15
+    high: 32
+  humidity_pct:
+    low: 30
+    high: 80
+  light_lux:
+    low: 100
+    high: 5000
+
+# Spring Boot로 토양수분만 전송 (급수량 계산은 서버)
+# SPRING_BASE_URL / DEVICE_ID 환경변수로 덮어쓸 수 있음
+backend:
+  enabled: false
+  base_url: http://127.0.0.1:8080
+  soil_path: /api/v1/sensors/soil
+  device_id: pi-01
+  timeout_sec: 5
+
+# 외출 중 이벤트 로그
+events:
+  path: data/events.jsonl
+
+# 말투 생성 / 자유 대화 (판단은 로컬, 문장만 LLM)
+# SSAFY GMS: .env 의 OPENAI_API_KEY + OPENAI_BASE_URL 사용
+llm:
+  enabled: true
+  provider: gms          # gms | openai | mock
+  model: gpt-4.1-nano    # 저비용 테스트. 필요시 gpt-5-nano
+  max_tokens: 200
+  api_key_env: OPENAI_API_KEY
+  base_url: https://gms.ssafy.io/gmsapi/api.openai.com/v1
+
+# 음성: 지금은 콘솔 입출력. 이후 whisper / TTS API로 교체
+voice:
+  tts: console
+  stt: console
+
+# SunFounder Camera Rev1.3 (OV5647) — CSI
+# PC(mock): 더미 PNG. Pi: picamera2
+camera:
+  enabled: true
+  driver: auto          # auto | mock | picamera2
+  path: data/camera     # 이미지 + index.jsonl
+  width: 1920           # FHD
+  height: 1080
+  camera_num: 0
+  # 밝기 (어두우면 exposure_value / brightness 를 올리세요)
+  settle_sec: 1.0
+  exposure_value: 1.0   # EV 보정 (+면 밝아짐, 권장 0.5~1.5)
+  brightness: 0.12
+  contrast: 1.1
+  saturation: 1.05
+  capture_with_read: false
+  capture_every_n: 1

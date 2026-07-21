@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from .sensors.factory import SensorBundle, build_sensors
+from .storage import CsvStorage
+from .vision import build_camera, build_camera_store
+from .vision.base import Camera, CaptureResult
+from .vision.store import CameraStore
+
+
+class Collector:
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
+        self.sensors: SensorBundle = build_sensors(config)
+        storage_cfg = config.get("storage", {})
+        self.storage = CsvStorage(storage_cfg.get("path", "data/readings.csv"))
+        self.camera: Optional[Camera] = build_camera(config)
+        self.camera_store: Optional[CameraStore] = (
+            build_camera_store(config) if self.camera is not None else None
+        )
+        cam_cfg = config.get("camera", {}) or {}
+        self._capture_with_read = bool(cam_cfg.get("capture_with_read", False))
+        self._read_count = 0
+        self._capture_every_n = int(cam_cfg.get("capture_every_n", 1))
+
+    def read_once(self, *, capture: bool | None = None) -> dict[str, Any]:
+        climate = self.sensors.climate.read() if self.sensors.climate else None
+        light = self.sensors.light.read() if self.sensors.light else None
+        soil = self.sensors.soil.read() if self.sensors.soil else None
+
+        row: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "temperature_c": None if climate is None else climate.temperature_c,
+            "humidity_pct": None if climate is None else climate.humidity_pct,
+            "light_lux": None if light is None else light.lux,
+            "soil_raw": None if soil is None else soil.raw,
+            "soil_moisture_pct": None if soil is None else soil.moisture_pct,
+            "camera_path": None,
+            "camera_ok": None,
+        }
+
+        do_capture = self._should_capture(capture)
+        if do_capture and self.camera is not None and self.camera_store is not None:
+            result = self.camera_store.capture(self.camera)
+            row["camera_path"] = result.path if result.ok else None
+            row["camera_ok"] = result.ok
+
+        self.storage.write(row)
+        return row
+
+    def capture_once(self) -> CaptureResult:
+        if self.camera is None or self.camera_store is None:
+            raise RuntimeError(
+                "Camera disabled. Set camera.enabled: true in config "
+                "(mock on PC, picamera2 on Raspberry Pi)."
+            )
+        return self.camera_store.capture(self.camera)
+
+    def _should_capture(self, capture: bool | None) -> bool:
+        if capture is not None:
+            return capture
+        if not self._capture_with_read:
+            return False
+        self._read_count += 1
+        return self._read_count % max(1, self._capture_every_n) == 0
+
+    def close(self) -> None:
+        for sensor in (self.sensors.climate, self.sensors.light, self.sensors.soil):
+            close = getattr(sensor, "close", None)
+            if callable(close):
+                close()
+        if self.camera is not None:
+            self.camera.close()
