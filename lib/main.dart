@@ -1,21 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:potner_app/app.dart';
 
 void main() {
-  runApp(const PotnerApp());
-}
-
-class PotnerApp extends StatelessWidget {
-  const PotnerApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Potner',
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Potner')),
-        body: const Center(child: Text('Flutter project is ready.')),
-      ),
-    );
-  }
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const ProviderScope(child: PotnerApp()));
 }
