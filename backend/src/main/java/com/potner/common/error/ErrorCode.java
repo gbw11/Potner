@@ -16,6 +16,8 @@ public enum ErrorCode {
     REFRESH_TOKEN_MISMATCH(HttpStatus.UNAUTHORIZED, "Refresh token mismatch", "Refresh Token이 일치하지 않습니다."),
     REVOKED_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Revoked refresh token", "폐기된 Refresh Token입니다."),
     EXPIRED_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Expired refresh token", "만료된 Refresh Token입니다."),
+    PLANT_SPECIES_NOT_FOUND(HttpStatus.NOT_FOUND, "Plant species not found", "식물 종을 찾을 수 없습니다."),
+    GROWTH_REQUIREMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Growth requirement not found", "해당 식물 종에서 지원하는 생장 단계가 아닙니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Invalid request", "요청값이 유효하지 않습니다."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied", "접근 권한이 없습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "서버 오류가 발생했습니다.");
