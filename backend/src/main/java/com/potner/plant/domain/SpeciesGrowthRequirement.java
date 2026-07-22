@@ -92,6 +92,10 @@ public class SpeciesGrowthRequirement {
     protected SpeciesGrowthRequirement() {
     }
 
+    public String getId() {
+        return id;
+    }
+
     public PlantSpecies getSpecies() {
         return species;
     }
