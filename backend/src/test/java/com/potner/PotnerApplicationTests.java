@@ -22,6 +22,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -41,6 +43,7 @@ class PotnerApplicationTests {
     private static final String GERMINATION_ID = "10000000-0000-0000-0000-000000000005";
     private static final String FLOWERING_ID = "10000000-0000-0000-0000-000000000004";
     private static final String FRUITING_ID = "10000000-0000-0000-0000-000000000009";
+    private static final String VEGETATIVE_ID = "10000000-0000-0000-0000-000000000006";
     private static final String TEST_INACTIVE_SPECIES_ID = "90000000-0000-0000-0000-000000000001";
 
     @Container
@@ -67,6 +70,8 @@ class PotnerApplicationTests {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM plant_growth_profile");
+        jdbcTemplate.update("DELETE FROM plant");
         refreshTokenRepository.deleteAll();
         appUserRepository.deleteAll();
     }
@@ -374,6 +379,180 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.code").value("GROWTH_REQUIREMENT_NOT_FOUND"));
     }
 
+    @Test
+    void plantManagementRequiresAccessToken() throws Exception {
+        mockMvc.perform(get("/api/v1/plants"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void plantManagementLifecycleUsesSnapshotAndSoftDelete() throws Exception {
+        Tokens tokens = signupAndLogin("plant-owner@example.com");
+        String createdBody = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "내 바질")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("내 바질"))
+                .andExpect(jsonPath("$.species.name").value("바질"))
+                .andExpect(jsonPath("$.species.scientificName").value("Ocimum basilicum L."))
+                .andExpect(jsonPath("$.category.name").value("허브"))
+                .andExpect(jsonPath("$.lifeStage.code").value("GERMINATION"))
+                .andExpect(jsonPath("$.growthProfile.temperature.minC").value(21.0))
+                .andExpect(jsonPath("$.growthProfile.watering.recommendedVolumeMl").value(nullValue()))
+                .andExpect(jsonPath("$.growthProfile.customized").value(false))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String plantId = JsonPath.read(createdBody, "$.plantId");
+
+        String ownerId = appUserRepository.findByEmailIgnoreCase("plant-owner@example.com").orElseThrow().getId();
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT user_id FROM plant WHERE plant_id = ?", String.class, plantId)).isEqualTo(ownerId);
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM plant_growth_profile WHERE plant_id = ?", Integer.class, plantId)).isEqualTo(1);
+
+        mockMvc.perform(get("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plants.length()").value(1))
+                .andExpect(jsonPath("$.plants[0].plantId").value(plantId))
+                .andExpect(jsonPath("$.plants[0].categoryName").value("허브"));
+
+        mockMvc.perform(patch("/api/v1/plants/{plantId}/growth-profile", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"temperatureMinC":22.0,"recommendedWateringMl":120.0}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.temperature.minC").value(22.0))
+                .andExpect(jsonPath("$.temperature.maxC").value(29.0))
+                .andExpect(jsonPath("$.watering.recommendedVolumeMl").value(120.0))
+                .andExpect(jsonPath("$.customized").value(true));
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT temperature_min_c FROM species_growth_requirement WHERE requirement_id = '30000000-0000-0000-0000-000000000013'",
+                java.math.BigDecimal.class)).isEqualByComparingTo("21.00");
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/growth-profile/reset", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.temperature.minC").value(21.0))
+                .andExpect(jsonPath("$.watering.recommendedVolumeMl").value(nullValue()))
+                .andExpect(jsonPath("$.customized").value(false));
+
+        mockMvc.perform(patch("/api/v1/plants/{plantId}/growth-stage", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"lifeStageId":"%s"}
+                                """.formatted(VEGETATIVE_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lifeStage.code").value("VEGETATIVE"))
+                .andExpect(jsonPath("$.growthProfile.temperature.minC").value(16.0))
+                .andExpect(jsonPath("$.growthProfile.temperature.maxC").value(30.0))
+                .andExpect(jsonPath("$.growthProfile.customized").value(false));
+
+        mockMvc.perform(patch("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"새싹 바질"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("새싹 바질"))
+                .andExpect(jsonPath("$.lifeStage.code").value("VEGETATIVE"));
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+        mockMvc.perform(get("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plants.length()").value(0));
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT plant_status FROM plant WHERE plant_id = ?", String.class, plantId)).isEqualTo("DELETED");
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM plant_growth_profile WHERE plant_id = ?", Integer.class, plantId)).isEqualTo(1);
+    }
+
+    @Test
+    void plantManagementRejectsUnsupportedReferencesAndInvalidName() throws Exception {
+        Tokens tokens = signupAndLogin("invalid-plant@example.com");
+
+        mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson("missing-species", GERMINATION_ID, "식물")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_SPECIES_NOT_FOUND"));
+        mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, "missing-stage", "식물")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_LIFE_STAGE_NOT_FOUND"));
+        mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, FLOWERING_ID, "식물")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("GROWTH_REQUIREMENT_NOT_FOUND"));
+        mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "   ")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void plantOwnershipIsHiddenAndGrowthProfileValidationIsApplied() throws Exception {
+        Tokens owner = signupAndLogin("owner@example.com");
+        String createdBody = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "소유 식물")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String plantId = JsonPath.read(createdBody, "$.plantId");
+        Tokens stranger = signupAndLogin("stranger@example.com");
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+        mockMvc.perform(patch("/api/v1/plants/{plantId}/growth-profile", plantId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"humidityMinPct":90,"humidityMaxPct":80}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_GROWTH_PROFILE"));
+        mockMvc.perform(patch("/api/v1/plants/{plantId}/growth-profile", plantId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"recommendedWateringMl":100}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.watering.recommendedVolumeMl").value(100.0));
+        mockMvc.perform(patch("/api/v1/plants/{plantId}/growth-profile", plantId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"recommendedWateringMl":null}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.watering.recommendedVolumeMl").value(nullValue()));
+    }
+
     private void signup(String email) throws Exception {
         mockMvc.perform(post("/api/v1/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -413,6 +592,12 @@ class PotnerApplicationTests {
         return """
                 {"refreshToken":"%s"}
                 """.formatted(token);
+    }
+
+    private String createPlantJson(String speciesId, String lifeStageId, String name) {
+        return """
+                {"speciesId":"%s","lifeStageId":"%s","name":"%s"}
+                """.formatted(speciesId, lifeStageId, name);
     }
 
     private record Tokens(String accessToken, String refreshToken) {

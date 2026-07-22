@@ -17,7 +17,12 @@ public enum ErrorCode {
     REVOKED_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Revoked refresh token", "폐기된 Refresh Token입니다."),
     EXPIRED_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Expired refresh token", "만료된 Refresh Token입니다."),
     PLANT_SPECIES_NOT_FOUND(HttpStatus.NOT_FOUND, "Plant species not found", "식물 종을 찾을 수 없습니다."),
+    PLANT_LIFE_STAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Plant life stage not found", "생장 단계를 찾을 수 없습니다."),
     GROWTH_REQUIREMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Growth requirement not found", "해당 식물 종에서 지원하는 생장 단계가 아닙니다."),
+    PLANT_NOT_FOUND(HttpStatus.NOT_FOUND, "Plant not found", "식물을 찾을 수 없습니다."),
+    PLANT_GROWTH_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Plant growth profile not found", "식물 생육 프로필을 찾을 수 없습니다."),
+    INVALID_PLANT_NAME(HttpStatus.BAD_REQUEST, "Invalid plant name", "식물 이름이 유효하지 않습니다."),
+    INVALID_GROWTH_PROFILE(HttpStatus.BAD_REQUEST, "Invalid growth profile", "생육 기준값이 유효하지 않습니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Invalid request", "요청값이 유효하지 않습니다."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied", "접근 권한이 없습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "서버 오류가 발생했습니다.");
