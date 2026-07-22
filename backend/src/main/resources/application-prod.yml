@@ -18,3 +18,8 @@ logging:
   level:
     org.hibernate.SQL: OFF
     org.hibernate.orm.jdbc.bind: OFF
+
+potner:
+  mqtt:
+    broker-url: ${MQTT_BROKER_URL:tcp://mosquitto:1883}
+    client-id: ${MQTT_CLIENT_ID:potner-backend-prod}

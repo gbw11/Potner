@@ -13,6 +13,15 @@ pipeline {
         JWT_SECRET = credentials('potner-jwt-secret')
         JWT_ACCESS_TOKEN_EXPIRATION = '1800000'
         JWT_REFRESH_TOKEN_EXPIRATION = '1209600000'
+        MQTT_BACKEND_CREDENTIALS = credentials('potner-mqtt-backend')
+        MQTT_ENABLED = 'true'
+        MQTT_BROKER_URL = 'tcp://mosquitto:1883'
+        MQTT_CLIENT_ID = 'potner-backend-prod'
+        MQTT_TOPIC = 'potner/device/+/sensor/#'
+        MQTT_QOS = '1'
+        MQTT_CONNECTION_TIMEOUT_SECONDS = '10'
+        MQTT_KEEP_ALIVE_SECONDS = '60'
+        MQTT_RECOVERY_INTERVAL_MS = '10000'
 
         CI_IMAGE = "potner-backend-ci:${BUILD_NUMBER}"
         CI_CONTAINER = "potner-backend-ci-${BUILD_NUMBER}"
@@ -104,11 +113,21 @@ pipeline {
                       "JWT_SECRET=$JWT_SECRET" \
                       "JWT_ACCESS_TOKEN_EXPIRATION=$JWT_ACCESS_TOKEN_EXPIRATION" \
                       "JWT_REFRESH_TOKEN_EXPIRATION=$JWT_REFRESH_TOKEN_EXPIRATION" \
+                      "MQTT_ENABLED=$MQTT_ENABLED" \
+                      "MQTT_BROKER_URL=$MQTT_BROKER_URL" \
+                      "MQTT_USERNAME=$MQTT_BACKEND_CREDENTIALS_USR" \
+                      "MQTT_PASSWORD=$MQTT_BACKEND_CREDENTIALS_PSW" \
+                      "MQTT_CLIENT_ID=$MQTT_CLIENT_ID" \
+                      "MQTT_TOPIC=$MQTT_TOPIC" \
+                      "MQTT_QOS=$MQTT_QOS" \
+                      "MQTT_CONNECTION_TIMEOUT_SECONDS=$MQTT_CONNECTION_TIMEOUT_SECONDS" \
+                      "MQTT_KEEP_ALIVE_SECONDS=$MQTT_KEEP_ALIVE_SECONDS" \
+                      "MQTT_RECOVERY_INTERVAL_MS=$MQTT_RECOVERY_INTERVAL_MS" \
                       >> .ci-backend.env
 
                     ENV_COUNT="$(wc -l < .ci-backend.env)"
 
-                    if [ "$ENV_COUNT" -lt 7 ]; then
+                    if [ "$ENV_COUNT" -lt 17 ]; then
                         echo "임시 컨테이너 실행에 필요한 환경변수를 모두 가져오지 못했습니다."
                         rm -f .ci-backend.env
                         exit 1
@@ -209,13 +228,15 @@ pipeline {
         stage('Deploy Production Backend') {
             steps {
                 sh '''
-                    set -eux
+                    set -eu
 
                     test -f compose.deploy.yml
                     test -f infra/scripts/deploy-backend.sh
 
                     chmod +x infra/scripts/deploy-backend.sh
 
+                    MQTT_USERNAME="$MQTT_BACKEND_CREDENTIALS_USR" \
+                    MQTT_PASSWORD="$MQTT_BACKEND_CREDENTIALS_PSW" \
                     ./infra/scripts/deploy-backend.sh "$RELEASE_IMAGE"
                 '''
             }
