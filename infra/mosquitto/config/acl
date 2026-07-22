@@ -4,7 +4,10 @@
 # 익명 접속을 허용하면 안 됩니다.
 
 user potner-server
-topic readwrite potner/#
+topic read potner/device/+/sensor/#
+
+user potner-health
+topic write potner/health
 
 user raspberry-01
 topic write potner/device/raspberry-01/sensor/#

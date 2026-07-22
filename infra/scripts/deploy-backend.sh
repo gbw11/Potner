@@ -68,15 +68,31 @@ prepare_compose_environment() {
         return 1
     fi
 
+    if [ "${MQTT_ENABLED:-false}" = "true" ] &&
+       { [ -z "${MQTT_USERNAME:-}" ] || [ -z "${MQTT_PASSWORD:-}" ]; }; then
+        echo "MQTT_USERNAME and MQTT_PASSWORD are required when MQTT is enabled."
+        return 1
+    fi
+
     printf '%s\n' \
         "JWT_SECRET=${JWT_SECRET}" \
         "JWT_ACCESS_TOKEN_EXPIRATION=${JWT_ACCESS_TOKEN_EXPIRATION:-1800000}" \
         "JWT_REFRESH_TOKEN_EXPIRATION=${JWT_REFRESH_TOKEN_EXPIRATION:-1209600000}" \
+        "MQTT_ENABLED=${MQTT_ENABLED:-false}" \
+        "MQTT_BROKER_URL=${MQTT_BROKER_URL:-tcp://mosquitto:1883}" \
+        "MQTT_USERNAME=${MQTT_USERNAME:-}" \
+        "MQTT_PASSWORD=${MQTT_PASSWORD:-}" \
+        "MQTT_CLIENT_ID=${MQTT_CLIENT_ID:-potner-backend-prod}" \
+        "MQTT_TOPIC=${MQTT_TOPIC:-potner/device/+/sensor/#}" \
+        "MQTT_QOS=${MQTT_QOS:-1}" \
+        "MQTT_CONNECTION_TIMEOUT_SECONDS=${MQTT_CONNECTION_TIMEOUT_SECONDS:-10}" \
+        "MQTT_KEEP_ALIVE_SECONDS=${MQTT_KEEP_ALIVE_SECONDS:-60}" \
+        "MQTT_RECOVERY_INTERVAL_MS=${MQTT_RECOVERY_INTERVAL_MS:-10000}" \
         >> "$DEPLOY_ENV_FILE"
 
     env_count="$(wc -l < "$DEPLOY_ENV_FILE" | tr -d ' ')"
 
-    if [ "$env_count" -lt 9 ]; then
+    if [ "$env_count" -lt 19 ]; then
         echo "Compose 실행에 필요한 환경변수를 모두 가져오지 못했습니다."
         return 1
     fi
