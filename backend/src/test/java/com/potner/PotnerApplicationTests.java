@@ -676,6 +676,68 @@ class PotnerApplicationTests {
                         message.messageId().toString()
                 )
         ).isEqualTo(4);
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForList("""
+                SELECT CONCAT(sensor_type, ':', COUNT(*))
+                FROM sensor_reading
+                WHERE device_message_id = ?
+                GROUP BY sensor_type
+                """, String.class, message.messageId().toString()))
+                .containsExactlyInAnyOrder(
+                        "TEMPERATURE:1",
+                        "HUMIDITY:1",
+                        "SOIL_MOISTURE:1",
+                        "ILLUMINANCE:1"
+                );
+    }
+
+    @Test
+    void concurrentDifferentMessagesEachStoreFourReadings() throws Exception {
+        SensorFixture fixture = createSensorFixture(
+                "different-concurrent-sensor@example.com",
+                "raspberry-different-concurrent"
+        );
+        SensorTelemetryMessage firstMessage = sensorMessage(
+                UUID.fromString("550e8400-e29b-41d4-a716-446655440002"),
+                fixture.deviceUid()
+        );
+        SensorTelemetryMessage secondMessage = sensorMessage(
+                UUID.fromString("550e8400-e29b-41d4-a716-446655440003"),
+                fixture.deviceUid()
+        );
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            List<Future<SensorReadingSaveResult>> futures = List.of(
+                    executor.submit(() -> {
+                        start.await();
+                        return sensorReadingService.save(firstMessage);
+                    }),
+                    executor.submit(() -> {
+                        start.await();
+                        return sensorReadingService.save(secondMessage);
+                    })
+            );
+            start.countDown();
+
+            org.assertj.core.api.Assertions.assertThat(
+                    List.of(futures.get(0).get(), futures.get(1).get())
+            ).containsOnly(SensorReadingSaveResult.SAVED);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingRepository.countByDeviceMessageId(
+                        firstMessage.messageId().toString()
+                )
+        ).isEqualTo(4);
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingRepository.countByDeviceMessageId(
+                        secondMessage.messageId().toString()
+                )
+        ).isEqualTo(4);
+        org.assertj.core.api.Assertions.assertThat(sensorReadingRepository.count()).isEqualTo(8);
     }
 
     private void signup(String email) throws Exception {

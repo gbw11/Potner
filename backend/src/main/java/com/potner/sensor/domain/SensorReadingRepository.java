@@ -11,8 +11,6 @@ import java.util.List;
 
 public interface SensorReadingRepository extends JpaRepository<SensorReading, Long> {
 
-    boolean existsByDeviceMessageId(String deviceMessageId);
-
     long countByDeviceMessageId(String deviceMessageId);
 
     List<SensorReading> findAllByDeviceMessageIdOrderBySensorType(String deviceMessageId);
@@ -29,26 +27,60 @@ public interface SensorReadingRepository extends JpaRepository<SensorReading, Lo
                 quality,
                 measured_at,
                 received_at
-            ) VALUES (
-                :plantId,
-                :robotId,
-                :deviceMessageId,
-                :sensorType,
-                :measuredValue,
-                :unit,
-                :quality,
-                :measuredAt,
-                :receivedAt
-            )
+            ) VALUES
+                (
+                    :plantId,
+                    :robotId,
+                    :deviceMessageId,
+                    'TEMPERATURE',
+                    :temperatureC,
+                    'CELSIUS',
+                    'GOOD',
+                    :measuredAt,
+                    :receivedAt
+                ),
+                (
+                    :plantId,
+                    :robotId,
+                    :deviceMessageId,
+                    'HUMIDITY',
+                    :humidityPct,
+                    'PERCENT',
+                    'GOOD',
+                    :measuredAt,
+                    :receivedAt
+                ),
+                (
+                    :plantId,
+                    :robotId,
+                    :deviceMessageId,
+                    'SOIL_MOISTURE',
+                    :soilMoisturePct,
+                    'PERCENT',
+                    'GOOD',
+                    :measuredAt,
+                    :receivedAt
+                ),
+                (
+                    :plantId,
+                    :robotId,
+                    :deviceMessageId,
+                    'ILLUMINANCE',
+                    :illuminanceLux,
+                    'LUX',
+                    'GOOD',
+                    :measuredAt,
+                    :receivedAt
+                )
             """, nativeQuery = true)
-    int insertIgnoringDuplicate(
+    int insertTelemetryReadingsIgnoringDuplicate(
             @Param("plantId") String plantId,
             @Param("robotId") String robotId,
             @Param("deviceMessageId") String deviceMessageId,
-            @Param("sensorType") String sensorType,
-            @Param("measuredValue") BigDecimal measuredValue,
-            @Param("unit") String unit,
-            @Param("quality") String quality,
+            @Param("temperatureC") BigDecimal temperatureC,
+            @Param("humidityPct") BigDecimal humidityPct,
+            @Param("soilMoisturePct") BigDecimal soilMoisturePct,
+            @Param("illuminanceLux") BigDecimal illuminanceLux,
             @Param("measuredAt") LocalDateTime measuredAt,
             @Param("receivedAt") LocalDateTime receivedAt
     );
