@@ -6,6 +6,8 @@ import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.sensor.application.SensorReadingSaveResult;
 import com.potner.sensor.application.SensorReadingService;
 import com.potner.sensor.domain.SensorReadingRepository;
+import com.potner.sensor.domain.SensorType;
+import com.potner.sensor.domain.SensorUnit;
 import com.potner.user.domain.AppUser;
 import com.potner.user.domain.AppUserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,6 +95,7 @@ class PotnerApplicationTests {
     void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM sensor_reading");
         jdbcTemplate.update("DELETE FROM plant_device_assignment");
+        jdbcTemplate.update("DELETE FROM iot_device");
         jdbcTemplate.update("DELETE FROM robot");
         jdbcTemplate.update("DELETE FROM plant_growth_profile");
         jdbcTemplate.update("DELETE FROM plant");
@@ -578,23 +581,45 @@ class PotnerApplicationTests {
     }
 
     @Test
-    void sensorReadingMigrationPersistsFourTypedUtcValuesAndPreventsDuplicateMessageId()
+    void raspberryAndJetsonReadingsUseSameRobotAndPlantWithDistinctSourceDevices()
             throws Exception {
-        SensorFixture fixture = createSensorFixture(
-                "sensor-member@example.com",
-                "raspberry-01"
+        SensorFixture fixture = createSensorFixture("sensor-member@example.com");
+        List<SensorTelemetryMessage> messages = List.of(
+                sensorMessage(
+                        "550e8400-e29b-41d4-a716-446655440000",
+                        fixture.raspberryUid(),
+                        SensorType.TEMPERATURE,
+                        "24.3",
+                        SensorUnit.CELSIUS
+                ),
+                sensorMessage(
+                        "550e8400-e29b-41d4-a716-446655440001",
+                        fixture.raspberryUid(),
+                        SensorType.HUMIDITY,
+                        "58.1",
+                        SensorUnit.PERCENT
+                ),
+                sensorMessage(
+                        "550e8400-e29b-41d4-a716-446655440002",
+                        fixture.raspberryUid(),
+                        SensorType.ILLUMINANCE,
+                        "1350",
+                        SensorUnit.LUX
+                ),
+                sensorMessage(
+                        "550e8400-e29b-41d4-a716-446655440003",
+                        fixture.jetsonUid(),
+                        SensorType.SOIL_MOISTURE,
+                        "42.7",
+                        SensorUnit.PERCENT
+                )
         );
-        UUID messageId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
-        SensorTelemetryMessage message = sensorMessage(messageId, fixture.deviceUid());
 
-        org.assertj.core.api.Assertions.assertThat(sensorReadingService.save(message))
-                .isEqualTo(SensorReadingSaveResult.SAVED);
-        org.assertj.core.api.Assertions.assertThat(sensorReadingService.save(message))
-                .isEqualTo(SensorReadingSaveResult.DUPLICATE);
+        messages.forEach(message -> org.assertj.core.api.Assertions.assertThat(
+                sensorReadingService.save(message)
+        ).isEqualTo(SensorReadingSaveResult.SAVED));
 
-        var saved = sensorReadingRepository
-                .findAllByDeviceMessageIdOrderBySensorType(messageId.toString());
-        org.assertj.core.api.Assertions.assertThat(saved)
+        org.assertj.core.api.Assertions.assertThat(sensorReadingRepository.findAll())
                 .hasSize(4)
                 .allSatisfy(reading -> {
                     org.assertj.core.api.Assertions.assertThat(reading.getPlantId())
@@ -605,19 +630,35 @@ class PotnerApplicationTests {
                             .isEqualTo("GOOD");
                     org.assertj.core.api.Assertions.assertThat(reading.getMeasuredAt())
                             .isEqualTo(LocalDateTime.parse("2026-07-22T08:10:00"));
-                    org.assertj.core.api.Assertions.assertThat(reading.getReceivedAt()).isNotNull();
-                })
-                .extracting(
-                        reading -> reading.getSensorType().name(),
-                        reading -> reading.getUnit().name(),
-                        reading -> reading.getMeasuredValue().stripTrailingZeros()
-                )
-                .containsExactlyInAnyOrder(
-                        tuple("TEMPERATURE", "CELSIUS", new BigDecimal("24.3")),
-                        tuple("HUMIDITY", "PERCENT", new BigDecimal("58.1")),
-                        tuple("SOIL_MOISTURE", "PERCENT", new BigDecimal("42.7")),
-                        tuple("ILLUMINANCE", "LUX", new BigDecimal("1.35E+3"))
-                );
+                });
+        org.assertj.core.api.Assertions.assertThat(sensorReadingRepository.findAll())
+                .filteredOn(reading -> reading.getSensorType() == SensorType.SOIL_MOISTURE)
+                .extracting(reading -> reading.getSourceDeviceId())
+                .containsOnly(fixture.jetsonDeviceId());
+        org.assertj.core.api.Assertions.assertThat(sensorReadingRepository.findAll())
+                .filteredOn(reading -> reading.getSensorType() != SensorType.SOIL_MOISTURE)
+                .extracting(reading -> reading.getSourceDeviceId())
+                .containsOnly(fixture.raspberryDeviceId());
+    }
+
+    @Test
+    void sequentialDuplicateMessageStoresOneReading() throws Exception {
+        SensorFixture fixture = createSensorFixture("sequential-duplicate@example.com");
+        SensorTelemetryMessage message = sensorMessage(
+                "550e8400-e29b-41d4-a716-446655440010",
+                fixture.raspberryUid(),
+                SensorType.TEMPERATURE,
+                "24.3",
+                SensorUnit.CELSIUS
+        );
+
+        org.assertj.core.api.Assertions.assertThat(sensorReadingService.save(message))
+                .isEqualTo(SensorReadingSaveResult.SAVED);
+        org.assertj.core.api.Assertions.assertThat(sensorReadingService.save(message))
+                .isEqualTo(SensorReadingSaveResult.DUPLICATE);
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingRepository.countByDeviceMessageId(message.messageId().toString())
+        ).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM (
@@ -628,22 +669,21 @@ class PotnerApplicationTests {
                       AND non_unique = 0
                       AND index_name <> 'PRIMARY'
                     GROUP BY index_name
-                    HAVING COUNT(*) = 2
-                       AND SUM(column_name = 'device_message_id') = 1
-                       AND SUM(column_name = 'sensor_type') = 1
+                    HAVING COUNT(*) = 1
+                       AND MAX(column_name = 'device_message_id') = 1
                 ) matching_unique_indexes
                 """, Integer.class)).isEqualTo(1);
     }
 
     @Test
-    void concurrentDuplicateMessageStoresOnlyOneReadingPerSensorType() throws Exception {
-        SensorFixture fixture = createSensorFixture(
-                "concurrent-sensor@example.com",
-                "raspberry-concurrent"
-        );
+    void concurrentDuplicateMessageStoresOnlyOneReading() throws Exception {
+        SensorFixture fixture = createSensorFixture("concurrent-sensor@example.com");
         SensorTelemetryMessage message = sensorMessage(
-                UUID.fromString("550e8400-e29b-41d4-a716-446655440001"),
-                fixture.deviceUid()
+                "550e8400-e29b-41d4-a716-446655440011",
+                fixture.raspberryUid(),
+                SensorType.HUMIDITY,
+                "58.1",
+                SensorUnit.PERCENT
         );
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -672,37 +712,26 @@ class PotnerApplicationTests {
         }
 
         org.assertj.core.api.Assertions.assertThat(
-                sensorReadingRepository.countByDeviceMessageId(
-                        message.messageId().toString()
-                )
-        ).isEqualTo(4);
-        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForList("""
-                SELECT CONCAT(sensor_type, ':', COUNT(*))
-                FROM sensor_reading
-                WHERE device_message_id = ?
-                GROUP BY sensor_type
-                """, String.class, message.messageId().toString()))
-                .containsExactlyInAnyOrder(
-                        "TEMPERATURE:1",
-                        "HUMIDITY:1",
-                        "SOIL_MOISTURE:1",
-                        "ILLUMINANCE:1"
-                );
+                sensorReadingRepository.countByDeviceMessageId(message.messageId().toString())
+        ).isEqualTo(1);
     }
 
     @Test
-    void concurrentDifferentMessagesEachStoreFourReadings() throws Exception {
-        SensorFixture fixture = createSensorFixture(
-                "different-concurrent-sensor@example.com",
-                "raspberry-different-concurrent"
+    void concurrentRaspberryAndJetsonMessagesAreBothStored() throws Exception {
+        SensorFixture fixture = createSensorFixture("concurrent-devices@example.com");
+        SensorTelemetryMessage raspberryMessage = sensorMessage(
+                "550e8400-e29b-41d4-a716-446655440012",
+                fixture.raspberryUid(),
+                SensorType.ILLUMINANCE,
+                "1350",
+                SensorUnit.LUX
         );
-        SensorTelemetryMessage firstMessage = sensorMessage(
-                UUID.fromString("550e8400-e29b-41d4-a716-446655440002"),
-                fixture.deviceUid()
-        );
-        SensorTelemetryMessage secondMessage = sensorMessage(
-                UUID.fromString("550e8400-e29b-41d4-a716-446655440003"),
-                fixture.deviceUid()
+        SensorTelemetryMessage jetsonMessage = sensorMessage(
+                "550e8400-e29b-41d4-a716-446655440013",
+                fixture.jetsonUid(),
+                SensorType.SOIL_MOISTURE,
+                "42.7",
+                SensorUnit.PERCENT
         );
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -711,11 +740,11 @@ class PotnerApplicationTests {
             List<Future<SensorReadingSaveResult>> futures = List.of(
                     executor.submit(() -> {
                         start.await();
-                        return sensorReadingService.save(firstMessage);
+                        return sensorReadingService.save(raspberryMessage);
                     }),
                     executor.submit(() -> {
                         start.await();
-                        return sensorReadingService.save(secondMessage);
+                        return sensorReadingService.save(jetsonMessage);
                     })
             );
             start.countDown();
@@ -727,17 +756,16 @@ class PotnerApplicationTests {
             executor.shutdownNow();
         }
 
-        org.assertj.core.api.Assertions.assertThat(
-                sensorReadingRepository.countByDeviceMessageId(
-                        firstMessage.messageId().toString()
+        org.assertj.core.api.Assertions.assertThat(sensorReadingRepository.count()).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(sensorReadingRepository.findAll())
+                .extracting(
+                        reading -> reading.getSourceDeviceId(),
+                        reading -> reading.getSensorType()
                 )
-        ).isEqualTo(4);
-        org.assertj.core.api.Assertions.assertThat(
-                sensorReadingRepository.countByDeviceMessageId(
-                        secondMessage.messageId().toString()
-                )
-        ).isEqualTo(4);
-        org.assertj.core.api.Assertions.assertThat(sensorReadingRepository.count()).isEqualTo(8);
+                .containsExactlyInAnyOrder(
+                        tuple(fixture.raspberryDeviceId(), SensorType.ILLUMINANCE),
+                        tuple(fixture.jetsonDeviceId(), SensorType.SOIL_MOISTURE)
+                );
     }
 
     private void signup(String email) throws Exception {
@@ -787,7 +815,7 @@ class PotnerApplicationTests {
                 """.formatted(speciesId, lifeStageId, name);
     }
 
-    private SensorFixture createSensorFixture(String email, String deviceUid) throws Exception {
+    private SensorFixture createSensorFixture(String email) throws Exception {
         Tokens tokens = signupAndLogin(email);
         String plantBody = mockMvc.perform(post("/api/v1/plants")
                         .header("Authorization", "Bearer " + tokens.accessToken())
@@ -800,6 +828,10 @@ class PotnerApplicationTests {
         String plantId = JsonPath.read(plantBody, "$.plantId");
         String userId = appUserRepository.findByEmailIgnoreCase(email).orElseThrow().getId();
         String robotId = UUID.randomUUID().toString();
+        String raspberryDeviceId = UUID.randomUUID().toString();
+        String jetsonDeviceId = UUID.randomUUID().toString();
+        String raspberryUid = "raspberry-" + robotId.substring(0, 8);
+        String jetsonUid = "jetson-" + robotId.substring(0, 8);
 
         jdbcTemplate.update("""
                 INSERT INTO robot (
@@ -809,7 +841,25 @@ class PotnerApplicationTests {
                     name,
                     connection_status
                 ) VALUES (?, ?, ?, ?, 'OFFLINE')
-                """, robotId, userId, deviceUid, "테스트 로봇");
+                """, robotId, userId, "legacy-" + robotId, "테스트 로봇");
+        jdbcTemplate.update("""
+                INSERT INTO iot_device (
+                    device_id,
+                    robot_id,
+                    device_uid,
+                    device_type,
+                    connection_status
+                ) VALUES
+                    (?, ?, ?, 'RASPBERRY_PI', 'OFFLINE'),
+                    (?, ?, ?, 'JETSON_ORIN', 'OFFLINE')
+                """,
+                raspberryDeviceId,
+                robotId,
+                raspberryUid,
+                jetsonDeviceId,
+                robotId,
+                jetsonUid
+        );
         jdbcTemplate.update("""
                 INSERT INTO plant_device_assignment (
                     assignment_id,
@@ -820,17 +870,29 @@ class PotnerApplicationTests {
                 ) VALUES (?, ?, ?, UTC_TIMESTAMP(), NULL)
                 """, UUID.randomUUID().toString(), plantId, robotId);
 
-        return new SensorFixture(plantId, robotId, deviceUid);
+        return new SensorFixture(
+                plantId,
+                robotId,
+                raspberryDeviceId,
+                raspberryUid,
+                jetsonDeviceId,
+                jetsonUid
+        );
     }
 
-    private SensorTelemetryMessage sensorMessage(UUID messageId, String deviceUid) {
+    private SensorTelemetryMessage sensorMessage(
+            String messageId,
+            String deviceUid,
+            SensorType sensorType,
+            String value,
+            SensorUnit unit
+    ) {
         return new SensorTelemetryMessage(
-                messageId,
+                UUID.fromString(messageId),
                 deviceUid,
-                new BigDecimal("24.30"),
-                new BigDecimal("58.10"),
-                new BigDecimal("42.70"),
-                new BigDecimal("1350.00"),
+                sensorType,
+                new BigDecimal(value),
+                unit,
                 OffsetDateTime.parse("2026-07-22T17:10:00+09:00")
         );
     }
@@ -838,6 +900,13 @@ class PotnerApplicationTests {
     private record Tokens(String accessToken, String refreshToken) {
     }
 
-    private record SensorFixture(String plantId, String robotId, String deviceUid) {
+    private record SensorFixture(
+            String plantId,
+            String robotId,
+            String raspberryDeviceId,
+            String raspberryUid,
+            String jetsonDeviceId,
+            String jetsonUid
+    ) {
     }
 }

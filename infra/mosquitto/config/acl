@@ -16,6 +16,7 @@ topic write potner/device/raspberry-01/result/#
 topic read potner/device/raspberry-01/command/#
 
 user jetson-01
+topic write potner/device/jetson-01/sensor/#
 topic write potner/device/jetson-01/status/#
 topic write potner/device/jetson-01/result/#
 topic read potner/device/jetson-01/command/#

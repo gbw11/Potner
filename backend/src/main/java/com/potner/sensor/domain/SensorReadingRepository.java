@@ -20,6 +20,7 @@ public interface SensorReadingRepository extends JpaRepository<SensorReading, Lo
             INSERT IGNORE INTO sensor_reading (
                 plant_id,
                 robot_id,
+                source_device_id,
                 device_message_id,
                 sensor_type,
                 measured_value,
@@ -27,60 +28,27 @@ public interface SensorReadingRepository extends JpaRepository<SensorReading, Lo
                 quality,
                 measured_at,
                 received_at
-            ) VALUES
-                (
-                    :plantId,
-                    :robotId,
-                    :deviceMessageId,
-                    'TEMPERATURE',
-                    :temperatureC,
-                    'CELSIUS',
-                    'GOOD',
-                    :measuredAt,
-                    :receivedAt
-                ),
-                (
-                    :plantId,
-                    :robotId,
-                    :deviceMessageId,
-                    'HUMIDITY',
-                    :humidityPct,
-                    'PERCENT',
-                    'GOOD',
-                    :measuredAt,
-                    :receivedAt
-                ),
-                (
-                    :plantId,
-                    :robotId,
-                    :deviceMessageId,
-                    'SOIL_MOISTURE',
-                    :soilMoisturePct,
-                    'PERCENT',
-                    'GOOD',
-                    :measuredAt,
-                    :receivedAt
-                ),
-                (
-                    :plantId,
-                    :robotId,
-                    :deviceMessageId,
-                    'ILLUMINANCE',
-                    :illuminanceLux,
-                    'LUX',
-                    'GOOD',
-                    :measuredAt,
-                    :receivedAt
-                )
+            ) VALUES (
+                :plantId,
+                :robotId,
+                :sourceDeviceId,
+                :deviceMessageId,
+                :sensorType,
+                :measuredValue,
+                :unit,
+                'GOOD',
+                :measuredAt,
+                :receivedAt
+            )
             """, nativeQuery = true)
-    int insertTelemetryReadingsIgnoringDuplicate(
+    int insertReadingIgnoringDuplicate(
             @Param("plantId") String plantId,
             @Param("robotId") String robotId,
+            @Param("sourceDeviceId") String sourceDeviceId,
             @Param("deviceMessageId") String deviceMessageId,
-            @Param("temperatureC") BigDecimal temperatureC,
-            @Param("humidityPct") BigDecimal humidityPct,
-            @Param("soilMoisturePct") BigDecimal soilMoisturePct,
-            @Param("illuminanceLux") BigDecimal illuminanceLux,
+            @Param("sensorType") String sensorType,
+            @Param("measuredValue") BigDecimal measuredValue,
+            @Param("unit") String unit,
             @Param("measuredAt") LocalDateTime measuredAt,
             @Param("receivedAt") LocalDateTime receivedAt
     );

@@ -3,6 +3,8 @@ package com.potner.mqtt.dto;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
+import com.potner.sensor.domain.SensorType;
+import com.potner.sensor.domain.SensorUnit;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -22,7 +24,9 @@ class SensorTelemetryMessageTest {
         SensorTelemetryMessage message = objectMapper.readValue(validJson(), SensorTelemetryMessage.class);
 
         assertThat(message.messageId()).isEqualTo(UUID.fromString("550e8400-e29b-41d4-a716-446655440000"));
-        assertThat(message.temperatureC()).isEqualByComparingTo("24.3");
+        assertThat(message.sensorType()).isEqualTo(SensorType.TEMPERATURE);
+        assertThat(message.value()).isEqualByComparingTo("24.3");
+        assertThat(message.unit()).isEqualTo(SensorUnit.CELSIUS);
         assertThat(message.measuredAt()).isEqualTo(OffsetDateTime.parse("2026-07-22T17:10:00+09:00"));
         assertThat(validator.validate(message)).isEmpty();
     }
@@ -32,10 +36,9 @@ class SensorTelemetryMessageTest {
         SensorTelemetryMessage message = new SensorTelemetryMessage(
                 null,
                 " ",
-                new BigDecimal("85.01"),
-                new BigDecimal("100.01"),
-                new BigDecimal("-0.01"),
-                new BigDecimal("-1"),
+                null,
+                null,
+                null,
                 null
         );
 
@@ -44,10 +47,9 @@ class SensorTelemetryMessageTest {
                 .contains(
                         "messageId",
                         "deviceId",
-                        "temperatureC",
-                        "humidityPct",
-                        "soilMoisturePct",
-                        "illuminanceLux",
+                        "sensorType",
+                        "value",
+                        "unit",
                         "measuredAt"
                 );
     }
@@ -57,10 +59,9 @@ class SensorTelemetryMessageTest {
                 {
                   "messageId":"550e8400-e29b-41d4-a716-446655440000",
                   "deviceId":"raspberry-01",
-                  "temperatureC":24.3,
-                  "humidityPct":58.1,
-                  "soilMoisturePct":42.7,
-                  "illuminanceLux":1350,
+                  "sensorType":"TEMPERATURE",
+                  "value":24.3,
+                  "unit":"CELSIUS",
                   "measuredAt":"2026-07-22T17:10:00+09:00"
                 }
                 """;

@@ -16,17 +16,10 @@ public class Robot {
     @Column(name = "robot_id", length = 36, nullable = false, columnDefinition = "char(36)")
     private String id;
 
-    @Column(name = "device_uid", length = 100, nullable = false)
-    private String deviceUid;
-
     protected Robot() {
     }
 
     public String getId() {
         return id;
-    }
-
-    public String getDeviceUid() {
-        return deviceUid;
     }
 }

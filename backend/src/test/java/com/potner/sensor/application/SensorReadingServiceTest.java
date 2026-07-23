@@ -1,15 +1,16 @@
 package com.potner.sensor.application;
 
+import com.potner.device.domain.IotDevice;
+import com.potner.device.domain.IotDeviceRepository;
 import com.potner.device.domain.PlantDeviceAssignment;
 import com.potner.device.domain.PlantDeviceAssignmentRepository;
 import com.potner.device.domain.Robot;
-import com.potner.device.domain.RobotRepository;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.sensor.domain.SensorReadingRepository;
+import com.potner.sensor.domain.SensorType;
+import com.potner.sensor.domain.SensorUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -32,6 +33,7 @@ import static org.mockito.Mockito.when;
 class SensorReadingServiceTest {
 
     private static final UUID MESSAGE_ID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+    private static final String DEVICE_ID = "30000000-0000-0000-0000-000000000001";
     private static final String ROBOT_ID = "40000000-0000-0000-0000-000000000001";
     private static final String PLANT_ID = "50000000-0000-0000-0000-000000000001";
     private static final Instant RECEIVED_AT = Instant.parse("2026-07-22T08:15:00Z");
@@ -41,91 +43,93 @@ class SensorReadingServiceTest {
             LocalDateTime.parse("2026-07-22T08:15:00");
 
     private SensorReadingRepository sensorReadingRepository;
-    private RobotRepository robotRepository;
+    private IotDeviceRepository iotDeviceRepository;
     private PlantDeviceAssignmentRepository assignmentRepository;
     private SensorReadingService service;
+    private IotDevice device;
     private Robot robot;
     private PlantDeviceAssignment assignment;
 
     @BeforeEach
     void setUp() {
         sensorReadingRepository = mock(SensorReadingRepository.class);
-        robotRepository = mock(RobotRepository.class);
+        iotDeviceRepository = mock(IotDeviceRepository.class);
         assignmentRepository = mock(PlantDeviceAssignmentRepository.class);
+        device = mock(IotDevice.class);
         robot = mock(Robot.class);
         assignment = mock(PlantDeviceAssignment.class);
 
+        when(device.getId()).thenReturn(DEVICE_ID);
+        when(device.getRobot()).thenReturn(robot);
         when(robot.getId()).thenReturn(ROBOT_ID);
         when(assignment.getPlantId()).thenReturn(PLANT_ID);
-        when(robotRepository.findByDeviceUid("raspberry-01")).thenReturn(Optional.of(robot));
+        when(iotDeviceRepository.findByDeviceUid("raspberry-01")).thenReturn(Optional.of(device));
         when(assignmentRepository
                 .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(ROBOT_ID))
                 .thenReturn(Optional.of(assignment));
 
         service = new SensorReadingService(
                 sensorReadingRepository,
-                robotRepository,
+                iotDeviceRepository,
                 assignmentRepository,
                 Clock.fixed(RECEIVED_AT, ZoneOffset.UTC)
         );
     }
 
     @Test
-    void savesFourMappedReadingsWithUtcTimestamps() {
-        when(sensorReadingRepository.insertTelemetryReadingsIgnoringDuplicate(
-                anyString(), anyString(), anyString(),
-                any(), any(), any(), any(), any(), any()
-        )).thenReturn(4);
+    void savesOneReadingWithDeviceRobotPlantAndUtcTimestamps() {
+        when(sensorReadingRepository.insertReadingIgnoringDuplicate(
+                anyString(), anyString(), anyString(), anyString(),
+                anyString(), any(), anyString(), any(), any()
+        )).thenReturn(1);
 
         assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.SAVED);
 
-        verify(sensorReadingRepository).insertTelemetryReadingsIgnoringDuplicate(
+        verify(sensorReadingRepository).insertReadingIgnoringDuplicate(
                 PLANT_ID,
                 ROBOT_ID,
+                DEVICE_ID,
                 MESSAGE_ID.toString(),
+                "TEMPERATURE",
                 new BigDecimal("24.3"),
-                new BigDecimal("58.1"),
-                new BigDecimal("42.7"),
-                new BigDecimal("1350"),
+                "CELSIUS",
                 MEASURED_AT_UTC,
                 RECEIVED_AT_UTC
         );
     }
 
     @Test
-    void returnsDuplicateWhenMultiRowInsertAffectsZeroRows() {
-        when(sensorReadingRepository.insertTelemetryReadingsIgnoringDuplicate(
-                anyString(), anyString(), anyString(),
-                any(), any(), any(), any(), any(), any()
+    void returnsDuplicateWhenSingleInsertAffectsZeroRows() {
+        when(sensorReadingRepository.insertReadingIgnoringDuplicate(
+                anyString(), anyString(), anyString(), anyString(),
+                anyString(), any(), anyString(), any(), any()
         )).thenReturn(0);
 
         assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.DUPLICATE);
+    }
 
-        verify(sensorReadingRepository).insertTelemetryReadingsIgnoringDuplicate(
-                PLANT_ID,
-                ROBOT_ID,
-                MESSAGE_ID.toString(),
-                new BigDecimal("24.3"),
-                new BigDecimal("58.1"),
-                new BigDecimal("42.7"),
-                new BigDecimal("1350"),
-                MEASURED_AT_UTC,
-                RECEIVED_AT_UTC
+    @Test
+    void returnsDeviceNotFoundWithoutSaving() {
+        when(iotDeviceRepository.findByDeviceUid("raspberry-01")).thenReturn(Optional.empty());
+
+        assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.DEVICE_NOT_FOUND);
+
+        verify(assignmentRepository, never())
+                .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(anyString());
+        verify(sensorReadingRepository, never()).insertReadingIgnoringDuplicate(
+                anyString(), anyString(), anyString(), anyString(),
+                anyString(), any(), anyString(), any(), any()
         );
     }
 
     @Test
-    void returnsRobotNotFoundWithoutSaving() {
-        when(robotRepository.findByDeviceUid("raspberry-01")).thenReturn(Optional.empty());
+    void returnsRobotNotFoundWhenDeviceHasNoRobot() {
+        when(device.getRobot()).thenReturn(null);
 
         assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.ROBOT_NOT_FOUND);
 
         verify(assignmentRepository, never())
                 .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(anyString());
-        verify(sensorReadingRepository, never()).insertTelemetryReadingsIgnoringDuplicate(
-                anyString(), anyString(), anyString(),
-                any(), any(), any(), any(), any(), any()
-        );
     }
 
     @Test
@@ -137,34 +141,32 @@ class SensorReadingServiceTest {
         assertThat(service.save(message()))
                 .isEqualTo(SensorReadingSaveResult.PLANT_ASSIGNMENT_NOT_FOUND);
 
-        verify(sensorReadingRepository, never()).insertTelemetryReadingsIgnoringDuplicate(
-                anyString(), anyString(), anyString(),
-                any(), any(), any(), any(), any(), any()
+        verify(sensorReadingRepository, never()).insertReadingIgnoringDuplicate(
+                anyString(), anyString(), anyString(), anyString(),
+                anyString(), any(), anyString(), any(), any()
         );
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {1, 2, 3})
-    void rejectsPartialMultiRowInsertSoTransactionCanRollBack(int affectedRows) {
-        when(sensorReadingRepository.insertTelemetryReadingsIgnoringDuplicate(
-                anyString(), anyString(), anyString(),
-                any(), any(), any(), any(), any(), any()
-        )).thenReturn(affectedRows);
+    @Test
+    void rejectsUnexpectedAffectedRows() {
+        when(sensorReadingRepository.insertReadingIgnoringDuplicate(
+                anyString(), anyString(), anyString(), anyString(),
+                anyString(), any(), anyString(), any(), any()
+        )).thenReturn(2);
 
         assertThatThrownBy(() -> service.save(message()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(MESSAGE_ID.toString())
-                .hasMessageContaining("affectedRows=" + affectedRows);
+                .hasMessageContaining("affectedRows=2");
     }
 
     private SensorTelemetryMessage message() {
         return new SensorTelemetryMessage(
                 MESSAGE_ID,
                 "raspberry-01",
+                SensorType.TEMPERATURE,
                 new BigDecimal("24.3"),
-                new BigDecimal("58.1"),
-                new BigDecimal("42.7"),
-                new BigDecimal("1350"),
+                SensorUnit.CELSIUS,
                 OffsetDateTime.parse("2026-07-22T17:10:00+09:00")
         );
     }

@@ -38,6 +38,7 @@ class SensorTelemetryMessageProcessorTest {
                 objectMapper,
                 validator,
                 new SensorTelemetryTopicParser(),
+                new SensorTelemetryValueValidator(),
                 sensorReadingService,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
@@ -55,7 +56,7 @@ class SensorTelemetryMessageProcessorTest {
     @Test
     void rejectsMalformedJsonAndInvalidValues() {
         processor.process(TOPIC, "{invalid-json");
-        processor.process(TOPIC, validJson().replace("58.1", "120.0"));
+        processor.process(TOPIC, validJson().replace("24.3", "120.0"));
 
         verify(sensorReadingService, never()).save(any());
     }
@@ -71,17 +72,19 @@ class SensorTelemetryMessageProcessorTest {
     }
 
     @Test
-    void missingRobotAndAssignmentDoNotInterruptProcessing() {
+    void missingDeviceRobotAndAssignmentDoNotInterruptProcessing() {
         when(sensorReadingService.save(any()))
                 .thenReturn(
+                        SensorReadingSaveResult.DEVICE_NOT_FOUND,
                         SensorReadingSaveResult.ROBOT_NOT_FOUND,
                         SensorReadingSaveResult.PLANT_ASSIGNMENT_NOT_FOUND
                 );
 
         processor.process(TOPIC, validJson());
         processor.process(TOPIC, validJson());
+        processor.process(TOPIC, validJson());
 
-        verify(sensorReadingService, times(2)).save(any(SensorTelemetryMessage.class));
+        verify(sensorReadingService, times(3)).save(any(SensorTelemetryMessage.class));
     }
 
     @Test
@@ -105,15 +108,23 @@ class SensorTelemetryMessageProcessorTest {
         verify(sensorReadingService, never()).save(any());
     }
 
+    @Test
+    void rejectsUnknownSensorTypeInvalidUnitAndOutOfRangeValue() {
+        processor.process(TOPIC, validJson().replace("TEMPERATURE", "UNKNOWN"));
+        processor.process(TOPIC, validJson().replace("CELSIUS", "PERCENT"));
+        processor.process(TOPIC, validJson().replace("24.3", "85.1"));
+
+        verify(sensorReadingService, never()).save(any());
+    }
+
     private String validJson() {
         return """
                 {
                   "messageId":"550e8400-e29b-41d4-a716-446655440000",
                   "deviceId":"raspberry-01",
-                  "temperatureC":24.3,
-                  "humidityPct":58.1,
-                  "soilMoisturePct":42.7,
-                  "illuminanceLux":1350,
+                  "sensorType":"TEMPERATURE",
+                  "value":24.3,
+                  "unit":"CELSIUS",
                   "measuredAt":"2026-07-22T17:10:00+09:00"
                 }
                 """;

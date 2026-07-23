@@ -1,7 +1,7 @@
 package com.potner.mqtt.dto;
 
-import jakarta.validation.constraints.DecimalMax;
-import jakarta.validation.constraints.DecimalMin;
+import com.potner.sensor.domain.SensorType;
+import com.potner.sensor.domain.SensorUnit;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -17,10 +17,9 @@ public record SensorTelemetryMessage(
         @Size(max = 100)
         @Pattern(regexp = "^[^\\p{Cntrl}\\s]+$")
         String deviceId,
-        @NotNull @DecimalMin("-40") @DecimalMax("85") BigDecimal temperatureC,
-        @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal humidityPct,
-        @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal soilMoisturePct,
-        @NotNull @DecimalMin("0") BigDecimal illuminanceLux,
+        @NotNull SensorType sensorType,
+        @NotNull BigDecimal value,
+        @NotNull SensorUnit unit,
         @NotNull OffsetDateTime measuredAt
 ) {
 }
