@@ -35,7 +35,7 @@ class MqttConfigurationTest {
                         "potner.mqtt.username=potner-server",
                         "potner.mqtt.password=test-password",
                         "potner.mqtt.client-id=potner-backend-prod",
-                        "potner.mqtt.topic=potner/device/+/sensor/#",
+                        "potner.mqtt.topic=potner/device/+/sensor/telemetry",
                         "potner.mqtt.qos=1",
                         "potner.mqtt.connection-timeout-seconds=15",
                         "potner.mqtt.keep-alive-seconds=45",
@@ -49,7 +49,7 @@ class MqttConfigurationTest {
                     assertThat(properties.username()).isEqualTo("potner-server");
                     assertThat(properties.password()).isEqualTo("test-password");
                     assertThat(properties.clientId()).isEqualTo("potner-backend-prod");
-                    assertThat(properties.topic()).isEqualTo("potner/device/+/sensor/#");
+                    assertThat(properties.topic()).isEqualTo("potner/device/+/sensor/telemetry");
                     assertThat(properties.qos()).isEqualTo(1);
                     assertThat(properties.connectionTimeoutSeconds()).isEqualTo(15);
                     assertThat(properties.keepAliveSeconds()).isEqualTo(45);

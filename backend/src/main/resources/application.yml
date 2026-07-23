@@ -62,7 +62,7 @@ potner:
     username: ${MQTT_USERNAME:}
     password: ${MQTT_PASSWORD:}
     client-id: ${MQTT_CLIENT_ID:potner-backend-local}
-    topic: ${MQTT_TOPIC:potner/device/+/sensor/#}
+    topic: ${MQTT_TOPIC:potner/device/+/sensor/telemetry}
     qos: ${MQTT_QOS:1}
     connection-timeout-seconds: ${MQTT_CONNECTION_TIMEOUT_SECONDS:10}
     keep-alive-seconds: ${MQTT_KEEP_ALIVE_SECONDS:60}
