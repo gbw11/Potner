@@ -17,7 +17,7 @@ pipeline {
         MQTT_ENABLED = 'true'
         MQTT_BROKER_URL = 'tcp://mosquitto:1883'
         MQTT_CLIENT_ID = 'potner-backend-prod'
-        MQTT_TOPIC = 'potner/device/+/sensor/#'
+        MQTT_TOPIC = 'potner/device/+/sensor/telemetry'
         MQTT_QOS = '1'
         MQTT_CONNECTION_TIMEOUT_SECONDS = '10'
         MQTT_KEEP_ALIVE_SECONDS = '60'

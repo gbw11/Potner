@@ -15,6 +15,13 @@ import java.nio.charset.StandardCharsets;
 public class MqttMessageSubscriber {
 
     private static final Logger log = LoggerFactory.getLogger(MqttMessageSubscriber.class);
+    private static final int MAX_LOG_PAYLOAD_LENGTH = 500;
+
+    private final SensorTelemetryMessageProcessor processor;
+
+    public MqttMessageSubscriber(SensorTelemetryMessageProcessor processor) {
+        this.processor = processor;
+    }
 
     @ServiceActivator(inputChannel = "mqttInputChannel")
     public void receive(Message<?> message) {
@@ -33,6 +40,25 @@ public class MqttMessageSubscriber {
         String rawPayload = payload instanceof byte[] bytes
                 ? new String(bytes, StandardCharsets.UTF_8)
                 : payload.toString();
-        log.info("MQTT message received. topic={}, payload={}", topic, rawPayload);
+        log.debug("MQTT sensor message received: topic={}, payload={}", topic, summarize(rawPayload));
+
+        try {
+            processor.process(topic, rawPayload);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Unexpected MQTT sensor message processing failure: topic={}, error={}",
+                    topic,
+                    exception.getClass().getSimpleName(),
+                    exception
+            );
+        }
+    }
+
+    private String summarize(String payload) {
+        String singleLine = payload.replace("\r", "\\r").replace("\n", "\\n");
+        if (singleLine.length() <= MAX_LOG_PAYLOAD_LENGTH) {
+            return singleLine;
+        }
+        return singleLine.substring(0, MAX_LOG_PAYLOAD_LENGTH) + "...";
     }
 }

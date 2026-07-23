@@ -83,7 +83,7 @@ prepare_compose_environment() {
         "MQTT_USERNAME=${MQTT_USERNAME:-}" \
         "MQTT_PASSWORD=${MQTT_PASSWORD:-}" \
         "MQTT_CLIENT_ID=${MQTT_CLIENT_ID:-potner-backend-prod}" \
-        "MQTT_TOPIC=${MQTT_TOPIC:-potner/device/+/sensor/#}" \
+        "MQTT_TOPIC=${MQTT_TOPIC:-potner/device/+/sensor/telemetry}" \
         "MQTT_QOS=${MQTT_QOS:-1}" \
         "MQTT_CONNECTION_TIMEOUT_SECONDS=${MQTT_CONNECTION_TIMEOUT_SECONDS:-10}" \
         "MQTT_KEEP_ALIVE_SECONDS=${MQTT_KEEP_ALIVE_SECONDS:-60}" \

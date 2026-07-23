@@ -4,7 +4,7 @@
 # 익명 접속을 허용하면 안 됩니다.
 
 user potner-server
-topic read potner/device/+/sensor/#
+topic read potner/device/+/sensor/telemetry
 
 user potner-health
 topic write potner/health

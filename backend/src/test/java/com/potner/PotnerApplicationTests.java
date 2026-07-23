@@ -2,6 +2,10 @@ package com.potner;
 
 import com.jayway.jsonpath.JsonPath;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.mqtt.dto.SensorTelemetryMessage;
+import com.potner.sensor.application.SensorReadingSaveResult;
+import com.potner.sensor.application.SensorReadingService;
+import com.potner.sensor.domain.SensorReadingRepository;
 import com.potner.user.domain.AppUser;
 import com.potner.user.domain.AppUserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +25,16 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -30,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.nullValue;
+import static org.assertj.core.api.Assertions.tuple;
 
 @Testcontainers
 @Tag("integration")
@@ -61,6 +76,12 @@ class PotnerApplicationTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private SensorReadingService sensorReadingService;
+
+    @Autowired
+    private SensorReadingRepository sensorReadingRepository;
+
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
@@ -70,6 +91,9 @@ class PotnerApplicationTests {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM sensor_reading");
+        jdbcTemplate.update("DELETE FROM plant_device_assignment");
+        jdbcTemplate.update("DELETE FROM robot");
         jdbcTemplate.update("DELETE FROM plant_growth_profile");
         jdbcTemplate.update("DELETE FROM plant");
         refreshTokenRepository.deleteAll();
@@ -553,6 +577,107 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.watering.recommendedVolumeMl").value(nullValue()));
     }
 
+    @Test
+    void sensorReadingMigrationPersistsFourTypedUtcValuesAndPreventsDuplicateMessageId()
+            throws Exception {
+        SensorFixture fixture = createSensorFixture(
+                "sensor-member@example.com",
+                "raspberry-01"
+        );
+        UUID messageId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        SensorTelemetryMessage message = sensorMessage(messageId, fixture.deviceUid());
+
+        org.assertj.core.api.Assertions.assertThat(sensorReadingService.save(message))
+                .isEqualTo(SensorReadingSaveResult.SAVED);
+        org.assertj.core.api.Assertions.assertThat(sensorReadingService.save(message))
+                .isEqualTo(SensorReadingSaveResult.DUPLICATE);
+
+        var saved = sensorReadingRepository
+                .findAllByDeviceMessageIdOrderBySensorType(messageId.toString());
+        org.assertj.core.api.Assertions.assertThat(saved)
+                .hasSize(4)
+                .allSatisfy(reading -> {
+                    org.assertj.core.api.Assertions.assertThat(reading.getPlantId())
+                            .isEqualTo(fixture.plantId());
+                    org.assertj.core.api.Assertions.assertThat(reading.getRobotId())
+                            .isEqualTo(fixture.robotId());
+                    org.assertj.core.api.Assertions.assertThat(reading.getQuality().name())
+                            .isEqualTo("GOOD");
+                    org.assertj.core.api.Assertions.assertThat(reading.getMeasuredAt())
+                            .isEqualTo(LocalDateTime.parse("2026-07-22T08:10:00"));
+                    org.assertj.core.api.Assertions.assertThat(reading.getReceivedAt()).isNotNull();
+                })
+                .extracting(
+                        reading -> reading.getSensorType().name(),
+                        reading -> reading.getUnit().name(),
+                        reading -> reading.getMeasuredValue().stripTrailingZeros()
+                )
+                .containsExactlyInAnyOrder(
+                        tuple("TEMPERATURE", "CELSIUS", new BigDecimal("24.3")),
+                        tuple("HUMIDITY", "PERCENT", new BigDecimal("58.1")),
+                        tuple("SOIL_MOISTURE", "PERCENT", new BigDecimal("42.7")),
+                        tuple("ILLUMINANCE", "LUX", new BigDecimal("1.35E+3"))
+                );
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM (
+                    SELECT index_name
+                    FROM information_schema.statistics
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'sensor_reading'
+                      AND non_unique = 0
+                      AND index_name <> 'PRIMARY'
+                    GROUP BY index_name
+                    HAVING COUNT(*) = 2
+                       AND SUM(column_name = 'device_message_id') = 1
+                       AND SUM(column_name = 'sensor_type') = 1
+                ) matching_unique_indexes
+                """, Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentDuplicateMessageStoresOnlyOneReadingPerSensorType() throws Exception {
+        SensorFixture fixture = createSensorFixture(
+                "concurrent-sensor@example.com",
+                "raspberry-concurrent"
+        );
+        SensorTelemetryMessage message = sensorMessage(
+                UUID.fromString("550e8400-e29b-41d4-a716-446655440001"),
+                fixture.deviceUid()
+        );
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            List<Future<SensorReadingSaveResult>> futures = List.of(
+                    executor.submit(() -> {
+                        start.await();
+                        return sensorReadingService.save(message);
+                    }),
+                    executor.submit(() -> {
+                        start.await();
+                        return sensorReadingService.save(message);
+                    })
+            );
+            start.countDown();
+
+            org.assertj.core.api.Assertions.assertThat(
+                    List.of(futures.get(0).get(), futures.get(1).get())
+            ).containsExactlyInAnyOrder(
+                    SensorReadingSaveResult.SAVED,
+                    SensorReadingSaveResult.DUPLICATE
+            );
+        } finally {
+            executor.shutdownNow();
+        }
+
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingRepository.countByDeviceMessageId(
+                        message.messageId().toString()
+                )
+        ).isEqualTo(4);
+    }
+
     private void signup(String email) throws Exception {
         mockMvc.perform(post("/api/v1/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -600,6 +725,57 @@ class PotnerApplicationTests {
                 """.formatted(speciesId, lifeStageId, name);
     }
 
+    private SensorFixture createSensorFixture(String email, String deviceUid) throws Exception {
+        Tokens tokens = signupAndLogin(email);
+        String plantBody = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "센서 테스트 식물")))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String plantId = JsonPath.read(plantBody, "$.plantId");
+        String userId = appUserRepository.findByEmailIgnoreCase(email).orElseThrow().getId();
+        String robotId = UUID.randomUUID().toString();
+
+        jdbcTemplate.update("""
+                INSERT INTO robot (
+                    robot_id,
+                    user_id,
+                    device_uid,
+                    name,
+                    connection_status
+                ) VALUES (?, ?, ?, ?, 'OFFLINE')
+                """, robotId, userId, deviceUid, "테스트 로봇");
+        jdbcTemplate.update("""
+                INSERT INTO plant_device_assignment (
+                    assignment_id,
+                    plant_id,
+                    robot_id,
+                    assigned_at,
+                    unassigned_at
+                ) VALUES (?, ?, ?, UTC_TIMESTAMP(), NULL)
+                """, UUID.randomUUID().toString(), plantId, robotId);
+
+        return new SensorFixture(plantId, robotId, deviceUid);
+    }
+
+    private SensorTelemetryMessage sensorMessage(UUID messageId, String deviceUid) {
+        return new SensorTelemetryMessage(
+                messageId,
+                deviceUid,
+                new BigDecimal("24.30"),
+                new BigDecimal("58.10"),
+                new BigDecimal("42.70"),
+                new BigDecimal("1350.00"),
+                OffsetDateTime.parse("2026-07-22T17:10:00+09:00")
+        );
+    }
+
     private record Tokens(String accessToken, String refreshToken) {
+    }
+
+    private record SensorFixture(String plantId, String robotId, String deviceUid) {
     }
 }
