@@ -5,18 +5,13 @@ import com.potner.device.domain.PlantDeviceAssignmentRepository;
 import com.potner.device.domain.Robot;
 import com.potner.device.domain.RobotRepository;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
-import com.potner.sensor.domain.SensorQuality;
-import com.potner.sensor.domain.SensorReading;
 import com.potner.sensor.domain.SensorReadingRepository;
-import com.potner.sensor.domain.SensorType;
-import com.potner.sensor.domain.SensorUnit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.List;
 
 @Service
 public class SensorReadingService {
@@ -55,85 +50,33 @@ public class SensorReadingService {
         }
 
         String deviceMessageId = message.messageId().toString();
-        if (sensorReadingRepository.existsByDeviceMessageId(deviceMessageId)) {
-            return SensorReadingSaveResult.DUPLICATE;
-        }
-
         LocalDateTime measuredAt = LocalDateTime.ofInstant(
                 message.measuredAt().toInstant(),
                 ZoneOffset.UTC
         );
         LocalDateTime receivedAt = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
-        List<SensorReading> readings = List.of(
-                SensorReading.create(
-                        assignment.getPlantId(),
-                        robot.getId(),
-                        deviceMessageId,
-                        SensorType.TEMPERATURE,
-                        message.temperatureC(),
-                        SensorUnit.CELSIUS,
-                        measuredAt,
-                        receivedAt
-                ),
-                SensorReading.create(
-                        assignment.getPlantId(),
-                        robot.getId(),
-                        deviceMessageId,
-                        SensorType.HUMIDITY,
-                        message.humidityPct(),
-                        SensorUnit.PERCENT,
-                        measuredAt,
-                        receivedAt
-                ),
-                SensorReading.create(
-                        assignment.getPlantId(),
-                        robot.getId(),
-                        deviceMessageId,
-                        SensorType.SOIL_MOISTURE,
-                        message.soilMoisturePct(),
-                        SensorUnit.PERCENT,
-                        measuredAt,
-                        receivedAt
-                ),
-                SensorReading.create(
-                        assignment.getPlantId(),
-                        robot.getId(),
-                        deviceMessageId,
-                        SensorType.ILLUMINANCE,
-                        message.illuminanceLux(),
-                        SensorUnit.LUX,
-                        measuredAt,
-                        receivedAt
-                )
+        int insertedRows = sensorReadingRepository.insertTelemetryReadingsIgnoringDuplicate(
+                assignment.getPlantId(),
+                robot.getId(),
+                deviceMessageId,
+                message.temperatureC(),
+                message.humidityPct(),
+                message.soilMoisturePct(),
+                message.illuminanceLux(),
+                measuredAt,
+                receivedAt
         );
-
-        int insertedRows = readings.stream()
-                .mapToInt(this::insertIgnoringDuplicate)
-                .sum();
         if (insertedRows == SENSOR_COUNT_PER_MESSAGE) {
             return SensorReadingSaveResult.SAVED;
         }
-        if (insertedRows == 0
-                && sensorReadingRepository.countByDeviceMessageId(deviceMessageId)
-                == SENSOR_COUNT_PER_MESSAGE) {
+        if (insertedRows == 0) {
             return SensorReadingSaveResult.DUPLICATE;
         }
         throw new IllegalStateException(
-                "Sensor readings were only partially inserted: messageId=" + deviceMessageId
-        );
-    }
-
-    private int insertIgnoringDuplicate(SensorReading reading) {
-        return sensorReadingRepository.insertIgnoringDuplicate(
-                reading.getPlantId(),
-                reading.getRobotId(),
-                reading.getDeviceMessageId(),
-                reading.getSensorType().name(),
-                reading.getMeasuredValue(),
-                reading.getUnit().name(),
-                SensorQuality.GOOD.name(),
-                reading.getMeasuredAt(),
-                reading.getReceivedAt()
+                "Sensor readings were only partially inserted: messageId="
+                        + deviceMessageId
+                        + ", affectedRows="
+                        + insertedRows
         );
     }
 }

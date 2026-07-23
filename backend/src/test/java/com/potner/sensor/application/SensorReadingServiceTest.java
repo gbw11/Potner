@@ -8,6 +8,8 @@ import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.sensor.domain.SensorReadingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -22,10 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -72,89 +72,45 @@ class SensorReadingServiceTest {
 
     @Test
     void savesFourMappedReadingsWithUtcTimestamps() {
-        when(sensorReadingRepository.existsByDeviceMessageId(MESSAGE_ID.toString()))
-                .thenReturn(false);
-        when(sensorReadingRepository.insertIgnoringDuplicate(
-                anyString(), anyString(), anyString(), anyString(),
-                any(), anyString(), anyString(), any(), any()
-        )).thenReturn(1);
+        when(sensorReadingRepository.insertTelemetryReadingsIgnoringDuplicate(
+                anyString(), anyString(), anyString(),
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(4);
 
         assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.SAVED);
 
-        verify(sensorReadingRepository).insertIgnoringDuplicate(
+        verify(sensorReadingRepository).insertTelemetryReadingsIgnoringDuplicate(
                 PLANT_ID,
                 ROBOT_ID,
                 MESSAGE_ID.toString(),
-                "TEMPERATURE",
                 new BigDecimal("24.3"),
-                "CELSIUS",
-                "GOOD",
-                MEASURED_AT_UTC,
-                RECEIVED_AT_UTC
-        );
-        verify(sensorReadingRepository).insertIgnoringDuplicate(
-                PLANT_ID,
-                ROBOT_ID,
-                MESSAGE_ID.toString(),
-                "HUMIDITY",
                 new BigDecimal("58.1"),
-                "PERCENT",
-                "GOOD",
-                MEASURED_AT_UTC,
-                RECEIVED_AT_UTC
-        );
-        verify(sensorReadingRepository).insertIgnoringDuplicate(
-                PLANT_ID,
-                ROBOT_ID,
-                MESSAGE_ID.toString(),
-                "SOIL_MOISTURE",
                 new BigDecimal("42.7"),
-                "PERCENT",
-                "GOOD",
+                new BigDecimal("1350"),
                 MEASURED_AT_UTC,
                 RECEIVED_AT_UTC
         );
-        verify(sensorReadingRepository).insertIgnoringDuplicate(
+    }
+
+    @Test
+    void returnsDuplicateWhenMultiRowInsertAffectsZeroRows() {
+        when(sensorReadingRepository.insertTelemetryReadingsIgnoringDuplicate(
+                anyString(), anyString(), anyString(),
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(0);
+
+        assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.DUPLICATE);
+
+        verify(sensorReadingRepository).insertTelemetryReadingsIgnoringDuplicate(
                 PLANT_ID,
                 ROBOT_ID,
                 MESSAGE_ID.toString(),
-                "ILLUMINANCE",
+                new BigDecimal("24.3"),
+                new BigDecimal("58.1"),
+                new BigDecimal("42.7"),
                 new BigDecimal("1350"),
-                "LUX",
-                "GOOD",
                 MEASURED_AT_UTC,
                 RECEIVED_AT_UTC
-        );
-    }
-
-    @Test
-    void skipsKnownDuplicateBeforeInsert() {
-        when(sensorReadingRepository.existsByDeviceMessageId(MESSAGE_ID.toString()))
-                .thenReturn(true);
-
-        assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.DUPLICATE);
-
-        verify(sensorReadingRepository, never()).insertIgnoringDuplicate(
-                anyString(), anyString(), anyString(), anyString(),
-                any(), anyString(), anyString(), any(), any()
-        );
-    }
-
-    @Test
-    void treatsConcurrentCompositeUniqueConflictsAsDuplicate() {
-        when(sensorReadingRepository.existsByDeviceMessageId(MESSAGE_ID.toString()))
-                .thenReturn(false);
-        when(sensorReadingRepository.insertIgnoringDuplicate(
-                anyString(), anyString(), anyString(), anyString(),
-                any(), anyString(), anyString(), any(), any()
-        )).thenReturn(0);
-        when(sensorReadingRepository.countByDeviceMessageId(MESSAGE_ID.toString()))
-                .thenReturn(4L);
-
-        assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.DUPLICATE);
-        verify(sensorReadingRepository, times(4)).insertIgnoringDuplicate(
-                anyString(), anyString(), anyString(), anyString(),
-                any(), anyString(), anyString(), any(), any()
         );
     }
 
@@ -166,7 +122,10 @@ class SensorReadingServiceTest {
 
         verify(assignmentRepository, never())
                 .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(anyString());
-        verify(sensorReadingRepository, never()).existsByDeviceMessageId(anyString());
+        verify(sensorReadingRepository, never()).insertTelemetryReadingsIgnoringDuplicate(
+                anyString(), anyString(), anyString(),
+                any(), any(), any(), any(), any(), any()
+        );
     }
 
     @Test
@@ -178,21 +137,24 @@ class SensorReadingServiceTest {
         assertThat(service.save(message()))
                 .isEqualTo(SensorReadingSaveResult.PLANT_ASSIGNMENT_NOT_FOUND);
 
-        verify(sensorReadingRepository, never()).existsByDeviceMessageId(anyString());
+        verify(sensorReadingRepository, never()).insertTelemetryReadingsIgnoringDuplicate(
+                anyString(), anyString(), anyString(),
+                any(), any(), any(), any(), any(), any()
+        );
     }
 
-    @Test
-    void rejectsPartialInsertSoTransactionCanRollBack() {
-        when(sensorReadingRepository.existsByDeviceMessageId(MESSAGE_ID.toString()))
-                .thenReturn(false);
-        when(sensorReadingRepository.insertIgnoringDuplicate(
-                anyString(), anyString(), anyString(), anyString(),
-                any(), anyString(), anyString(), any(), any()
-        )).thenReturn(1, 1, 0, 0);
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3})
+    void rejectsPartialMultiRowInsertSoTransactionCanRollBack(int affectedRows) {
+        when(sensorReadingRepository.insertTelemetryReadingsIgnoringDuplicate(
+                anyString(), anyString(), anyString(),
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(affectedRows);
 
         assertThatThrownBy(() -> service.save(message()))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining(MESSAGE_ID.toString());
+                .hasMessageContaining(MESSAGE_ID.toString())
+                .hasMessageContaining("affectedRows=" + affectedRows);
     }
 
     private SensorTelemetryMessage message() {
