@@ -27,6 +27,7 @@ public class SensorTelemetryMessageProcessor {
     private final ObjectMapper objectMapper;
     private final Validator validator;
     private final SensorTelemetryTopicParser topicParser;
+    private final SensorTelemetryValueValidator valueValidator;
     private final SensorReadingService sensorReadingService;
     private final Clock clock;
 
@@ -34,12 +35,14 @@ public class SensorTelemetryMessageProcessor {
             ObjectMapper objectMapper,
             Validator validator,
             SensorTelemetryTopicParser topicParser,
+            SensorTelemetryValueValidator valueValidator,
             SensorReadingService sensorReadingService,
             Clock clock
     ) {
         this.objectMapper = objectMapper;
         this.validator = validator;
         this.topicParser = topicParser;
+        this.valueValidator = valueValidator;
         this.sensorReadingService = sensorReadingService;
         this.clock = clock;
     }
@@ -74,6 +77,19 @@ public class SensorTelemetryMessageProcessor {
             return;
         }
 
+        if (!valueValidator.isValid(message)) {
+            log.warn(
+                    "Invalid MQTT sensor telemetry type/unit/value: "
+                            + "messageId={}, deviceId={}, sensorType={}, unit={}, value={}",
+                    message.messageId(),
+                    message.deviceId(),
+                    message.sensorType(),
+                    message.unit(),
+                    message.value()
+            );
+            return;
+        }
+
         if (!message.measuredAt().toInstant().isBefore(clock.instant().plus(MAX_FUTURE_SKEW))) {
             log.warn(
                     "Invalid MQTT sensor telemetry measuredAt: messageId={}, deviceId={}, measuredAt={}",
@@ -96,25 +112,33 @@ public class SensorTelemetryMessageProcessor {
         SensorReadingSaveResult result = sensorReadingService.save(message);
         switch (result) {
             case SAVED -> log.info(
-                    "MQTT sensor readings saved: messageId={}, deviceId={}, topic={}, measuredAt={}",
+                    "MQTT sensor reading saved: messageId={}, deviceId={}, sensorType={}, "
+                            + "topic={}, measuredAt={}",
                     message.messageId(),
                     message.deviceId(),
+                    message.sensorType(),
                     topic,
                     message.measuredAt()
             );
             case DUPLICATE -> log.debug(
-                    "Duplicate MQTT sensor readings ignored: messageId={}, deviceId={}, topic={}",
+                    "Duplicate MQTT sensor reading ignored: messageId={}, deviceId={}, topic={}",
                     message.messageId(),
                     message.deviceId(),
                     topic
             );
+            case DEVICE_NOT_FOUND -> log.warn(
+                    "MQTT sensor reading ignored because IoT device was not found: "
+                            + "deviceId={}, messageId={}",
+                    message.deviceId(),
+                    message.messageId()
+            );
             case ROBOT_NOT_FOUND -> log.warn(
-                    "MQTT sensor readings ignored because robot was not found: deviceId={}, messageId={}",
+                    "MQTT sensor reading ignored because robot was not found: deviceId={}, messageId={}",
                     message.deviceId(),
                     message.messageId()
             );
             case PLANT_ASSIGNMENT_NOT_FOUND -> log.warn(
-                    "MQTT sensor readings ignored because active plant assignment was not found: "
+                    "MQTT sensor reading ignored because active plant assignment was not found: "
                             + "deviceId={}, messageId={}",
                     message.deviceId(),
                     message.messageId()

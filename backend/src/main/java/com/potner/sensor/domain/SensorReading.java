@@ -17,8 +17,8 @@ import java.time.LocalDateTime;
 @Table(
         name = "sensor_reading",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_sensor_reading_device_message_type",
-                columnNames = {"device_message_id", "sensor_type"}
+                name = "uq_sensor_reading_device_message",
+                columnNames = "device_message_id"
         )
 )
 public class SensorReading {
@@ -34,7 +34,10 @@ public class SensorReading {
     @Column(name = "robot_id", length = 36, nullable = false, columnDefinition = "char(36)")
     private String robotId;
 
-    @Column(name = "device_message_id", length = 100)
+    @Column(name = "source_device_id", length = 36, nullable = false, columnDefinition = "char(36)")
+    private String sourceDeviceId;
+
+    @Column(name = "device_message_id", length = 100, nullable = false)
     private String deviceMessageId;
 
     @Enumerated(EnumType.STRING)
@@ -64,6 +67,7 @@ public class SensorReading {
     private SensorReading(
             String plantId,
             String robotId,
+            String sourceDeviceId,
             String deviceMessageId,
             SensorType sensorType,
             BigDecimal measuredValue,
@@ -74,6 +78,7 @@ public class SensorReading {
     ) {
         this.plantId = plantId;
         this.robotId = robotId;
+        this.sourceDeviceId = sourceDeviceId;
         this.deviceMessageId = deviceMessageId;
         this.sensorType = sensorType;
         this.measuredValue = measuredValue;
@@ -86,6 +91,7 @@ public class SensorReading {
     public static SensorReading create(
             String plantId,
             String robotId,
+            String sourceDeviceId,
             String deviceMessageId,
             SensorType sensorType,
             BigDecimal measuredValue,
@@ -96,6 +102,7 @@ public class SensorReading {
         return new SensorReading(
                 plantId,
                 robotId,
+                sourceDeviceId,
                 deviceMessageId,
                 sensorType,
                 measuredValue,
@@ -116,6 +123,10 @@ public class SensorReading {
 
     public String getRobotId() {
         return robotId;
+    }
+
+    public String getSourceDeviceId() {
+        return sourceDeviceId;
     }
 
     public String getDeviceMessageId() {
