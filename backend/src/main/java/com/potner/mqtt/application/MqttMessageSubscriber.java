@@ -16,11 +16,18 @@ public class MqttMessageSubscriber {
 
     private static final Logger log = LoggerFactory.getLogger(MqttMessageSubscriber.class);
     private static final int MAX_LOG_PAYLOAD_LENGTH = 500;
+    private static final String SENSOR_TOPIC_SUFFIX = "/sensor/telemetry";
+    private static final String HEARTBEAT_TOPIC_SUFFIX = "/status/heartbeat";
 
-    private final SensorTelemetryMessageProcessor processor;
+    private final SensorTelemetryMessageProcessor sensorProcessor;
+    private final HeartbeatMessageProcessor heartbeatProcessor;
 
-    public MqttMessageSubscriber(SensorTelemetryMessageProcessor processor) {
-        this.processor = processor;
+    public MqttMessageSubscriber(
+            SensorTelemetryMessageProcessor sensorProcessor,
+            HeartbeatMessageProcessor heartbeatProcessor
+    ) {
+        this.sensorProcessor = sensorProcessor;
+        this.heartbeatProcessor = heartbeatProcessor;
     }
 
     @ServiceActivator(inputChannel = "mqttInputChannel")
@@ -40,13 +47,19 @@ public class MqttMessageSubscriber {
         String rawPayload = payload instanceof byte[] bytes
                 ? new String(bytes, StandardCharsets.UTF_8)
                 : payload.toString();
-        log.debug("MQTT sensor message received: topic={}, payload={}", topic, summarize(rawPayload));
+        log.debug("MQTT message received: topic={}, payload={}", topic, summarize(rawPayload));
 
         try {
-            processor.process(topic, rawPayload);
+            if (topic.endsWith(SENSOR_TOPIC_SUFFIX)) {
+                sensorProcessor.process(topic, rawPayload);
+            } else if (topic.endsWith(HEARTBEAT_TOPIC_SUFFIX)) {
+                heartbeatProcessor.process(topic, rawPayload);
+            } else {
+                log.warn("MQTT message ignored because the topic is unsupported: topic={}", topic);
+            }
         } catch (RuntimeException exception) {
             log.error(
-                    "Unexpected MQTT sensor message processing failure: topic={}, error={}",
+                    "Unexpected MQTT message processing failure: topic={}, error={}",
                     topic,
                     exception.getClass().getSimpleName(),
                     exception

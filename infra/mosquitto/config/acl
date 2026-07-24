@@ -5,6 +5,7 @@
 
 user potner-server
 topic read potner/device/+/sensor/telemetry
+topic read potner/device/+/status/heartbeat
 
 user potner-health
 topic write potner/health

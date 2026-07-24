@@ -50,6 +50,11 @@ public class IotDevice {
     protected IotDevice() {
     }
 
+    public void recordHeartbeat(LocalDateTime receivedAt) {
+        this.connectionStatus = IotDeviceConnectionStatus.ONLINE;
+        this.lastSeenAt = receivedAt;
+    }
+
     public String getId() {
         return id;
     }

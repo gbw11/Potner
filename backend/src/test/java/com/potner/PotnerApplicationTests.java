@@ -2,6 +2,8 @@ package com.potner;
 
 import com.jayway.jsonpath.JsonPath;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.device.application.HeartbeatUpdateResult;
+import com.potner.device.application.IotDeviceHeartbeatService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.sensor.application.SensorReadingSaveResult;
 import com.potner.sensor.application.SensorReadingService;
@@ -28,8 +30,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -83,6 +87,12 @@ class PotnerApplicationTests {
 
     @Autowired
     private SensorReadingRepository sensorReadingRepository;
+
+    @Autowired
+    private IotDeviceHeartbeatService heartbeatService;
+
+    @Autowired
+    private Clock clock;
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -768,6 +778,105 @@ class PotnerApplicationTests {
                 );
     }
 
+    @Test
+    void raspberryAndJetsonHeartbeatsUpdateIndependentDeviceStates() throws Exception {
+        SensorFixture fixture = createSensorFixture("heartbeat-devices@example.com");
+
+        org.assertj.core.api.Assertions.assertThat(
+                heartbeatService.recordHeartbeat(fixture.raspberryUid())
+        ).isEqualTo(HeartbeatUpdateResult.UPDATED);
+        assertDeviceState(fixture.raspberryUid(), "ONLINE", true);
+        assertDeviceState(fixture.jetsonUid(), "OFFLINE", false);
+
+        LocalDateTime oldSeenAt = LocalDateTime.ofInstant(
+                clock.instant().minusSeconds(10),
+                ZoneOffset.UTC
+        );
+        jdbcTemplate.update("""
+                UPDATE iot_device
+                   SET last_seen_at = ?
+                 WHERE device_uid = ?
+                """, oldSeenAt, fixture.raspberryUid());
+        org.assertj.core.api.Assertions.assertThat(
+                heartbeatService.recordHeartbeat(fixture.raspberryUid())
+        ).isEqualTo(HeartbeatUpdateResult.UPDATED);
+        org.assertj.core.api.Assertions.assertThat(deviceLastSeenAt(fixture.raspberryUid()))
+                .isAfter(oldSeenAt);
+
+        org.assertj.core.api.Assertions.assertThat(
+                heartbeatService.recordHeartbeat(fixture.jetsonUid())
+        ).isEqualTo(HeartbeatUpdateResult.UPDATED);
+        assertDeviceState(fixture.raspberryUid(), "ONLINE", true);
+        assertDeviceState(fixture.jetsonUid(), "ONLINE", true);
+    }
+
+    @Test
+    void timedOutOnlineDeviceBecomesOfflineWithoutUpdatingOtherDevices()
+            throws Exception {
+        SensorFixture fixture = createSensorFixture("heartbeat-timeout@example.com");
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        LocalDateTime cutoff = now.minusSeconds(90);
+        jdbcTemplate.update("""
+                UPDATE iot_device
+                   SET connection_status = 'ONLINE',
+                       last_seen_at = ?
+                 WHERE device_uid = ?
+                """, cutoff.minusSeconds(1), fixture.raspberryUid());
+        jdbcTemplate.update("""
+                UPDATE iot_device
+                   SET connection_status = 'ONLINE',
+                       last_seen_at = ?
+                 WHERE device_uid = ?
+                """, cutoff.plusSeconds(1), fixture.jetsonUid());
+
+        org.assertj.core.api.Assertions.assertThat(
+                heartbeatService.markTimedOutDevicesOffline(cutoff)
+        ).isEqualTo(1);
+        assertDeviceState(fixture.raspberryUid(), "OFFLINE", true);
+        assertDeviceState(fixture.jetsonUid(), "ONLINE", true);
+
+        org.assertj.core.api.Assertions.assertThat(
+                heartbeatService.markTimedOutDevicesOffline(cutoff)
+        ).isZero();
+    }
+
+    @Test
+    void concurrentRaspberryAndJetsonHeartbeatsRemainIndependent() throws Exception {
+        SensorFixture fixture = createSensorFixture("heartbeat-concurrent@example.com");
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            List<Future<HeartbeatUpdateResult>> futures = List.of(
+                    executor.submit(() -> {
+                        start.await();
+                        return heartbeatService.recordHeartbeat(fixture.raspberryUid());
+                    }),
+                    executor.submit(() -> {
+                        start.await();
+                        return heartbeatService.recordHeartbeat(fixture.jetsonUid());
+                    })
+            );
+            start.countDown();
+
+            org.assertj.core.api.Assertions.assertThat(
+                    List.of(futures.get(0).get(), futures.get(1).get())
+            ).containsOnly(HeartbeatUpdateResult.UPDATED);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertDeviceState(fixture.raspberryUid(), "ONLINE", true);
+        assertDeviceState(fixture.jetsonUid(), "ONLINE", true);
+    }
+
+    @Test
+    void unknownHeartbeatDeviceIsIgnored() {
+        org.assertj.core.api.Assertions.assertThat(
+                heartbeatService.recordHeartbeat("unknown-device")
+        ).isEqualTo(HeartbeatUpdateResult.DEVICE_NOT_FOUND);
+    }
+
     private void signup(String email) throws Exception {
         mockMvc.perform(post("/api/v1/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -895,6 +1004,33 @@ class PotnerApplicationTests {
                 unit,
                 OffsetDateTime.parse("2026-07-22T17:10:00+09:00")
         );
+    }
+
+    private void assertDeviceState(
+            String deviceUid,
+            String expectedStatus,
+            boolean lastSeenExpected
+    ) {
+        java.util.Map<String, Object> device = jdbcTemplate.queryForMap("""
+                SELECT connection_status, last_seen_at
+                  FROM iot_device
+                 WHERE device_uid = ?
+                """, deviceUid);
+        org.assertj.core.api.Assertions.assertThat(device.get("connection_status"))
+                .isEqualTo(expectedStatus);
+        if (lastSeenExpected) {
+            org.assertj.core.api.Assertions.assertThat(device.get("last_seen_at")).isNotNull();
+        } else {
+            org.assertj.core.api.Assertions.assertThat(device.get("last_seen_at")).isNull();
+        }
+    }
+
+    private LocalDateTime deviceLastSeenAt(String deviceUid) {
+        return jdbcTemplate.queryForObject("""
+                SELECT last_seen_at
+                  FROM iot_device
+                 WHERE device_uid = ?
+                """, LocalDateTime.class, deviceUid);
     }
 
     private record Tokens(String accessToken, String refreshToken) {
