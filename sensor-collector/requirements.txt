@@ -8,3 +8,4 @@ python-dotenv>=1.0.0
 # On Raspberry Pi for OV5647 / SunFounder CSI camera:
 #   sudo apt install -y python3-picamera2
 # (use venv with --system-site-packages)
+paho-mqtt>=2.0.0

@@ -15,7 +15,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plant dialogue: local judgment + LLM speech + optional chat"
     )
-    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--config", default="config/default.yaml")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("brief", help="현재 상태 브리핑 (규칙 판단 + LLM/템플릿)")
