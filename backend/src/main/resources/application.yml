@@ -67,3 +67,7 @@ potner:
     connection-timeout-seconds: ${MQTT_CONNECTION_TIMEOUT_SECONDS:10}
     keep-alive-seconds: ${MQTT_KEEP_ALIVE_SECONDS:60}
     recovery-interval-ms: ${MQTT_RECOVERY_INTERVAL_MS:10000}
+    heartbeat:
+      topic: ${MQTT_HEARTBEAT_TOPIC:potner/device/+/status/heartbeat}
+      offline-timeout-seconds: ${MQTT_HEARTBEAT_OFFLINE_TIMEOUT_SECONDS:90}
+      offline-check-interval-seconds: ${MQTT_HEARTBEAT_OFFLINE_CHECK_INTERVAL_SECONDS:30}

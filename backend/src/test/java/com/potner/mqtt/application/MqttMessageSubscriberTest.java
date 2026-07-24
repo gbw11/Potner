@@ -20,14 +20,18 @@ import static org.mockito.Mockito.verify;
 class MqttMessageSubscriberTest {
 
     private static final String TOPIC = "potner/device/raspberry-01/sensor/telemetry";
+    private static final String HEARTBEAT_TOPIC =
+            "potner/device/jetson-01/status/heartbeat";
 
-    private SensorTelemetryMessageProcessor processor;
+    private SensorTelemetryMessageProcessor sensorProcessor;
+    private HeartbeatMessageProcessor heartbeatProcessor;
     private MqttMessageSubscriber subscriber;
 
     @BeforeEach
     void setUp() {
-        processor = mock(SensorTelemetryMessageProcessor.class);
-        subscriber = new MqttMessageSubscriber(processor);
+        sensorProcessor = mock(SensorTelemetryMessageProcessor.class);
+        heartbeatProcessor = mock(HeartbeatMessageProcessor.class);
+        subscriber = new MqttMessageSubscriber(sensorProcessor, heartbeatProcessor);
     }
 
     @Test
@@ -39,7 +43,8 @@ class MqttMessageSubscriberTest {
 
         subscriber.receive(message);
 
-        verify(processor).process(TOPIC, "{\"temperatureC\":24.3}");
+        verify(sensorProcessor).process(TOPIC, "{\"temperatureC\":24.3}");
+        verify(heartbeatProcessor, never()).process(TOPIC, "{\"temperatureC\":24.3}");
     }
 
     @Test
@@ -51,7 +56,26 @@ class MqttMessageSubscriberTest {
 
         subscriber.receive(message);
 
-        verify(processor).process(TOPIC, "soil=52");
+        verify(sensorProcessor).process(TOPIC, "soil=52");
+    }
+
+    @Test
+    void delegatesHeartbeatTopicToHeartbeatProcessor() {
+        Message<String> message = new GenericMessage<>(
+                "{\"deviceId\":\"jetson-01\"}",
+                Map.of(MqttHeaders.RECEIVED_TOPIC, HEARTBEAT_TOPIC)
+        );
+
+        subscriber.receive(message);
+
+        verify(heartbeatProcessor).process(
+                HEARTBEAT_TOPIC,
+                "{\"deviceId\":\"jetson-01\"}"
+        );
+        verify(sensorProcessor, never()).process(
+                HEARTBEAT_TOPIC,
+                "{\"deviceId\":\"jetson-01\"}"
+        );
     }
 
     @Test
@@ -71,14 +95,15 @@ class MqttMessageSubscriberTest {
 
         assertThatCode(() -> subscriber.receive(missingTopic)).doesNotThrowAnyException();
         assertThatCode(() -> subscriber.receive(nullPayload)).doesNotThrowAnyException();
-        verify(processor, never()).process(TOPIC, "payload");
+        verify(sensorProcessor, never()).process(TOPIC, "payload");
+        verify(heartbeatProcessor, never()).process(TOPIC, "payload");
     }
 
     @Test
     void continuesAfterUnexpectedProcessingFailure() {
         doThrow(new IllegalStateException("database unavailable"))
                 .doNothing()
-                .when(processor).process(TOPIC, "payload");
+                .when(sensorProcessor).process(TOPIC, "payload");
         Message<String> message = new GenericMessage<>(
                 "payload",
                 Map.of(MqttHeaders.RECEIVED_TOPIC, TOPIC)
@@ -87,6 +112,6 @@ class MqttMessageSubscriberTest {
         assertThatCode(() -> subscriber.receive(message)).doesNotThrowAnyException();
         assertThatCode(() -> subscriber.receive(message)).doesNotThrowAnyException();
 
-        verify(processor, org.mockito.Mockito.times(2)).process(TOPIC, "payload");
+        verify(sensorProcessor, org.mockito.Mockito.times(2)).process(TOPIC, "payload");
     }
 }

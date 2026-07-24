@@ -12,10 +12,12 @@ import org.springframework.integration.mqtt.core.DefaultMqttPahoClientFactory;
 import org.springframework.integration.mqtt.core.MqttPahoClientFactory;
 import org.springframework.integration.mqtt.inbound.MqttPahoMessageDrivenChannelAdapter;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "potner.mqtt", name = "enabled", havingValue = "true")
-@EnableConfigurationProperties(MqttProperties.class)
+@EnableConfigurationProperties({MqttProperties.class, MqttHeartbeatProperties.class})
+@EnableScheduling
 public class MqttConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(MqttConfiguration.class);
@@ -45,22 +47,26 @@ public class MqttConfiguration {
     @Bean
     public MqttPahoMessageDrivenChannelAdapter mqttInboundAdapter(
             MqttProperties properties,
+            MqttHeartbeatProperties heartbeatProperties,
             MqttPahoClientFactory mqttClientFactory,
             MessageChannel mqttInputChannel
     ) {
         MqttPahoMessageDrivenChannelAdapter adapter = new MqttPahoMessageDrivenChannelAdapter(
                 properties.clientId(),
                 mqttClientFactory,
-                properties.topic()
+                properties.topic(),
+                heartbeatProperties.topic()
         );
-        adapter.setQos(properties.qos());
+        adapter.setQos(properties.qos(), properties.qos());
         adapter.setOutputChannel(mqttInputChannel);
 
         log.info(
-                "MQTT subscriber configured: broker={}, clientId={}, topic={}, qos={}",
+                "MQTT subscriber configured: broker={}, clientId={}, sensorTopic={}, "
+                        + "heartbeatTopic={}, qos={}",
                 properties.brokerUrl(),
                 properties.clientId(),
                 properties.topic(),
+                heartbeatProperties.topic(),
                 properties.qos()
         );
         return adapter;

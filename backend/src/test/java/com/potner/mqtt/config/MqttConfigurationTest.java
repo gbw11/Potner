@@ -19,6 +19,7 @@ class MqttConfigurationTest {
                 .withPropertyValues("potner.mqtt.enabled=false")
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(MqttProperties.class);
+                    assertThat(context).doesNotHaveBean(MqttHeartbeatProperties.class);
                     assertThat(context).doesNotHaveBean(MqttPahoClientFactory.class);
                     assertThat(context).doesNotHaveBean(MqttPahoMessageDrivenChannelAdapter.class);
                     assertThat(context).doesNotHaveBean(MqttMessageSubscriber.class);
@@ -39,11 +40,17 @@ class MqttConfigurationTest {
                         "potner.mqtt.qos=1",
                         "potner.mqtt.connection-timeout-seconds=15",
                         "potner.mqtt.keep-alive-seconds=45",
-                        "potner.mqtt.recovery-interval-ms=5000"
+                        "potner.mqtt.recovery-interval-ms=5000",
+                        "potner.mqtt.heartbeat.topic=potner/device/+/status/heartbeat",
+                        "potner.mqtt.heartbeat.offline-timeout-seconds=90",
+                        "potner.mqtt.heartbeat.offline-check-interval-seconds=30"
                 )
                 .run(context -> {
                     assertThat(context).hasSingleBean(MqttProperties.class);
+                    assertThat(context).hasSingleBean(MqttHeartbeatProperties.class);
                     MqttProperties properties = context.getBean(MqttProperties.class);
+                    MqttHeartbeatProperties heartbeatProperties =
+                            context.getBean(MqttHeartbeatProperties.class);
                     assertThat(properties.enabled()).isTrue();
                     assertThat(properties.brokerUrl()).isEqualTo("tcp://mosquitto:1883");
                     assertThat(properties.username()).isEqualTo("potner-server");
@@ -54,11 +61,15 @@ class MqttConfigurationTest {
                     assertThat(properties.connectionTimeoutSeconds()).isEqualTo(15);
                     assertThat(properties.keepAliveSeconds()).isEqualTo(45);
                     assertThat(properties.recoveryIntervalMs()).isEqualTo(5000);
+                    assertThat(heartbeatProperties.topic())
+                            .isEqualTo("potner/device/+/status/heartbeat");
+                    assertThat(heartbeatProperties.offlineTimeoutSeconds()).isEqualTo(90);
+                    assertThat(heartbeatProperties.offlineCheckIntervalSeconds()).isEqualTo(30);
                 });
     }
 
     @Configuration(proxyBeanMethods = false)
-    @EnableConfigurationProperties(MqttProperties.class)
+    @EnableConfigurationProperties({MqttProperties.class, MqttHeartbeatProperties.class})
     static class PropertiesConfiguration {
     }
 }
