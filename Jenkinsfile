@@ -28,6 +28,18 @@ pipeline {
         RELEASE_IMAGE = "potner-backend:build-${BUILD_NUMBER}"
         CI_PORT = '18081'
         DOCKER_NETWORK = 'potner-network'
+
+        // 운영 배포가 이루어지는 고정 디렉토리.
+        // Jenkins 컨테이너와 EC2 호스트가 같은 경로로 마운트하고 있어야 한다.
+        DEPLOY_DIR = "${env.POTNER_DEPLOY_DIR ?: '/home/ubuntu/potner-infra-test'}"
+
+        // 배포 대상 Compose 프로젝트. deploy-backend.sh도 이 값을 사용한다.
+        COMPOSE_PROJECT_NAME = 'potner-infra-test'
+
+        // Multibranch 잡은 BRANCH_NAME이 채워지고, 클래식 단일 브랜치 잡은 비어 있다.
+        // 클래식 잡은 SCM 설정상 Server-master만 빌드하므로 배포 대상으로 간주한다.
+        // Multibranch 전환 후에는 when { branch 'Server-master' }로 단순화할 수 있다.
+        IS_DEPLOY_TARGET = "${(env.BRANCH_NAME == null || env.BRANCH_NAME == 'Server-master') ? 'true' : 'false'}"
     }
 
     stages {
@@ -210,6 +222,10 @@ pipeline {
         }
 
         stage('Prepare Release Image') {
+            when {
+                environment name: 'IS_DEPLOY_TARGET', value: 'true'
+            }
+
             steps {
                 sh '''
                     set -eux
@@ -225,19 +241,100 @@ pipeline {
             }
         }
 
+        stage('Sync Deploy Configs') {
+            when {
+                environment name: 'IS_DEPLOY_TARGET', value: 'true'
+            }
+
+            steps {
+                sh '''
+                    set -eux
+
+                    MOSQUITTO_CONFIG_DIR="$DEPLOY_DIR/infra/mosquitto/config"
+
+                    test -d "$DEPLOY_DIR"
+                    test -d "$MOSQUITTO_CONFIG_DIR"
+
+                    # Git은 파일 권한을 보존하지 않는다.
+                    # 브로커가 설정 파일을 그대로 읽으므로 기존 소유자와 권한을 유지해야 한다.
+                    MOSQUITTO_UID="$(stat -c %u "$MOSQUITTO_CONFIG_DIR")"
+                    MOSQUITTO_GID="$(stat -c %g "$MOSQUITTO_CONFIG_DIR")"
+
+                    CONFIG_BEFORE="$(
+                        cat "$MOSQUITTO_CONFIG_DIR/mosquitto.conf" \
+                            "$MOSQUITTO_CONFIG_DIR/acl" 2>/dev/null |
+                            md5sum | cut -d" " -f1
+                    )"
+
+                    install -m 0644 \
+                      compose.yml compose.deploy.yml \
+                      "$DEPLOY_DIR"/
+
+                    install -o "$MOSQUITTO_UID" -g "$MOSQUITTO_GID" -m 0644 \
+                      infra/mosquitto/config/mosquitto.conf \
+                      "$MOSQUITTO_CONFIG_DIR"/
+
+                    install -o "$MOSQUITTO_UID" -g "$MOSQUITTO_GID" -m 0600 \
+                      infra/mosquitto/config/acl \
+                      "$MOSQUITTO_CONFIG_DIR"/
+
+                    install -m 0644 \
+                      infra/nginx/conf.d/default.conf \
+                      "$DEPLOY_DIR"/infra/nginx/conf.d/
+
+                    install -m 0755 \
+                      infra/scripts/*.sh \
+                      "$DEPLOY_DIR"/infra/scripts/
+
+                    echo "배포 디렉토리 동기화 완료: $DEPLOY_DIR"
+
+                    CONFIG_AFTER="$(
+                        cat "$MOSQUITTO_CONFIG_DIR/mosquitto.conf" \
+                            "$MOSQUITTO_CONFIG_DIR/acl" |
+                            md5sum | cut -d" " -f1
+                    )"
+
+                    if [ "$CONFIG_BEFORE" = "$CONFIG_AFTER" ]; then
+                        echo "Mosquitto 설정 변경이 없어 재시작을 생략합니다."
+                        exit 0
+                    fi
+
+                    MOSQUITTO_CONTAINER="$(
+                        docker ps \
+                          --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                          --filter "label=com.docker.compose.service=mosquitto" \
+                          --format '{{.Names}}' |
+                            head -1
+                    )"
+
+                    if [ -z "$MOSQUITTO_CONTAINER" ]; then
+                        echo "Mosquitto 컨테이너를 찾지 못했습니다."
+                        exit 1
+                    fi
+
+                    echo "Mosquitto 설정이 변경되어 재시작합니다: $MOSQUITTO_CONTAINER"
+                    docker restart "$MOSQUITTO_CONTAINER"
+                '''
+            }
+        }
+
         stage('Deploy Production Backend') {
+            when {
+                environment name: 'IS_DEPLOY_TARGET', value: 'true'
+            }
+
             steps {
                 sh '''
                     set -eu
 
-                    test -f compose.deploy.yml
-                    test -f infra/scripts/deploy-backend.sh
+                    test -f "$DEPLOY_DIR/compose.yml"
+                    test -f "$DEPLOY_DIR/compose.deploy.yml"
+                    test -x "$DEPLOY_DIR/infra/scripts/deploy-backend.sh"
 
-                    chmod +x infra/scripts/deploy-backend.sh
-
+                    POTNER_DEPLOY_DIR="$DEPLOY_DIR" \
                     MQTT_USERNAME="$MQTT_BACKEND_CREDENTIALS_USR" \
                     MQTT_PASSWORD="$MQTT_BACKEND_CREDENTIALS_PSW" \
-                    ./infra/scripts/deploy-backend.sh "$RELEASE_IMAGE"
+                    "$DEPLOY_DIR/infra/scripts/deploy-backend.sh" "$RELEASE_IMAGE"
                 '''
             }
         }

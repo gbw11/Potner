@@ -15,7 +15,10 @@ HEALTH_MAX_ATTEMPTS="${HEALTH_MAX_ATTEMPTS:-30}"
 HEALTH_INTERVAL_SECONDS="${HEALTH_INTERVAL_SECONDS:-5}"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-PROJECT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd)"
+
+# 배포는 항상 고정된 배포 디렉토리 기준으로 수행한다.
+# POTNER_DEPLOY_DIR을 주지 않으면 스크립트 위치를 기준으로 추론한다.
+PROJECT_DIR="${POTNER_DEPLOY_DIR:-$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd)}"
 
 COMPOSE_FILE="${PROJECT_DIR}/compose.yml"
 DEPLOY_COMPOSE_FILE="${PROJECT_DIR}/compose.deploy.yml"
