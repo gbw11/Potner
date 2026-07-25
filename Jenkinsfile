@@ -1,3 +1,14 @@
+// GitLab에 빌드 결과를 알려 Merge Request 화면에서 통과 여부를 볼 수 있게 한다.
+// 상태 보고는 부가 기능이므로 실패해도 빌드를 중단시키지 않는다.
+def reportGitlabStatus(String state) {
+    try {
+        updateGitlabCommitStatus name: 'jenkins', state: state
+        echo "GitLab 커밋 상태 보고: ${state}"
+    } catch (Exception e) {
+        echo "GitLab 커밋 상태 보고 실패(빌드에는 영향 없음): ${e.message}"
+    }
+}
+
 pipeline {
     agent any
 
@@ -5,6 +16,7 @@ pipeline {
         timestamps()
         timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
+        gitLabConnection('SSAFY GitLab')
     }
 
     environment {
@@ -23,10 +35,13 @@ pipeline {
         MQTT_KEEP_ALIVE_SECONDS = '60'
         MQTT_RECOVERY_INTERVAL_MS = '10000'
 
-        CI_IMAGE = "potner-backend-ci:${BUILD_NUMBER}"
-        CI_CONTAINER = "potner-backend-ci-${BUILD_NUMBER}"
-        RELEASE_IMAGE = "potner-backend:build-${BUILD_NUMBER}"
-        CI_PORT = '18081'
+        // Multibranch에서는 브랜치마다 빌드 번호가 따로 매겨진다.
+        // 서로 다른 브랜치가 동시에 빌드될 때 임시 이미지와 컨테이너 이름이
+        // 겹치지 않도록 브랜치 이름을 함께 넣는다.
+        BRANCH_SLUG = "${(env.BRANCH_NAME ?: 'single').replaceAll('[^A-Za-z0-9]', '-').toLowerCase()}"
+
+        CI_IMAGE = "potner-backend-ci:${BRANCH_SLUG}-${BUILD_NUMBER}"
+        CI_CONTAINER = "potner-backend-ci-${BRANCH_SLUG}-${BUILD_NUMBER}"
         DOCKER_NETWORK = 'potner-network'
 
         // 운영 배포가 이루어지는 고정 디렉토리.
@@ -45,6 +60,10 @@ pipeline {
     stages {
         stage('Checkout Info') {
             steps {
+                script {
+                    reportGitlabStatus('running')
+                }
+
                 echo "Branch: ${env.BRANCH_NAME ?: 'configured SCM branch'}"
                 echo "Workspace: ${env.WORKSPACE}"
                 echo "CI image: ${env.CI_IMAGE}"
@@ -162,7 +181,7 @@ pipeline {
                       --name "$CI_CONTAINER" \
                       --network "$DOCKER_NETWORK" \
                       --env-file .ci-backend.env \
-                      -p "127.0.0.1:${CI_PORT}:8080" \
+                      -p "127.0.0.1::8080" \
                       "$CI_IMAGE"
 
                     docker ps \
@@ -200,7 +219,9 @@ pipeline {
                             >/dev/null 2>&1; then
 
                             echo "임시 백엔드 Health Check 성공"
-                            echo "확인 주소: http://127.0.0.1:${CI_PORT}/actuator/health"
+                            echo "확인 주소: http://$(
+                                docker port "$CI_CONTAINER" 8080 | head -1
+                            )/actuator/health"
 
                             docker exec "$CI_CONTAINER" \
                                 curl --fail --silent \
@@ -227,6 +248,18 @@ pipeline {
             }
 
             steps {
+                script {
+                    // 잡을 새로 만들면 BUILD_NUMBER가 1부터 다시 시작하므로
+                    // 빌드 번호만으로는 과거 이미지 태그와 겹칠 수 있다.
+                    // 커밋 해시를 함께 넣어 태그가 어느 커밋인지 항상 드러나게 한다.
+                    def commitShort = sh(
+                        script: 'git rev-parse --short=7 HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.RELEASE_IMAGE = "potner-backend:build-${env.BUILD_NUMBER}-${commitShort}"
+                }
+
                 sh '''
                     set -eux
 
@@ -351,11 +384,35 @@ pipeline {
         }
 
         success {
+            script {
+                reportGitlabStatus('success')
+            }
+
             echo 'Potner Backend CI/CD 및 운영 배포 성공'
         }
 
         failure {
+            script {
+                reportGitlabStatus('failed')
+            }
+
             echo 'Potner Backend CI/CD 실패 - Console Output 확인 필요'
+        }
+
+        unstable {
+            script {
+                reportGitlabStatus('failed')
+            }
+
+            echo 'Potner Backend CI/CD 불안정 - 테스트 결과 확인 필요'
+        }
+
+        aborted {
+            script {
+                reportGitlabStatus('canceled')
+            }
+
+            echo 'Potner Backend CI/CD 중단됨'
         }
 
         cleanup {
