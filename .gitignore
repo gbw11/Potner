@@ -1,0 +1,44 @@
+  # 비밀 정보
+  .env
+  .env.*
+  !.env.example
+
+  # 모델 가중치
+  *.pt
+  *.pth
+  *.onnx
+  *.engine
+
+  # 원본·정제 데이터셋
+  raw_dataset/
+  cleaned_dataset/
+  test_inputs/
+
+  # 학습·추론 결과
+  runs/
+  inference_results/
+
+  # 실행 출력이 포함된 노트북
+  *.executed.ipynb
+
+  # Jupyter 임시 파일
+  .ipynb_checkpoints/
+
+  # Python 캐시
+  __pycache__/
+  *.py[cod]
+  .pytest_cache/
+
+  # 도구 및 사용자 환경
+  .codex/
+  .agents/
+  .cache/
+  .local/
+  .config/
+  .ipython/
+  .jupyter/
+  .nv/
+
+  # 운영체제 임시 파일
+  .DS_Store
+  Thumbs.db
