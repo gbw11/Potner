@@ -1,5 +1,6 @@
 package com.potner.sensor.domain;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -20,6 +21,15 @@ public interface SensorReadingRepository extends JpaRepository<SensorReading, Lo
             String plantId,
             SensorType sensorType,
             SensorQuality quality
+    );
+
+    /** 이상 판정 표본. 최신순으로 가져오며 신선도 창 밖의 값은 제외한다. */
+    List<SensorReading> findByPlantIdAndSensorTypeAndQualityAndMeasuredAtGreaterThanEqualOrderByMeasuredAtDesc(
+            String plantId,
+            SensorType sensorType,
+            SensorQuality quality,
+            LocalDateTime measuredAtFrom,
+            Pageable pageable
     );
 
     /**

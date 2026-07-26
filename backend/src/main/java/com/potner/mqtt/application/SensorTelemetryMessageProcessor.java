@@ -1,5 +1,7 @@
 package com.potner.mqtt.application;
 
+import com.potner.alert.application.AlertEvaluationResult;
+import com.potner.alert.application.AlertEvaluationService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.sensor.application.SensorReadingSaveResult;
 import com.potner.sensor.application.SensorReadingService;
@@ -29,6 +31,7 @@ public class SensorTelemetryMessageProcessor {
     private final SensorTelemetryTopicParser topicParser;
     private final SensorTelemetryValueValidator valueValidator;
     private final SensorReadingService sensorReadingService;
+    private final AlertEvaluationService alertEvaluationService;
     private final Clock clock;
 
     public SensorTelemetryMessageProcessor(
@@ -37,6 +40,7 @@ public class SensorTelemetryMessageProcessor {
             SensorTelemetryTopicParser topicParser,
             SensorTelemetryValueValidator valueValidator,
             SensorReadingService sensorReadingService,
+            AlertEvaluationService alertEvaluationService,
             Clock clock
     ) {
         this.objectMapper = objectMapper;
@@ -44,6 +48,7 @@ public class SensorTelemetryMessageProcessor {
         this.topicParser = topicParser;
         this.valueValidator = valueValidator;
         this.sensorReadingService = sensorReadingService;
+        this.alertEvaluationService = alertEvaluationService;
         this.clock = clock;
     }
 
@@ -111,15 +116,18 @@ public class SensorTelemetryMessageProcessor {
 
         SensorReadingSaveResult result = sensorReadingService.save(message);
         switch (result) {
-            case SAVED -> log.info(
-                    "MQTT sensor reading saved: messageId={}, deviceId={}, sensorType={}, "
-                            + "topic={}, measuredAt={}",
-                    message.messageId(),
-                    message.deviceId(),
-                    message.sensorType(),
-                    topic,
-                    message.measuredAt()
-            );
+            case SAVED -> {
+                log.info(
+                        "MQTT sensor reading saved: messageId={}, deviceId={}, sensorType={}, "
+                                + "topic={}, measuredAt={}",
+                        message.messageId(),
+                        message.deviceId(),
+                        message.sensorType(),
+                        topic,
+                        message.measuredAt()
+                );
+                evaluateAlert(message);
+            }
             case DUPLICATE -> log.debug(
                     "Duplicate MQTT sensor reading ignored: messageId={}, deviceId={}, topic={}",
                     message.messageId(),
@@ -144,6 +152,27 @@ public class SensorTelemetryMessageProcessor {
                     message.messageId()
             );
         }
+    }
+
+    /**
+     * 저장이 성공한 측정값에 대해서만 이상 상태를 다시 판정한다.
+     * 중복 재전송은 저장 단계에서 걸러지므로 같은 메시지로 알림이 두 번 만들어지지 않는다.
+     */
+    private void evaluateAlert(SensorTelemetryMessage message) {
+        sensorReadingService.findAssignedPlantId(message.deviceId()).ifPresent(plantId -> {
+            AlertEvaluationResult result = alertEvaluationService.evaluate(
+                    plantId,
+                    message.sensorType()
+            );
+            if (result != AlertEvaluationResult.UNCHANGED) {
+                log.info(
+                        "Sensor alert evaluated: plantId={}, sensorType={}, result={}",
+                        plantId,
+                        message.sensorType(),
+                        result
+                );
+            }
+        });
     }
 
     private String summarize(String payload) {

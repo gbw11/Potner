@@ -1,7 +1,12 @@
 package com.potner;
 
 import com.jayway.jsonpath.JsonPath;
+import com.potner.alert.domain.Alert;
+import com.potner.alert.domain.AlertDeviation;
+import com.potner.alert.domain.AlertMetricType;
+import com.potner.alert.domain.AlertRepository;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
@@ -34,6 +39,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -68,6 +74,10 @@ class PotnerApplicationTests {
     private static final String VEGETATIVE_ID = "10000000-0000-0000-0000-000000000006";
     private static final String TEST_INACTIVE_SPECIES_ID = "90000000-0000-0000-0000-000000000001";
 
+    /** MQTT 페이로드는 오프셋을 포함한 ISO-8601 이어야 하므로 초까지 항상 채워 UTC 로 만든다. */
+    private static final DateTimeFormatter UTC_ISO =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
+
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.10");
 
@@ -93,6 +103,12 @@ class PotnerApplicationTests {
     private IotDeviceHeartbeatService heartbeatService;
 
     @Autowired
+    private SensorTelemetryMessageProcessor telemetryProcessor;
+
+    @Autowired
+    private AlertRepository alertRepository;
+
+    @Autowired
     private Clock clock;
 
     @DynamicPropertySource
@@ -104,6 +120,7 @@ class PotnerApplicationTests {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM sensor_reading");
         jdbcTemplate.update("DELETE FROM plant_device_assignment");
         jdbcTemplate.update("DELETE FROM iot_device");
@@ -1044,6 +1061,153 @@ class PotnerApplicationTests {
                         .param("to", "2026-07-27T00:00:00Z"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void sensorAlertFollowsTransitionRulesOverMqttPipeline() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-lifecycle@example.com");
+        LocalDateTime base = nowUtc().minusMinutes(2);
+
+        // 표본 3건이 모이기 전에는 판정하지 않는다.
+        publishSoilMoisture(fixture, "34.00", base);
+        publishSoilMoisture(fixture, "33.00", base.plusSeconds(5));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+
+        // 중앙값 34 가 하한 40 을 밑돌아 LOW 를 생성한다.
+        publishSoilMoisture(fixture, "35.00", base.plusSeconds(10));
+        Alert created = alertRepository.findAll().getFirst();
+        org.assertj.core.api.Assertions.assertThat(created.getMetricType())
+                .isEqualTo(AlertMetricType.SOIL_MOISTURE);
+        org.assertj.core.api.Assertions.assertThat(created.getDeviation())
+                .isEqualTo(AlertDeviation.LOW);
+        org.assertj.core.api.Assertions.assertThat(created.getThresholdMin())
+                .isEqualByComparingTo("40.00");
+        org.assertj.core.api.Assertions.assertThat(created.isActive()).isTrue();
+
+        // 이상이 계속되어도 새 Alert 를 만들지 않는다.
+        publishSoilMoisture(fixture, "32.00", base.plusSeconds(15));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.count()).isEqualTo(1);
+
+        // 하한은 넘겼지만 복귀 기준 41.5 에 못 미치면 활성 상태를 유지한다.
+        publishSoilMoisture(fixture, "41.00", base.plusSeconds(20));
+        publishSoilMoisture(fixture, "40.60", base.plusSeconds(25));
+        publishSoilMoisture(fixture, "41.20", base.plusSeconds(30));
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(alertRepository.count()).isEqualTo(1);
+
+        // 복귀 기준을 넘기면 해제한다.
+        publishSoilMoisture(fixture, "43.00", base.plusSeconds(35));
+        publishSoilMoisture(fixture, "42.00", base.plusSeconds(40));
+        publishSoilMoisture(fixture, "44.00", base.plusSeconds(45));
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isZero();
+        org.assertj.core.api.Assertions.assertThat(
+                alertRepository.findAll().getFirst().getResolvedAt()).isNotNull();
+        // 해제되면 파생 키가 비워져 다음 Alert 를 만들 수 있다.
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM alert WHERE active_key IS NULL", Integer.class)).isEqualTo(1);
+
+        // 다시 이상해지면 새 Alert 가 생긴다.
+        publishSoilMoisture(fixture, "30.00", base.plusSeconds(50));
+        publishSoilMoisture(fixture, "31.00", base.plusSeconds(55));
+        publishSoilMoisture(fixture, "29.00", base.plusSeconds(60));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.count()).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isEqualTo(1);
+    }
+
+    @Test
+    void spikeAndIlluminanceDoNotCreateAlerts() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-spike@example.com");
+        LocalDateTime base = nowUtc().minusMinutes(2);
+
+        // 표본 하나만 튀어도 중앙값은 정상 범위에 남는다.
+        publishSoilMoisture(fixture, "45.00", base);
+        publishSoilMoisture(fixture, "44.00", base.plusSeconds(5));
+        publishSoilMoisture(fixture, "2.00", base.plusSeconds(10));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+
+        // 조도는 순간값으로 판정하지 않는다.
+        for (int index = 0; index < 3; index++) {
+            telemetryProcessor.process(
+                    "potner/device/" + fixture.raspberryUid() + "/sensor/telemetry",
+                    telemetryJson(
+                            fixture.raspberryUid(),
+                            SensorType.ILLUMINANCE,
+                            "0",
+                            SensorUnit.LUX,
+                            base.plusSeconds(20L + index * 5)
+                    )
+            );
+        }
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void databaseRejectsSecondActiveAlertForSamePlantAndMetric() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-unique@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("alert-unique@example.com")
+                .orElseThrow()
+                .getId();
+
+        insertActiveAlert(userId, fixture.plantId());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> insertActiveAlert(userId, fixture.plantId()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isEqualTo(1);
+    }
+
+    private void publishSoilMoisture(
+            SensorFixture fixture,
+            String value,
+            LocalDateTime measuredAt
+    ) {
+        telemetryProcessor.process(
+                "potner/device/" + fixture.raspberryUid() + "/sensor/telemetry",
+                telemetryJson(
+                        fixture.raspberryUid(),
+                        SensorType.SOIL_MOISTURE,
+                        value,
+                        SensorUnit.PERCENT,
+                        measuredAt
+                )
+        );
+    }
+
+    private String telemetryJson(
+            String deviceUid,
+            SensorType sensorType,
+            String value,
+            SensorUnit unit,
+            LocalDateTime measuredAtUtc
+    ) {
+        return """
+                {"messageId":"%s","deviceId":"%s","sensorType":"%s","value":%s,"unit":"%s","measuredAt":"%s"}
+                """.formatted(
+                UUID.randomUUID(),
+                deviceUid,
+                sensorType.name(),
+                value,
+                unit.name(),
+                UTC_ISO.format(measuredAtUtc)
+        );
+    }
+
+    private void insertActiveAlert(String userId, String plantId) {
+        jdbcTemplate.update("""
+                        INSERT INTO alert (
+                            alert_id, user_id, plant_id, metric_type, deviation,
+                            measured_value, threshold_min, threshold_max, occurred_at
+                        ) VALUES (?, ?, ?, 'SOIL_MOISTURE', 'LOW', 34.0, 40.0, 55.0, UTC_TIMESTAMP())
+                        """,
+                UUID.randomUUID().toString(),
+                userId,
+                plantId
+        );
+    }
+
+    private int activeAlertCount() {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM alert WHERE resolved_at IS NULL", Integer.class);
     }
 
     private void insertReading(
