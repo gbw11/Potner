@@ -21,7 +21,8 @@ import java.math.BigDecimal;
 @ConfigurationProperties(prefix = "potner.alert")
 public record AlertProperties(
         @Positive int sampleSize,
-        @NotNull @DecimalMin("0.0") @DecimalMax("0.5") BigDecimal hysteresisRatio
+        @NotNull @DecimalMin("0.0") @DecimalMax("0.5") BigDecimal hysteresisRatio,
+        @Positive int maxPageSize
 ) {
 
     /**

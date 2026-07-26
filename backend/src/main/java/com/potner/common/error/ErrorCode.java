@@ -23,6 +23,7 @@ public enum ErrorCode {
     PLANT_GROWTH_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Plant growth profile not found", "식물 생육 프로필을 찾을 수 없습니다."),
     INVALID_PLANT_NAME(HttpStatus.BAD_REQUEST, "Invalid plant name", "식물 이름이 유효하지 않습니다."),
     INVALID_GROWTH_PROFILE(HttpStatus.BAD_REQUEST, "Invalid growth profile", "생육 기준값이 유효하지 않습니다."),
+    ALERT_NOT_FOUND(HttpStatus.NOT_FOUND, "Alert not found", "알림을 찾을 수 없습니다."),
     INVALID_SENSOR_QUERY_RANGE(HttpStatus.BAD_REQUEST, "Invalid sensor query range", "센서 조회 기간이 유효하지 않습니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Invalid request", "요청값이 유효하지 않습니다."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied", "접근 권한이 없습니다."),

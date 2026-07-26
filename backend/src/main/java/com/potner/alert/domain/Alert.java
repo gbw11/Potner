@@ -115,8 +115,19 @@ public class Alert {
         }
     }
 
+    /** 사용자가 확인했음을 기록한다. 다시 호출해도 처음 확인 시각을 유지한다. */
+    public void markRead(LocalDateTime readAt) {
+        if (this.readAt == null) {
+            this.readAt = readAt;
+        }
+    }
+
     public boolean isActive() {
         return resolvedAt == null;
+    }
+
+    public boolean isRead() {
+        return readAt != null;
     }
 
     public String getId() {
