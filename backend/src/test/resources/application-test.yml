@@ -22,3 +22,8 @@ springdoc:
     enabled: true
   swagger-ui:
     enabled: true
+
+potner:
+  daily-light:
+    # 배치가 테스트 중 임의로 끼어들지 않도록 끈다. 집계 로직은 서비스를 직접 호출해 검증한다.
+    enabled: false
