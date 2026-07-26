@@ -134,6 +134,7 @@ class PotnerApplicationTests {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM user_notification_setting");
         jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM plant_daily_light");
         jdbcTemplate.update("DELETE FROM sensor_reading");
@@ -1286,6 +1287,79 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + stranger.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ALERT_NOT_FOUND"));
+    }
+
+    @Test
+    void notificationSettingsFallBackToDefaultsAndAcceptPartialUpdates() throws Exception {
+        Tokens tokens = signupAndLogin("notification-settings@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("notification-settings@example.com")
+                .orElseThrow()
+                .getId();
+
+        // 설정을 바꾼 적이 없으면 행이 없고 기본값이 나온다.
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(true))
+                .andExpect(jsonPath("$.pushEnabled").value(true))
+                .andExpect(jsonPath("$.plantCareEnabled").value(true))
+                .andExpect(jsonPath("$.marketingEnabled").value(false));
+        // 조회만으로 행을 만들지 않는다.
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_notification_setting WHERE user_id = ?",
+                Integer.class,
+                userId)).isZero();
+
+        // 보낸 항목만 바뀌고 나머지는 기본값을 유지한다.
+        mockMvc.perform(patch("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"marketingEnabled":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.marketingEnabled").value(true))
+                .andExpect(jsonPath("$.allEnabled").value(true))
+                .andExpect(jsonPath("$.pushEnabled").value(true));
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_notification_setting WHERE user_id = ?",
+                Integer.class,
+                userId)).isEqualTo(1);
+
+        // 두 번째 수정은 기존 행을 갱신한다.
+        mockMvc.perform(patch("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"allEnabled":false,"pushEnabled":false}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(false))
+                .andExpect(jsonPath("$.pushEnabled").value(false))
+                .andExpect(jsonPath("$.plantCareEnabled").value(true))
+                .andExpect(jsonPath("$.marketingEnabled").value(true));
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_notification_setting WHERE user_id = ?",
+                Integer.class,
+                userId)).isEqualTo(1);
+
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(false))
+                .andExpect(jsonPath("$.marketingEnabled").value(true));
+
+        // 다른 사용자의 설정은 영향받지 않는다.
+        Tokens other = signupAndLogin("notification-other@example.com");
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + other.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(true))
+                .andExpect(jsonPath("$.marketingEnabled").value(false));
+
+        mockMvc.perform(get("/api/v1/users/me/notification-settings"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
     }
 
     @Test
