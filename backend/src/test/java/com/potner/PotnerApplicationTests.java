@@ -1156,6 +1156,148 @@ class PotnerApplicationTests {
         org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isEqualTo(1);
     }
 
+    @Test
+    void alertInboxIsFilteredAndScopedToOwner() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-inbox@example.com");
+        Tokens tokens = login("alert-inbox@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("alert-inbox@example.com")
+                .orElseThrow()
+                .getId();
+        LocalDateTime base = nowUtc().minusMinutes(3);
+        // 활성 Alert는 식물·지표별로 1건만 존재할 수 있으므로 지표를 나눠 만든다.
+        insertAlert(userId, fixture.plantId(), "SOIL_MOISTURE", base, false, false);
+        insertAlert(userId, fixture.plantId(), "TEMPERATURE", base.plusMinutes(1), false, true);
+        insertAlert(userId, fixture.plantId(), "HUMIDITY", base.plusMinutes(2), true, false);
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(3))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.unreadCount").value(2))
+                .andExpect(jsonPath("$.size").value(20))
+                // 만들어진 시각 기준 최신순이다.
+                .andExpect(jsonPath("$.alerts[0].metricType").value("HUMIDITY"))
+                .andExpect(jsonPath("$.alerts[0].active").value(false))
+                .andExpect(jsonPath("$.alerts[1].metricType").value("TEMPERATURE"))
+                .andExpect(jsonPath("$.alerts[1].read").value(true))
+                .andExpect(jsonPath("$.alerts[2].metricType").value("SOIL_MOISTURE"))
+                .andExpect(jsonPath("$.alerts[2].plantName").value("센서 테스트 식물"))
+                .andExpect(jsonPath("$.alerts[2].deviation").value("LOW"))
+                .andExpect(jsonPath("$.alerts[2].thresholdMin").value(40.0))
+                .andExpect(jsonPath("$.alerts[2].active").value(true));
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("unreadOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(2))
+                .andExpect(jsonPath("$.alerts[*].metricType")
+                        .value(containsInAnyOrder("HUMIDITY", "SOIL_MOISTURE")));
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("activeOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(2))
+                .andExpect(jsonPath("$.alerts[*].metricType")
+                        .value(containsInAnyOrder("TEMPERATURE", "SOIL_MOISTURE")));
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("unreadOnly", "true")
+                        .param("activeOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(1))
+                .andExpect(jsonPath("$.alerts[0].metricType").value("SOIL_MOISTURE"));
+
+        // 상한을 넘긴 size 는 줄여서 적용하고 실제 값을 응답에 담는다.
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "500"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(100));
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        Tokens stranger = signupAndLogin("alert-stranger@example.com");
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(0))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+        mockMvc.perform(get("/api/v1/alerts"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void alertReadProcessingIsIdempotentAndOwnershipChecked() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-read@example.com");
+        Tokens tokens = login("alert-read@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("alert-read@example.com")
+                .orElseThrow()
+                .getId();
+        insertAlert(userId, fixture.plantId(), "SOIL_MOISTURE", nowUtc(), false, false);
+        String alertId = jdbcTemplate.queryForObject(
+                "SELECT alert_id FROM alert WHERE user_id = ?", String.class, userId);
+
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/read", alertId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        LocalDateTime firstReadAt = jdbcTemplate.queryForObject(
+                "SELECT read_at FROM alert WHERE alert_id = ?", LocalDateTime.class, alertId);
+        org.assertj.core.api.Assertions.assertThat(firstReadAt).isNotNull();
+
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/read", alertId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT read_at FROM alert WHERE alert_id = ?", LocalDateTime.class, alertId))
+                .isEqualTo(firstReadAt);
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unreadCount").value(0))
+                .andExpect(jsonPath("$.alerts[0].read").value(true));
+
+        Tokens stranger = signupAndLogin("alert-read-stranger@example.com");
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/read", alertId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ALERT_NOT_FOUND"));
+    }
+
+    private void insertAlert(
+            String userId,
+            String plantId,
+            String metricType,
+            LocalDateTime createdAt,
+            boolean resolved,
+            boolean read
+    ) {
+        jdbcTemplate.update("""
+                        INSERT INTO alert (
+                            alert_id, user_id, plant_id, metric_type, deviation,
+                            measured_value, threshold_min, threshold_max,
+                            occurred_at, resolved_at, read_at, created_at
+                        ) VALUES (?, ?, ?, ?, 'LOW', 34.0, 40.0, 55.0, ?, ?, ?, ?)
+                        """,
+                UUID.randomUUID().toString(),
+                userId,
+                plantId,
+                metricType,
+                createdAt,
+                resolved ? createdAt : null,
+                read ? createdAt : null,
+                createdAt
+        );
+    }
+
     private void publishSoilMoisture(
             SensorFixture fixture,
             String value,

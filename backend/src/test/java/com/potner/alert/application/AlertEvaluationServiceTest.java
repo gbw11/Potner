@@ -70,7 +70,7 @@ class AlertEvaluationServiceTest {
                 plantRepository,
                 profileRepository,
                 sensorReadingRepository,
-                new AlertProperties(3, new BigDecimal("0.1")),
+                new AlertProperties(3, new BigDecimal("0.1"), 100),
                 new SensorQueryProperties("+09:00", 15, 14, 365),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );

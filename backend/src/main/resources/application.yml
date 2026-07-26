@@ -74,6 +74,7 @@ potner:
   alert:
     sample-size: ${ALERT_SAMPLE_SIZE:3}
     hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}
+    max-page-size: ${ALERT_MAX_PAGE_SIZE:100}
   sensor:
     zone-offset: "${SENSOR_ZONE_OFFSET:+09:00}"
     freshness-threshold-minutes: ${SENSOR_FRESHNESS_THRESHOLD_MINUTES:15}
