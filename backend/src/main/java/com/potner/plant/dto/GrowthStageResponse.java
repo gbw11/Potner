@@ -6,6 +6,7 @@ public record GrowthStageResponse(
         String lifeStageId,
         String code,
         String name,
+        String description,
         int sortOrder
 ) {
     public static GrowthStageResponse from(PlantLifeStage lifeStage) {
@@ -13,6 +14,7 @@ public record GrowthStageResponse(
                 lifeStage.getId(),
                 lifeStage.getCode(),
                 lifeStage.getName(),
+                lifeStage.getDescription(),
                 lifeStage.getSortOrder()
         );
     }

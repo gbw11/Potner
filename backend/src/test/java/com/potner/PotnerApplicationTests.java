@@ -1,7 +1,12 @@
 package com.potner;
 
 import com.jayway.jsonpath.JsonPath;
+import com.potner.alert.domain.Alert;
+import com.potner.alert.domain.AlertDeviation;
+import com.potner.alert.domain.AlertMetricType;
+import com.potner.alert.domain.AlertRepository;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
@@ -31,9 +36,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -68,6 +75,10 @@ class PotnerApplicationTests {
     private static final String VEGETATIVE_ID = "10000000-0000-0000-0000-000000000006";
     private static final String TEST_INACTIVE_SPECIES_ID = "90000000-0000-0000-0000-000000000001";
 
+    /** MQTT 페이로드는 오프셋을 포함한 ISO-8601 이어야 하므로 초까지 항상 채워 UTC 로 만든다. */
+    private static final DateTimeFormatter UTC_ISO =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
+
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.10");
 
@@ -93,6 +104,25 @@ class PotnerApplicationTests {
     private IotDeviceHeartbeatService heartbeatService;
 
     @Autowired
+    private SensorTelemetryMessageProcessor telemetryProcessor;
+
+    @Autowired
+    private AlertRepository alertRepository;
+
+    @Autowired
+    private com.potner.light.application.DailyLightAggregationService dailyLightAggregationService;
+
+    @Autowired
+    private com.potner.light.domain.PlantDailyLightRepository plantDailyLightRepository;
+
+    /**
+     * 주입 자체가 검증이다. 스케줄러 빈이 만들어지지 않으면 @Scheduled 의 cron·zone 이
+     * 검증되지 않은 채 배포로 넘어간다.
+     */
+    @Autowired
+    private com.potner.light.application.DailyLightScheduler dailyLightScheduler;
+
+    @Autowired
     private Clock clock;
 
     @DynamicPropertySource
@@ -104,6 +134,9 @@ class PotnerApplicationTests {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM user_notification_setting");
+        jdbcTemplate.update("DELETE FROM alert");
+        jdbcTemplate.update("DELETE FROM plant_daily_light");
         jdbcTemplate.update("DELETE FROM sensor_reading");
         jdbcTemplate.update("DELETE FROM plant_device_assignment");
         jdbcTemplate.update("DELETE FROM iot_device");
@@ -380,8 +413,9 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.illuminance.minLux").value(nullValue()))
                 .andExpect(jsonPath("$.illuminance.maxLux").value(nullValue()))
                 .andExpect(jsonPath("$.illuminance.targetLux").value(10000.0))
-                .andExpect(jsonPath("$.dailyLight.minLuxHour").value(nullValue()))
-                .andExpect(jsonPath("$.dailyLight.maxLuxHour").value(nullValue()))
+                // V7 이 목표값 대비 비율로 허용 범위를 채웠다. 순간 조도는 여전히 비어 있다.
+                .andExpect(jsonPath("$.dailyLight.minLuxHour").value(105000.0))
+                .andExpect(jsonPath("$.dailyLight.maxLuxHour").value(195000.0))
                 .andExpect(jsonPath("$.dailyLight.targetLuxHour").value(150000.0))
                 .andExpect(jsonPath("$.photoperiodHours").value(15.0))
                 .andExpect(jsonPath("$.revision").value(2))
@@ -1046,6 +1080,828 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
+    @Test
+    void sensorAlertFollowsTransitionRulesOverMqttPipeline() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-lifecycle@example.com");
+        LocalDateTime base = nowUtc().minusMinutes(2);
+
+        // 표본 3건이 모이기 전에는 판정하지 않는다.
+        publishSoilMoisture(fixture, "34.00", base);
+        publishSoilMoisture(fixture, "33.00", base.plusSeconds(5));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+
+        // 중앙값 34 가 하한 40 을 밑돌아 LOW 를 생성한다.
+        publishSoilMoisture(fixture, "35.00", base.plusSeconds(10));
+        Alert created = alertRepository.findAll().getFirst();
+        org.assertj.core.api.Assertions.assertThat(created.getMetricType())
+                .isEqualTo(AlertMetricType.SOIL_MOISTURE);
+        org.assertj.core.api.Assertions.assertThat(created.getDeviation())
+                .isEqualTo(AlertDeviation.LOW);
+        org.assertj.core.api.Assertions.assertThat(created.getThresholdMin())
+                .isEqualByComparingTo("40.00");
+        org.assertj.core.api.Assertions.assertThat(created.isActive()).isTrue();
+
+        // 이상이 계속되어도 새 Alert 를 만들지 않는다.
+        publishSoilMoisture(fixture, "32.00", base.plusSeconds(15));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.count()).isEqualTo(1);
+
+        // 하한은 넘겼지만 복귀 기준 41.5 에 못 미치면 활성 상태를 유지한다.
+        publishSoilMoisture(fixture, "41.00", base.plusSeconds(20));
+        publishSoilMoisture(fixture, "40.60", base.plusSeconds(25));
+        publishSoilMoisture(fixture, "41.20", base.plusSeconds(30));
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(alertRepository.count()).isEqualTo(1);
+
+        // 복귀 기준을 넘기면 해제한다.
+        publishSoilMoisture(fixture, "43.00", base.plusSeconds(35));
+        publishSoilMoisture(fixture, "42.00", base.plusSeconds(40));
+        publishSoilMoisture(fixture, "44.00", base.plusSeconds(45));
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isZero();
+        org.assertj.core.api.Assertions.assertThat(
+                alertRepository.findAll().getFirst().getResolvedAt()).isNotNull();
+        // 해제되면 파생 키가 비워져 다음 Alert 를 만들 수 있다.
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM alert WHERE active_key IS NULL", Integer.class)).isEqualTo(1);
+
+        // 다시 이상해지면 새 Alert 가 생긴다.
+        publishSoilMoisture(fixture, "30.00", base.plusSeconds(50));
+        publishSoilMoisture(fixture, "31.00", base.plusSeconds(55));
+        publishSoilMoisture(fixture, "29.00", base.plusSeconds(60));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.count()).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isEqualTo(1);
+    }
+
+    @Test
+    void spikeAndIlluminanceDoNotCreateAlerts() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-spike@example.com");
+        LocalDateTime base = nowUtc().minusMinutes(2);
+
+        // 표본 하나만 튀어도 중앙값은 정상 범위에 남는다.
+        publishSoilMoisture(fixture, "45.00", base);
+        publishSoilMoisture(fixture, "44.00", base.plusSeconds(5));
+        publishSoilMoisture(fixture, "2.00", base.plusSeconds(10));
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+
+        // 조도는 순간값으로 판정하지 않는다.
+        for (int index = 0; index < 3; index++) {
+            telemetryProcessor.process(
+                    "potner/device/" + fixture.raspberryUid() + "/sensor/telemetry",
+                    telemetryJson(
+                            fixture.raspberryUid(),
+                            SensorType.ILLUMINANCE,
+                            "0",
+                            SensorUnit.LUX,
+                            base.plusSeconds(20L + index * 5)
+                    )
+            );
+        }
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void databaseRejectsSecondActiveAlertForSamePlantAndMetric() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-unique@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("alert-unique@example.com")
+                .orElseThrow()
+                .getId();
+
+        insertActiveAlert(userId, fixture.plantId());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> insertActiveAlert(userId, fixture.plantId()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        org.assertj.core.api.Assertions.assertThat(activeAlertCount()).isEqualTo(1);
+    }
+
+    @Test
+    void alertInboxIsFilteredAndScopedToOwner() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-inbox@example.com");
+        Tokens tokens = login("alert-inbox@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("alert-inbox@example.com")
+                .orElseThrow()
+                .getId();
+        LocalDateTime base = nowUtc().minusMinutes(3);
+        // 활성 Alert는 식물·지표별로 1건만 존재할 수 있으므로 지표를 나눠 만든다.
+        insertAlert(userId, fixture.plantId(), "SOIL_MOISTURE", base, false, false);
+        insertAlert(userId, fixture.plantId(), "TEMPERATURE", base.plusMinutes(1), false, true);
+        insertAlert(userId, fixture.plantId(), "HUMIDITY", base.plusMinutes(2), true, false);
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(3))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.unreadCount").value(2))
+                .andExpect(jsonPath("$.size").value(20))
+                // 만들어진 시각 기준 최신순이다.
+                .andExpect(jsonPath("$.alerts[0].metricType").value("HUMIDITY"))
+                .andExpect(jsonPath("$.alerts[0].active").value(false))
+                .andExpect(jsonPath("$.alerts[1].metricType").value("TEMPERATURE"))
+                .andExpect(jsonPath("$.alerts[1].read").value(true))
+                .andExpect(jsonPath("$.alerts[2].metricType").value("SOIL_MOISTURE"))
+                .andExpect(jsonPath("$.alerts[2].plantName").value("센서 테스트 식물"))
+                .andExpect(jsonPath("$.alerts[2].deviation").value("LOW"))
+                .andExpect(jsonPath("$.alerts[2].thresholdMin").value(40.0))
+                .andExpect(jsonPath("$.alerts[2].active").value(true));
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("unreadOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(2))
+                .andExpect(jsonPath("$.alerts[*].metricType")
+                        .value(containsInAnyOrder("HUMIDITY", "SOIL_MOISTURE")));
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("activeOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(2))
+                .andExpect(jsonPath("$.alerts[*].metricType")
+                        .value(containsInAnyOrder("TEMPERATURE", "SOIL_MOISTURE")));
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("unreadOnly", "true")
+                        .param("activeOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(1))
+                .andExpect(jsonPath("$.alerts[0].metricType").value("SOIL_MOISTURE"));
+
+        // 상한을 넘긴 size 는 줄여서 적용하고 실제 값을 응답에 담는다.
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "500"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(100));
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        Tokens stranger = signupAndLogin("alert-stranger@example.com");
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alerts.length()").value(0))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+        mockMvc.perform(get("/api/v1/alerts"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void alertReadProcessingIsIdempotentAndOwnershipChecked() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-read@example.com");
+        Tokens tokens = login("alert-read@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("alert-read@example.com")
+                .orElseThrow()
+                .getId();
+        insertAlert(userId, fixture.plantId(), "SOIL_MOISTURE", nowUtc(), false, false);
+        String alertId = jdbcTemplate.queryForObject(
+                "SELECT alert_id FROM alert WHERE user_id = ?", String.class, userId);
+
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/read", alertId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        LocalDateTime firstReadAt = jdbcTemplate.queryForObject(
+                "SELECT read_at FROM alert WHERE alert_id = ?", LocalDateTime.class, alertId);
+        org.assertj.core.api.Assertions.assertThat(firstReadAt).isNotNull();
+
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/read", alertId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT read_at FROM alert WHERE alert_id = ?", LocalDateTime.class, alertId))
+                .isEqualTo(firstReadAt);
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unreadCount").value(0))
+                .andExpect(jsonPath("$.alerts[0].read").value(true));
+
+        Tokens stranger = signupAndLogin("alert-read-stranger@example.com");
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/read", alertId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ALERT_NOT_FOUND"));
+    }
+
+    @Test
+    void plantCategoryTreeGroupsSpeciesForRegistrationDropdowns() throws Exception {
+        Tokens tokens = signupAndLogin("category-tree@example.com");
+
+        mockMvc.perform(get("/api/v1/plant-categories")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                // 루트 분류(Potner 지원 식물)는 노출하지 않고 sortOrder 순으로 정렬한다.
+                .andExpect(jsonPath("$.categories.length()").value(3))
+                .andExpect(jsonPath("$.categories[0].name").value("관상·화훼"))
+                .andExpect(jsonPath("$.categories[0].species.length()").value(3))
+                .andExpect(jsonPath("$.categories[0].species[*].name")
+                        .value(containsInAnyOrder("미니해바라기", "일일초", "칼란디바")))
+                .andExpect(jsonPath("$.categories[1].name").value("허브"))
+                .andExpect(jsonPath("$.categories[1].species[*].name")
+                        .value(containsInAnyOrder("바질", "배초향")))
+                .andExpect(jsonPath("$.categories[2].name").value("과채류"))
+                .andExpect(jsonPath("$.categories[2].species.length()").value(1))
+                .andExpect(jsonPath("$.categories[2].species[0].name").value("방울토마토"));
+
+        mockMvc.perform(get("/api/v1/plant-categories"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void growthStagesCarryDescriptionsAndVaryBySpecies() throws Exception {
+        Tokens tokens = signupAndLogin("stage-description@example.com");
+
+        // 바질은 개화기가 없고 재생장기가 있다. 잎을 먹는 허브라 개화 전에 수확하기 때문이다.
+        mockMvc.perform(get("/api/v1/plant-species/{speciesId}/growth-stages", BASIL_ID)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.growthStages[*].code")
+                        .value(containsInAnyOrder("GERMINATION", "SEEDLING", "VEGETATIVE", "REGROWTH")))
+                .andExpect(jsonPath("$.growthStages[0].description")
+                        .value("씨앗에서 싹이 트는 시기"))
+                .andExpect(jsonPath("$.growthStages[3].description")
+                        .value("수확한 뒤 잎과 줄기를 다시 키우는 시기"));
+
+        // 방울토마토는 결실기가 더 있다.
+        mockMvc.perform(get("/api/v1/plant-species/{speciesId}/growth-stages", TOMATO_ID)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.growthStages.length()").value(5))
+                .andExpect(jsonPath("$.growthStages[*].code")
+                        .value(containsInAnyOrder(
+                                "GERMINATION", "SEEDLING", "VEGETATIVE", "FLOWERING", "FRUITING")));
+    }
+
+    @Test
+    void adoptedDateIsStoredOnCreateAndCanBeUpdated() throws Exception {
+        Tokens tokens = signupAndLogin("adopted-date@example.com");
+
+        String created = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"speciesId":"%s","lifeStageId":"%s","name":"내 바질",
+                                 "adoptedDate":"2026-03-20"}
+                                """.formatted(BASIL_ID, GERMINATION_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.adoptedDate").value("2026-03-20"))
+                .andReturn().getResponse().getContentAsString();
+        String plantId = JsonPath.read(created, "$.plantId");
+
+        mockMvc.perform(get("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plants[0].adoptedDate").value("2026-03-20"));
+
+        mockMvc.perform(patch("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"adoptedDate":"2026-04-01"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.adoptedDate").value("2026-04-01"))
+                .andExpect(jsonPath("$.name").value("내 바질"));
+
+        // 데려온 날짜를 모를 수 있으므로 필수가 아니다.
+        String withoutDate = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "날짜 없는 바질")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.adoptedDate").value(nullValue()))
+                .andReturn().getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT adopted_date FROM plant WHERE plant_id = ?",
+                java.sql.Date.class,
+                (String) JsonPath.read(withoutDate, "$.plantId"))).isNull();
+    }
+
+    @Test
+    void nicknameCanBeChangedAndIsTrimmed() throws Exception {
+        Tokens tokens = signupAndLogin("nickname-change@example.com");
+
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nickname":"  새 닉네임  "}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("새 닉네임"))
+                .andExpect(jsonPath("$.email").value("nickname-change@example.com"));
+
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("새 닉네임"));
+
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nickname":"   "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void passwordChangeRevokesRefreshTokensAndSwapsCredentials() throws Exception {
+        signup("password-change@example.com");
+        Tokens tokens = login("password-change@example.com");
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("wrong-password1", "new-password1")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("PASSWORD_MISMATCH"));
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("password1", "password1")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_UNCHANGED"));
+
+        // 회원가입과 같은 규칙을 적용한다.
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("password1", "weak")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors.newPassword").exists());
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("password1", "new-password1")))
+                .andExpect(status().isNoContent());
+
+        // 유출된 Refresh Token 을 무효화하기 위해 전량 폐기한다.
+        mockMvc.perform(post("/api/v1/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(tokenJson(tokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REVOKED_REFRESH_TOKEN"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson("password-change@example.com", "password1")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("LOGIN_FAILED"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson("password-change@example.com", "new-password1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+    }
+
+    @Test
+    void withdrawalBlocksEveryRequestAndFurtherLogin() throws Exception {
+        signup("withdraw@example.com");
+        Tokens tokens = login("withdraw@example.com");
+
+        mockMvc.perform(delete("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForMap("""
+                        SELECT account_status, withdrawn_at FROM app_user WHERE email = ?
+                        """, "withdraw@example.com"))
+                .containsEntry("account_status", "WITHDRAWN")
+                .hasEntrySatisfying("withdrawn_at", value ->
+                        org.assertj.core.api.Assertions.assertThat(value).isNotNull());
+
+        // 인증 필터가 매 요청 계정 상태를 확인하므로 남은 Access Token 유효 기간을 기다리지 않는다.
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_INACTIVE"));
+        mockMvc.perform(get("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_INACTIVE"));
+
+        mockMvc.perform(post("/api/v1/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(tokenJson(tokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REVOKED_REFRESH_TOKEN"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson("withdraw@example.com", "password1")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_INACTIVE"));
+    }
+
+    @Test
+    void notificationSettingsFallBackToDefaultsAndAcceptPartialUpdates() throws Exception {
+        Tokens tokens = signupAndLogin("notification-settings@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("notification-settings@example.com")
+                .orElseThrow()
+                .getId();
+
+        // 설정을 바꾼 적이 없으면 행이 없고 기본값이 나온다.
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(true))
+                .andExpect(jsonPath("$.pushEnabled").value(true))
+                .andExpect(jsonPath("$.plantCareEnabled").value(true))
+                .andExpect(jsonPath("$.marketingEnabled").value(false));
+        // 조회만으로 행을 만들지 않는다.
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_notification_setting WHERE user_id = ?",
+                Integer.class,
+                userId)).isZero();
+
+        // 보낸 항목만 바뀌고 나머지는 기본값을 유지한다.
+        mockMvc.perform(patch("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"marketingEnabled":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.marketingEnabled").value(true))
+                .andExpect(jsonPath("$.allEnabled").value(true))
+                .andExpect(jsonPath("$.pushEnabled").value(true));
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_notification_setting WHERE user_id = ?",
+                Integer.class,
+                userId)).isEqualTo(1);
+
+        // 두 번째 수정은 기존 행을 갱신한다.
+        mockMvc.perform(patch("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"allEnabled":false,"pushEnabled":false}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(false))
+                .andExpect(jsonPath("$.pushEnabled").value(false))
+                .andExpect(jsonPath("$.plantCareEnabled").value(true))
+                .andExpect(jsonPath("$.marketingEnabled").value(true));
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_notification_setting WHERE user_id = ?",
+                Integer.class,
+                userId)).isEqualTo(1);
+
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(false))
+                .andExpect(jsonPath("$.marketingEnabled").value(true));
+
+        // 다른 사용자의 설정은 영향받지 않는다.
+        Tokens other = signupAndLogin("notification-other@example.com");
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + other.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allEnabled").value(true))
+                .andExpect(jsonPath("$.marketingEnabled").value(false));
+
+        mockMvc.perform(get("/api/v1/users/me/notification-settings"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void plantDeviceStatusIsDerivedFromChildDevices() throws Exception {
+        SensorFixture fixture = createSensorFixture("device-status@example.com");
+        Tokens tokens = login("device-status@example.com");
+
+        // 두 장치가 모두 조용한 상태다. robot.connection_status 컬럼은 갱신되지 않으므로
+        // 장치 상태에서 파생한 값이 응답에 담긴다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(fixture.plantId()))
+                .andExpect(jsonPath("$.robot.name").value("테스트 로봇"))
+                .andExpect(jsonPath("$.robot.connectionStatus").value("OFFLINE"))
+                .andExpect(jsonPath("$.robot.lastSeenAt").value(nullValue()))
+                .andExpect(jsonPath("$.robot.batteryPercent").value(nullValue()))
+                .andExpect(jsonPath("$.robot.firmwareVersion").value(nullValue()))
+                .andExpect(jsonPath("$.robot.assignedAt").exists())
+                .andExpect(jsonPath("$.devices.length()").value(2))
+                // 장치 종류 문자열 순으로 정렬한다.
+                .andExpect(jsonPath("$.devices[0].deviceType").value("JETSON_ORIN"))
+                .andExpect(jsonPath("$.devices[0].connectionStatus").value("OFFLINE"))
+                .andExpect(jsonPath("$.devices[1].deviceType").value("RASPBERRY_PI"))
+                .andExpect(jsonPath("$.devices[1].deviceUid").value(fixture.raspberryUid()));
+
+        // 라즈베리 하나만 응답하면 로봇에 도달할 수 있다는 뜻이므로 로봇도 ONLINE 이다.
+        heartbeatService.recordHeartbeat(fixture.raspberryUid());
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot.connectionStatus").value("ONLINE"))
+                .andExpect(jsonPath("$.robot.lastSeenAt").exists())
+                .andExpect(jsonPath("$.devices[0].connectionStatus").value("OFFLINE"))
+                .andExpect(jsonPath("$.devices[1].connectionStatus").value("ONLINE"));
+    }
+
+    @Test
+    void plantWithoutRobotReturnsEmptyDevicePayload() throws Exception {
+        Tokens tokens = signupAndLogin("device-unassigned@example.com");
+        String body = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "장치 없는 식물")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String plantId = JsonPath.read(body, "$.plantId");
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot").value(nullValue()))
+                .andExpect(jsonPath("$.devices.length()").value(0));
+
+        Tokens stranger = signupAndLogin("device-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void dailyLightSchedulerIsRegisteredWithValidCronAndZone() {
+        // @Scheduled 의 zone 은 TimeZone.getTimeZone 으로 해석되므로 '+09:00' 같은 맨 오프셋을 받지 않는다.
+        // 잘못된 값이면 이 빈 생성 단계에서 컨텍스트가 실패한다.
+        org.assertj.core.api.Assertions.assertThat(dailyLightScheduler).isNotNull();
+    }
+
+    @Test
+    void dailyLightBandsAreFilledByMigrationAndInstantBoundsStayEmpty() {
+        // 시드는 목표 광량만 채워져 있어 판정이 불가능했다. V7이 목표값 대비 비율로 범위를 채운다.
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForMap("""
+                        SELECT daily_light_target_lux_hour, daily_light_min_lux_hour,
+                               daily_light_max_lux_hour, illuminance_min_lux, illuminance_max_lux
+                          FROM species_growth_requirement
+                         WHERE requirement_id = '30000000-0000-0000-0000-000000000013'
+                        """))
+                .containsEntry("daily_light_target_lux_hour", new BigDecimal("150000.00"))
+                .containsEntry("daily_light_min_lux_hour", new BigDecimal("105000.00"))
+                .containsEntry("daily_light_max_lux_hour", new BigDecimal("195000.00"))
+                // 순간 조도는 의도적으로 비워 둔다. 밤에는 0 lux가 정상이다.
+                .containsEntry("illuminance_min_lux", null)
+                .containsEntry("illuminance_max_lux", null);
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM species_growth_requirement
+                 WHERE daily_light_min_lux_hour IS NULL OR daily_light_max_lux_hour IS NULL
+                """, Integer.class)).isZero();
+    }
+
+    @Test
+    void fullDayOfIlluminanceIsIntegratedAndJudgedNormal() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-normal@example.com");
+        LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
+        // 10분 간격 144개, 앞의 15시간은 10,000 lux, 나머지는 0 lux.
+        insertIlluminanceDay(fixture, lightDate, 90, "10000");
+
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+
+        var daily = plantDailyLightRepository
+                .findByPlantIdAndLightDate(fixture.plantId(), lightDate)
+                .orElseThrow();
+        // 10,000 lux × 15시간 = 150,000 lux·h 로 목표와 정확히 일치한다.
+        org.assertj.core.api.Assertions.assertThat(daily.getAccumulatedLuxHour())
+                .isEqualByComparingTo("150000.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightHours())
+                .isEqualByComparingTo("15.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getCoveragePct())
+                .isEqualByComparingTo("99.31");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightStatus().name()).isEqualTo("NORMAL");
+        org.assertj.core.api.Assertions.assertThat(daily.getPhotoperiodStatus().name())
+                .isEqualTo("NORMAL");
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+
+        // 같은 날짜를 다시 집계하면 행이 늘지 않는다.
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+        org.assertj.core.api.Assertions.assertThat(plantDailyLightRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void tooLongLightPeriodRaisesPhotoperiodAlertWhileTotalLightStaysNormal() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-photoperiod@example.com");
+        LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
+        // 7,500 lux × 20시간 = 150,000 lux·h. 총량은 정상이지만 일조가 허용 18시간을 넘는다.
+        insertIlluminanceDay(fixture, lightDate, 120, "7500");
+
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+
+        var daily = plantDailyLightRepository
+                .findByPlantIdAndLightDate(fixture.plantId(), lightDate)
+                .orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(daily.getAccumulatedLuxHour())
+                .isEqualByComparingTo("150000.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightHours())
+                .isEqualByComparingTo("20.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightStatus().name()).isEqualTo("NORMAL");
+        org.assertj.core.api.Assertions.assertThat(daily.getPhotoperiodStatus().name())
+                .isEqualTo("HIGH");
+
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll())
+                .singleElement()
+                .satisfies(alert -> {
+                    org.assertj.core.api.Assertions.assertThat(alert.getMetricType())
+                            .isEqualTo(AlertMetricType.PHOTOPERIOD);
+                    org.assertj.core.api.Assertions.assertThat(alert.getDeviation())
+                            .isEqualTo(AlertDeviation.HIGH);
+                    org.assertj.core.api.Assertions.assertThat(alert.getMeasuredValue())
+                            .isEqualByComparingTo("20.00");
+                });
+    }
+
+    @Test
+    void lowCoverageDayIsRecordedWithoutJudgementOrAlert() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-sparse@example.com");
+        LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
+        LocalDateTime start = dailyLightAggregationService.startOfDayUtc(lightDate);
+        for (int index = 0; index < 5; index++) {
+            insertReading(
+                    fixture,
+                    SensorType.ILLUMINANCE,
+                    "100",
+                    SensorUnit.LUX,
+                    start.plusSeconds(index * 600L)
+            );
+        }
+
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+
+        var daily = plantDailyLightRepository
+                .findByPlantIdAndLightDate(fixture.plantId(), lightDate)
+                .orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(daily.getLightStatus().name())
+                .isEqualTo("INSUFFICIENT_DATA");
+        org.assertj.core.api.Assertions.assertThat(daily.getPhotoperiodStatus().name())
+                .isEqualTo("INSUFFICIENT_DATA");
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void dailyLightApiReturnsTodayProgressAndConfirmedHistory() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-api@example.com");
+        Tokens tokens = login("daily-light-api@example.com");
+        LocalDate yesterday = dailyLightAggregationService.today().minusDays(1);
+        insertIlluminanceDay(fixture, yesterday, 90, "10000");
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), yesterday);
+        // 오늘은 아직 진행 중이므로 확실히 과거인 시각만 넣는다.
+        // DATETIME(0) 컬럼은 소수 초를 반올림하므로 현재 시각을 그대로 쓰면 조회 상한을 넘길 수 있다.
+        LocalDateTime now = nowUtc().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(1800));
+        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(1200));
+        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(600));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/daily-light", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(fixture.plantId()))
+                .andExpect(jsonPath("$.zoneOffset").value("+09:00"))
+                .andExpect(jsonPath("$.today.lightDate")
+                        .value(dailyLightAggregationService.today().toString()))
+                .andExpect(jsonPath("$.today.targetLuxHour").value(150000.0))
+                .andExpect(jsonPath("$.today.accumulatedLuxHour").value(3333.33))
+                .andExpect(jsonPath("$.today.progressPct").value(2.22))
+                .andExpect(jsonPath("$.today.targetPhotoperiodHours").value(15.0))
+                // 확정된 이력에만 판정 결과가 담기고 오늘은 포함되지 않는다.
+                .andExpect(jsonPath("$.history.length()").value(1))
+                .andExpect(jsonPath("$.history[0].lightDate").value(yesterday.toString()))
+                .andExpect(jsonPath("$.history[0].lightStatus").value("NORMAL"))
+                .andExpect(jsonPath("$.history[0].photoperiodStatus").value("NORMAL"))
+                .andExpect(jsonPath("$.history[0].thresholdMinLuxHour").value(105000.0));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/daily-light", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("days", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        Tokens stranger = signupAndLogin("daily-light-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/daily-light", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    /** 10분 간격 표본 144개로 하루를 채운다. 앞의 {@code lightIntervals}개만 빛이 있는 구간이다. */
+    private void insertIlluminanceDay(
+            SensorFixture fixture,
+            LocalDate lightDate,
+            int lightIntervals,
+            String lightLux
+    ) {
+        LocalDateTime start = dailyLightAggregationService.startOfDayUtc(lightDate);
+        for (int index = 0; index < 144; index++) {
+            insertReading(
+                    fixture,
+                    SensorType.ILLUMINANCE,
+                    index < lightIntervals ? lightLux : "0",
+                    SensorUnit.LUX,
+                    start.plusSeconds(index * 600L)
+            );
+        }
+    }
+
+    private void insertAlert(
+            String userId,
+            String plantId,
+            String metricType,
+            LocalDateTime createdAt,
+            boolean resolved,
+            boolean read
+    ) {
+        jdbcTemplate.update("""
+                        INSERT INTO alert (
+                            alert_id, user_id, plant_id, metric_type, deviation,
+                            measured_value, threshold_min, threshold_max,
+                            occurred_at, resolved_at, read_at, created_at
+                        ) VALUES (?, ?, ?, ?, 'LOW', 34.0, 40.0, 55.0, ?, ?, ?, ?)
+                        """,
+                UUID.randomUUID().toString(),
+                userId,
+                plantId,
+                metricType,
+                createdAt,
+                resolved ? createdAt : null,
+                read ? createdAt : null,
+                createdAt
+        );
+    }
+
+    private void publishSoilMoisture(
+            SensorFixture fixture,
+            String value,
+            LocalDateTime measuredAt
+    ) {
+        telemetryProcessor.process(
+                "potner/device/" + fixture.raspberryUid() + "/sensor/telemetry",
+                telemetryJson(
+                        fixture.raspberryUid(),
+                        SensorType.SOIL_MOISTURE,
+                        value,
+                        SensorUnit.PERCENT,
+                        measuredAt
+                )
+        );
+    }
+
+    private String telemetryJson(
+            String deviceUid,
+            SensorType sensorType,
+            String value,
+            SensorUnit unit,
+            LocalDateTime measuredAtUtc
+    ) {
+        return """
+                {"messageId":"%s","deviceId":"%s","sensorType":"%s","value":%s,"unit":"%s","measuredAt":"%s"}
+                """.formatted(
+                UUID.randomUUID(),
+                deviceUid,
+                sensorType.name(),
+                value,
+                unit.name(),
+                UTC_ISO.format(measuredAtUtc)
+        );
+    }
+
+    private void insertActiveAlert(String userId, String plantId) {
+        jdbcTemplate.update("""
+                        INSERT INTO alert (
+                            alert_id, user_id, plant_id, metric_type, deviation,
+                            measured_value, threshold_min, threshold_max, occurred_at
+                        ) VALUES (?, ?, ?, 'SOIL_MOISTURE', 'LOW', 34.0, 40.0, 55.0, UTC_TIMESTAMP())
+                        """,
+                UUID.randomUUID().toString(),
+                userId,
+                plantId
+        );
+    }
+
+    private int activeAlertCount() {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM alert WHERE resolved_at IS NULL", Integer.class);
+    }
+
     private void insertReading(
             SensorFixture fixture,
             SensorType sensorType,
@@ -1116,6 +1972,12 @@ class PotnerApplicationTests {
         return """
                 {"email":"%s","password":"%s"}
                 """.formatted(email, password);
+    }
+
+    private String changePasswordJson(String currentPassword, String newPassword) {
+        return """
+                {"currentPassword":"%s","newPassword":"%s"}
+                """.formatted(currentPassword, newPassword);
     }
 
     private String tokenJson(String token) {

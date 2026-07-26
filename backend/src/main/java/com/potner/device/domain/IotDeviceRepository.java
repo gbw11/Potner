@@ -6,11 +6,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface IotDeviceRepository extends JpaRepository<IotDevice, String> {
 
     Optional<IotDevice> findByDeviceUid(String deviceUid);
+
+    /** 장치 종류 순으로 정렬해 앱이 카드 순서를 고정할 수 있게 한다. */
+    List<IotDevice> findAllByRobotIdOrderByDeviceTypeAsc(String robotId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

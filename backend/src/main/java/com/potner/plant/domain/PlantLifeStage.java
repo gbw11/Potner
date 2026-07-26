@@ -22,6 +22,10 @@ public class PlantLifeStage {
     @Column(name = "name", length = 50, nullable = false)
     private String name;
 
+    /** 단계 이름만으로는 무엇을 고를지 알기 어려워 앱에 함께 보여준다. */
+    @Column(name = "description", length = 255)
+    private String description;
+
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
@@ -41,6 +45,10 @@ public class PlantLifeStage {
 
     public String getName() {
         return name;
+    }
+
+    public String getDescription() {
+        return description;
     }
 
     public int getSortOrder() {

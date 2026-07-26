@@ -86,9 +86,14 @@ class PlantManagementServiceTest {
 
         PlantDetailResponse response = service.createPlant(
                 USER_ID,
-                new CreatePlantRequest(SPECIES_ID, STAGE_ID, "  내 바질  "));
+                new CreatePlantRequest(
+                        SPECIES_ID,
+                        STAGE_ID,
+                        "  내 바질  ",
+                        java.time.LocalDate.of(2026, 3, 20)));
 
         assertThat(response.name()).isEqualTo("내 바질");
+        assertThat(response.adoptedDate()).isEqualTo(java.time.LocalDate.of(2026, 3, 20));
         assertThat(response.category().name()).isEqualTo("허브");
         assertThat(response.growthProfile().temperature().minC()).isEqualByComparingTo("21");
         assertThat(response.growthProfile().watering().recommendedVolumeMl()).isNull();
@@ -111,7 +116,7 @@ class PlantManagementServiceTest {
         assertBusinessError(
                 () -> service.createPlant(
                         USER_ID,
-                        new CreatePlantRequest(SPECIES_ID, STAGE_ID, "내 식물")),
+                        new CreatePlantRequest(SPECIES_ID, STAGE_ID, "내 식물", null)),
                 ErrorCode.GROWTH_REQUIREMENT_NOT_FOUND);
         verify(plantRepository, never()).save(any());
         verify(profileRepository, never()).save(any());

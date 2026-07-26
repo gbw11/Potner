@@ -19,6 +19,9 @@ public class PlantCategory {
     @Column(name = "name", length = 100, nullable = false)
     private String name;
 
+    @Column(name = "sort_order", nullable = false)
+    private int sortOrder;
+
     @Column(name = "active", nullable = false)
     private boolean active;
 
@@ -31,6 +34,10 @@ public class PlantCategory {
 
     public String getName() {
         return name;
+    }
+
+    public int getSortOrder() {
+        return sortOrder;
     }
 
     public boolean isActive() {

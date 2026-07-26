@@ -93,6 +93,14 @@ public class AppUser {
         this.accountStatus = AccountStatus.SUSPENDED;
     }
 
+    public void changeNickname(String nickname) {
+        this.nickname = nickname.trim();
+    }
+
+    public void changePassword(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
     public void withdraw(LocalDateTime withdrawnAt) {
         this.accountStatus = AccountStatus.WITHDRAWN;
         this.withdrawnAt = withdrawnAt;

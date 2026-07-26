@@ -45,6 +45,53 @@ class PlantReferenceServiceTest {
     }
 
     @Test
+    void categoryTreeGroupsSpeciesAndDropsInactiveCategories() {
+        com.potner.plant.domain.PlantCategory herb =
+                mock(com.potner.plant.domain.PlantCategory.class);
+        when(herb.getId()).thenReturn("category-herb");
+        when(herb.getName()).thenReturn("허브");
+        when(herb.getSortOrder()).thenReturn(20);
+        when(herb.isActive()).thenReturn(true);
+        com.potner.plant.domain.PlantCategory retired =
+                mock(com.potner.plant.domain.PlantCategory.class);
+        when(retired.isActive()).thenReturn(false);
+
+        // 스텁 안에서 다시 스텁을 만들지 않도록 종 목록을 먼저 준비한다.
+        // 비활성 분류에 속한 종은 빈 드롭다운을 만들지 않도록 제외되어야 한다.
+        List<PlantSpecies> activeSpecies = List.of(
+                speciesIn(herb, "species-basil", "바질"),
+                speciesIn(herb, "species-agastache", "배초향"),
+                speciesIn(retired, "species-hidden", "숨김")
+        );
+        when(plantSpeciesRepository.findAllByActiveTrueOrderByCategorySortOrderAscNameAsc())
+                .thenReturn(activeSpecies);
+
+        var response = plantReferenceService.getCategoryTree();
+
+        assertThat(response.categories()).hasSize(1);
+        assertThat(response.categories().getFirst().categoryId()).isEqualTo("category-herb");
+        assertThat(response.categories().getFirst().name()).isEqualTo("허브");
+        assertThat(response.categories().getFirst().sortOrder()).isEqualTo(20);
+        assertThat(response.categories().getFirst().species())
+                .extracting(species -> species.name())
+                .containsExactly("바질", "배초향");
+    }
+
+    private PlantSpecies speciesIn(
+            com.potner.plant.domain.PlantCategory category,
+            String id,
+            String name
+    ) {
+        PlantSpecies species = mock(PlantSpecies.class);
+        when(species.getCategory()).thenReturn(category);
+        org.mockito.Mockito.lenient().when(species.getId()).thenReturn(id);
+        org.mockito.Mockito.lenient().when(species.getName()).thenReturn(name);
+        org.mockito.Mockito.lenient().when(species.getScientificName()).thenReturn(null);
+        org.mockito.Mockito.lenient().when(species.getDescription()).thenReturn(null);
+        return species;
+    }
+
+    @Test
     void returnsActiveSpeciesAsResponseDtos() {
         PlantSpecies basil = species(SPECIES_ID, "바질");
         when(basil.getScientificName()).thenReturn("Ocimum basilicum L.");

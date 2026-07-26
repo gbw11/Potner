@@ -2,6 +2,10 @@
 
 Potner의 초기 서버 구성은 Spring Boot backend, MySQL, Mosquitto, Nginx를 Docker Compose v2로 실행하는 것을 목표로 합니다. 이 단계는 로컬 Git 저장소의 코드와 설정 파일만 구성하며 EC2, 방화벽, SSH, 기존 서비스에는 접속하거나 변경하지 않습니다.
 
+이 문서는 인프라 구성과 배포 절차를 다룹니다. **애플리케이션이 어떤 기능을 어떻게 구현했는지는
+[docs/BACKEND.md](docs/BACKEND.md)** 를 보십시오. 도메인 모델, 판정 계산식, API 목록, 설정 프로퍼티,
+반복해서 부딪힌 제약과 그 결정 이유가 정리되어 있습니다.
+
 ## 아키텍처
 
 ```text
