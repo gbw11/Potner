@@ -71,3 +71,8 @@ potner:
       topic: ${MQTT_HEARTBEAT_TOPIC:potner/device/+/status/heartbeat}
       offline-timeout-seconds: ${MQTT_HEARTBEAT_OFFLINE_TIMEOUT_SECONDS:90}
       offline-check-interval-seconds: ${MQTT_HEARTBEAT_OFFLINE_CHECK_INTERVAL_SECONDS:30}
+  sensor:
+    zone-offset: "${SENSOR_ZONE_OFFSET:+09:00}"
+    freshness-threshold-minutes: ${SENSOR_FRESHNESS_THRESHOLD_MINUTES:15}
+    max-hour-interval-days: ${SENSOR_MAX_HOUR_INTERVAL_DAYS:14}
+    max-day-interval-days: ${SENSOR_MAX_DAY_INTERVAL_DAYS:365}
