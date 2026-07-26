@@ -1,5 +1,6 @@
 package com.potner.auth.dto;
 
+import com.potner.common.validation.PasswordConstraints;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -12,10 +13,14 @@ public record SignupRequest(
         String email,
 
         @NotBlank(message = "비밀번호는 필수입니다.")
-        @Size(min = 8, max = 72, message = "비밀번호는 8자 이상 72자 이하여야 합니다.")
+        @Size(
+                min = PasswordConstraints.MIN_LENGTH,
+                max = PasswordConstraints.MAX_LENGTH,
+                message = PasswordConstraints.LENGTH_MESSAGE
+        )
         @Pattern(
-                regexp = "^(?=.*[A-Za-z])(?=.*\\d)\\S+$",
-                message = "비밀번호는 영문과 숫자를 포함하고 공백이 없어야 합니다."
+                regexp = PasswordConstraints.PATTERN,
+                message = PasswordConstraints.PATTERN_MESSAGE
         )
         String password,
 

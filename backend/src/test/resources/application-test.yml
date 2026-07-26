@@ -22,3 +22,12 @@ springdoc:
     enabled: true
   swagger-ui:
     enabled: true
+
+potner:
+  daily-light:
+    # 스케줄러 빈을 만들어 @Scheduled 의 cron·zone 이 실제로 유효한지 컨텍스트 시작 시점에 검증한다.
+    # 빈을 만들지 않으면 잘못된 zone 값이 테스트를 통과해 배포에서 터진다.
+    enabled: true
+    # 사실상 실행되지 않는 시각으로 두어 테스트 중 배치가 끼어들지 않게 한다.
+    # 집계 로직은 서비스를 직접 호출해 검증한다.
+    cron: "0 0 3 1 1 *"

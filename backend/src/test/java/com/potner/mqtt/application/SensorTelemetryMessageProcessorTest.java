@@ -1,8 +1,11 @@
 package com.potner.mqtt.application;
 
+import com.potner.alert.application.AlertEvaluationResult;
+import com.potner.alert.application.AlertEvaluationService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.sensor.application.SensorReadingSaveResult;
 import com.potner.sensor.application.SensorReadingService;
+import com.potner.sensor.domain.SensorType;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +29,10 @@ class SensorTelemetryMessageProcessorTest {
     private static final String TOPIC = "potner/device/raspberry-01/sensor/telemetry";
     private static final Instant NOW = Instant.parse("2026-07-22T08:15:00Z");
 
+    private static final String PLANT_ID = "20000000-0000-0000-0000-0000000000bb";
+
     private SensorReadingService sensorReadingService;
+    private AlertEvaluationService alertEvaluationService;
     private SensorTelemetryMessageProcessor processor;
 
     @BeforeEach
@@ -34,12 +40,14 @@ class SensorTelemetryMessageProcessorTest {
         ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
         sensorReadingService = mock(SensorReadingService.class);
+        alertEvaluationService = mock(AlertEvaluationService.class);
         processor = new SensorTelemetryMessageProcessor(
                 objectMapper,
                 validator,
                 new SensorTelemetryTopicParser(),
                 new SensorTelemetryValueValidator(),
                 sensorReadingService,
+                alertEvaluationService,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
@@ -51,6 +59,28 @@ class SensorTelemetryMessageProcessorTest {
         processor.process(TOPIC, validJson());
 
         verify(sensorReadingService).save(any(SensorTelemetryMessage.class));
+    }
+
+    @Test
+    void savedTelemetryTriggersAlertEvaluation() {
+        when(sensorReadingService.save(any())).thenReturn(SensorReadingSaveResult.SAVED);
+        when(sensorReadingService.findAssignedPlantId("raspberry-01"))
+                .thenReturn(java.util.Optional.of(PLANT_ID));
+        when(alertEvaluationService.evaluate(PLANT_ID, SensorType.TEMPERATURE))
+                .thenReturn(AlertEvaluationResult.CREATED);
+
+        processor.process(TOPIC, validJson());
+
+        verify(alertEvaluationService).evaluate(PLANT_ID, SensorType.TEMPERATURE);
+    }
+
+    @Test
+    void duplicateTelemetryDoesNotTriggerAlertEvaluation() {
+        when(sensorReadingService.save(any())).thenReturn(SensorReadingSaveResult.DUPLICATE);
+
+        processor.process(TOPIC, validJson());
+
+        verify(alertEvaluationService, never()).evaluate(any(), any());
     }
 
     @Test

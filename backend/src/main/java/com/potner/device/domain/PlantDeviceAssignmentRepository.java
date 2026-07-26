@@ -9,4 +9,8 @@ public interface PlantDeviceAssignmentRepository extends JpaRepository<PlantDevi
     Optional<PlantDeviceAssignment> findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(
             String robotId
     );
+
+    Optional<PlantDeviceAssignment> findFirstByPlantIdAndUnassignedAtIsNullOrderByAssignedAtDesc(
+            String plantId
+    );
 }

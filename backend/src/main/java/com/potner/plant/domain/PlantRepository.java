@@ -25,4 +25,7 @@ public interface PlantRepository extends JpaRepository<Plant, String> {
 
     @EntityGraph(attributePaths = {"species", "species.category", "lifeStage"})
     Optional<Plant> findByIdAndUserIdAndStatusNot(String id, String userId, PlantStatus excludedStatus);
+
+    /** 일일 집계 대상. 연관 데이터가 필요하지 않으므로 그래프를 붙이지 않는다. */
+    List<Plant> findAllByStatus(PlantStatus status);
 }
