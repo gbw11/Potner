@@ -1,17 +1,22 @@
 # potner_app
 
-A new Flutter project.
+Potner Flutter mobile application.
 
-## Getting Started
+## Local Android run
 
-This project is a starting point for a Flutter application.
+```bash
+flutter run \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8080/api/v1
+```
 
-A few resources to get you started if this is your first Flutter project:
+The Android application ID is `com.potner.app`. Firebase Cloud Messaging setup,
+the frontend lifecycle, and the backend API contract are documented in
+[`docs/FCM.md`](docs/FCM.md).
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Verification
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter analyze
+flutter test
+flutter build apk --debug
+```
