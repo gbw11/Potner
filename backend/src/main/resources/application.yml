@@ -74,7 +74,10 @@ potner:
   daily-light:
     enabled: ${DAILY_LIGHT_ENABLED:true}
     cron: "${DAILY_LIGHT_CRON:0 0 2 * * *}"
-    zone: "${DAILY_LIGHT_ZONE:${SENSOR_ZONE_OFFSET:+09:00}}"
+    # @Scheduled 의 zone 은 TimeZone.getTimeZone 으로 해석되므로 맨 오프셋('+09:00')을 받지 않는다.
+    # IANA 지역 ID 또는 'GMT+09:00' 형태여야 한다.
+    # potner.sensor.zone-offset 과 같은 지역을 가리켜야 한다. 그쪽은 SQL 시각 연산에 쓰이므로 고정 오프셋이다.
+    zone: "${DAILY_LIGHT_ZONE:Asia/Seoul}"
     light-on-threshold-lux: ${DAILY_LIGHT_ON_THRESHOLD_LUX:500}
     max-gap-seconds: ${DAILY_LIGHT_MAX_GAP_SECONDS:600}
     min-coverage-pct: ${DAILY_LIGHT_MIN_COVERAGE_PCT:80}

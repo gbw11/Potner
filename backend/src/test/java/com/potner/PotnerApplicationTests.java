@@ -115,6 +115,13 @@ class PotnerApplicationTests {
     @Autowired
     private com.potner.light.domain.PlantDailyLightRepository plantDailyLightRepository;
 
+    /**
+     * 주입 자체가 검증이다. 스케줄러 빈이 만들어지지 않으면 @Scheduled 의 cron·zone 이
+     * 검증되지 않은 채 배포로 넘어간다.
+     */
+    @Autowired
+    private com.potner.light.application.DailyLightScheduler dailyLightScheduler;
+
     @Autowired
     private Clock clock;
 
@@ -1279,6 +1286,13 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + stranger.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ALERT_NOT_FOUND"));
+    }
+
+    @Test
+    void dailyLightSchedulerIsRegisteredWithValidCronAndZone() {
+        // @Scheduled 의 zone 은 TimeZone.getTimeZone 으로 해석되므로 '+09:00' 같은 맨 오프셋을 받지 않는다.
+        // 잘못된 값이면 이 빈 생성 단계에서 컨텍스트가 실패한다.
+        org.assertj.core.api.Assertions.assertThat(dailyLightScheduler).isNotNull();
     }
 
     @Test
