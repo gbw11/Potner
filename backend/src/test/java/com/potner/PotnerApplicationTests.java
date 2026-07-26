@@ -1290,6 +1290,128 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void nicknameCanBeChangedAndIsTrimmed() throws Exception {
+        Tokens tokens = signupAndLogin("nickname-change@example.com");
+
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nickname":"  새 닉네임  "}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("새 닉네임"))
+                .andExpect(jsonPath("$.email").value("nickname-change@example.com"));
+
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("새 닉네임"));
+
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nickname":"   "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void passwordChangeRevokesRefreshTokensAndSwapsCredentials() throws Exception {
+        signup("password-change@example.com");
+        Tokens tokens = login("password-change@example.com");
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("wrong-password1", "new-password1")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("PASSWORD_MISMATCH"));
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("password1", "password1")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_UNCHANGED"));
+
+        // 회원가입과 같은 규칙을 적용한다.
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("password1", "weak")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors.newPassword").exists());
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(changePasswordJson("password1", "new-password1")))
+                .andExpect(status().isNoContent());
+
+        // 유출된 Refresh Token 을 무효화하기 위해 전량 폐기한다.
+        mockMvc.perform(post("/api/v1/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(tokenJson(tokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REVOKED_REFRESH_TOKEN"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson("password-change@example.com", "password1")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("LOGIN_FAILED"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson("password-change@example.com", "new-password1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+    }
+
+    @Test
+    void withdrawalBlocksEveryRequestAndFurtherLogin() throws Exception {
+        signup("withdraw@example.com");
+        Tokens tokens = login("withdraw@example.com");
+
+        mockMvc.perform(delete("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForMap("""
+                        SELECT account_status, withdrawn_at FROM app_user WHERE email = ?
+                        """, "withdraw@example.com"))
+                .containsEntry("account_status", "WITHDRAWN")
+                .hasEntrySatisfying("withdrawn_at", value ->
+                        org.assertj.core.api.Assertions.assertThat(value).isNotNull());
+
+        // 인증 필터가 매 요청 계정 상태를 확인하므로 남은 Access Token 유효 기간을 기다리지 않는다.
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_INACTIVE"));
+        mockMvc.perform(get("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_INACTIVE"));
+
+        mockMvc.perform(post("/api/v1/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(tokenJson(tokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REVOKED_REFRESH_TOKEN"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson("withdraw@example.com", "password1")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_INACTIVE"));
+    }
+
+    @Test
     void notificationSettingsFallBackToDefaultsAndAcceptPartialUpdates() throws Exception {
         Tokens tokens = signupAndLogin("notification-settings@example.com");
         String userId = appUserRepository.findByEmailIgnoreCase("notification-settings@example.com")
@@ -1755,6 +1877,12 @@ class PotnerApplicationTests {
         return """
                 {"email":"%s","password":"%s"}
                 """.formatted(email, password);
+    }
+
+    private String changePasswordJson(String currentPassword, String newPassword) {
+        return """
+                {"currentPassword":"%s","newPassword":"%s"}
+                """.formatted(currentPassword, newPassword);
     }
 
     private String tokenJson(String token) {
