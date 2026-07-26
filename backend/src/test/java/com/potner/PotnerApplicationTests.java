@@ -1290,6 +1290,101 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void plantCategoryTreeGroupsSpeciesForRegistrationDropdowns() throws Exception {
+        Tokens tokens = signupAndLogin("category-tree@example.com");
+
+        mockMvc.perform(get("/api/v1/plant-categories")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                // 루트 분류(Potner 지원 식물)는 노출하지 않고 sortOrder 순으로 정렬한다.
+                .andExpect(jsonPath("$.categories.length()").value(3))
+                .andExpect(jsonPath("$.categories[0].name").value("관상·화훼"))
+                .andExpect(jsonPath("$.categories[0].species.length()").value(3))
+                .andExpect(jsonPath("$.categories[0].species[*].name")
+                        .value(containsInAnyOrder("미니해바라기", "일일초", "칼란디바")))
+                .andExpect(jsonPath("$.categories[1].name").value("허브"))
+                .andExpect(jsonPath("$.categories[1].species[*].name")
+                        .value(containsInAnyOrder("바질", "배초향")))
+                .andExpect(jsonPath("$.categories[2].name").value("과채류"))
+                .andExpect(jsonPath("$.categories[2].species.length()").value(1))
+                .andExpect(jsonPath("$.categories[2].species[0].name").value("방울토마토"));
+
+        mockMvc.perform(get("/api/v1/plant-categories"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void growthStagesCarryDescriptionsAndVaryBySpecies() throws Exception {
+        Tokens tokens = signupAndLogin("stage-description@example.com");
+
+        // 바질은 개화기가 없고 재생장기가 있다. 잎을 먹는 허브라 개화 전에 수확하기 때문이다.
+        mockMvc.perform(get("/api/v1/plant-species/{speciesId}/growth-stages", BASIL_ID)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.growthStages[*].code")
+                        .value(containsInAnyOrder("GERMINATION", "SEEDLING", "VEGETATIVE", "REGROWTH")))
+                .andExpect(jsonPath("$.growthStages[0].description")
+                        .value("씨앗에서 싹이 트는 시기"))
+                .andExpect(jsonPath("$.growthStages[3].description")
+                        .value("수확한 뒤 잎과 줄기를 다시 키우는 시기"));
+
+        // 방울토마토는 결실기가 더 있다.
+        mockMvc.perform(get("/api/v1/plant-species/{speciesId}/growth-stages", TOMATO_ID)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.growthStages.length()").value(5))
+                .andExpect(jsonPath("$.growthStages[*].code")
+                        .value(containsInAnyOrder(
+                                "GERMINATION", "SEEDLING", "VEGETATIVE", "FLOWERING", "FRUITING")));
+    }
+
+    @Test
+    void adoptedDateIsStoredOnCreateAndCanBeUpdated() throws Exception {
+        Tokens tokens = signupAndLogin("adopted-date@example.com");
+
+        String created = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"speciesId":"%s","lifeStageId":"%s","name":"내 바질",
+                                 "adoptedDate":"2026-03-20"}
+                                """.formatted(BASIL_ID, GERMINATION_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.adoptedDate").value("2026-03-20"))
+                .andReturn().getResponse().getContentAsString();
+        String plantId = JsonPath.read(created, "$.plantId");
+
+        mockMvc.perform(get("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plants[0].adoptedDate").value("2026-03-20"));
+
+        mockMvc.perform(patch("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"adoptedDate":"2026-04-01"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.adoptedDate").value("2026-04-01"))
+                .andExpect(jsonPath("$.name").value("내 바질"));
+
+        // 데려온 날짜를 모를 수 있으므로 필수가 아니다.
+        String withoutDate = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "날짜 없는 바질")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.adoptedDate").value(nullValue()))
+                .andReturn().getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                "SELECT adopted_date FROM plant WHERE plant_id = ?",
+                java.sql.Date.class,
+                (String) JsonPath.read(withoutDate, "$.plantId"))).isNull();
+    }
+
+    @Test
     void nicknameCanBeChangedAndIsTrimmed() throws Exception {
         Tokens tokens = signupAndLogin("nickname-change@example.com");
 
