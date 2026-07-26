@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 @Service
 public class SensorReadingService {
@@ -81,5 +82,18 @@ public class SensorReadingService {
                         + ", affectedRows="
                         + insertedRows
         );
+    }
+
+    /**
+     * 장치가 현재 담당하는 식물을 찾는다. 이상 판정은 식물 단위로 이루어지므로
+     * 측정값 저장 이후 판정을 이어가려면 이 값이 필요하다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> findAssignedPlantId(String deviceUid) {
+        return iotDeviceRepository.findByDeviceUid(deviceUid)
+                .map(IotDevice::getRobot)
+                .flatMap(robot -> assignmentRepository
+                        .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(robot.getId()))
+                .map(PlantDeviceAssignment::getPlantId);
     }
 }
