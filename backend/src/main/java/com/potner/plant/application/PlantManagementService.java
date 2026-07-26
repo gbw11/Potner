@@ -76,7 +76,13 @@ public class PlantManagementService {
         SpeciesGrowthRequirement requirement = findRequirement(species.getId(), lifeStage.getId());
         LocalDateTime now = now();
 
-        Plant plant = plantRepository.save(Plant.create(user, species, lifeStage, request.name(), now));
+        Plant plant = plantRepository.save(Plant.create(
+                user,
+                species,
+                lifeStage,
+                request.name(),
+                request.adoptedDate(),
+                now));
         PlantGrowthProfile profile = profileRepository.save(
                 PlantGrowthProfile.create(plant, requirement, now));
         return PlantDetailResponse.from(plant, profile);
@@ -119,6 +125,9 @@ public class PlantManagementService {
         if (request.name() != null) {
             validatePlantName(request.name());
             plant.updateNickname(request.name(), now());
+        }
+        if (request.adoptedDate() != null) {
+            plant.updateAdoptedDate(request.adoptedDate(), now());
         }
         return PlantDetailResponse.from(plant, findProfile(plantId));
     }

@@ -13,6 +13,7 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -40,6 +41,10 @@ public class Plant {
     @Column(name = "nickname", length = 50, nullable = false)
     private String nickname;
 
+    /** 사용자가 데려온 날짜. 앱 등록일({@code createdAt})과 다르며 모를 수도 있어 비어 있을 수 있다. */
+    @Column(name = "adopted_date")
+    private LocalDate adoptedDate;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "plant_status", length = 20, nullable = false)
     private PlantStatus status;
@@ -62,6 +67,7 @@ public class Plant {
             PlantSpecies species,
             PlantLifeStage lifeStage,
             String nickname,
+            LocalDate adoptedDate,
             LocalDateTime now
     ) {
         this.id = id;
@@ -69,6 +75,7 @@ public class Plant {
         this.species = species;
         this.lifeStage = lifeStage;
         this.nickname = nickname;
+        this.adoptedDate = adoptedDate;
         this.status = PlantStatus.ACTIVE;
         this.createdAt = now;
         this.updatedAt = now;
@@ -79,6 +86,7 @@ public class Plant {
             PlantSpecies species,
             PlantLifeStage lifeStage,
             String nickname,
+            LocalDate adoptedDate,
             LocalDateTime now
     ) {
         return new Plant(
@@ -87,12 +95,18 @@ public class Plant {
                 species,
                 lifeStage,
                 nickname.trim(),
+                adoptedDate,
                 now
         );
     }
 
     public void updateNickname(String nickname, LocalDateTime now) {
         this.nickname = nickname.trim();
+        this.updatedAt = now;
+    }
+
+    public void updateAdoptedDate(LocalDate adoptedDate, LocalDateTime now) {
+        this.adoptedDate = adoptedDate;
         this.updatedAt = now;
     }
 
@@ -125,6 +139,10 @@ public class Plant {
 
     public String getNickname() {
         return nickname;
+    }
+
+    public LocalDate getAdoptedDate() {
+        return adoptedDate;
     }
 
     public PlantStatus getStatus() {

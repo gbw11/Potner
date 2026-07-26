@@ -2,11 +2,13 @@ package com.potner.plant.dto;
 
 import com.potner.plant.domain.Plant;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public record PlantSummaryResponse(
         String plantId,
         String name,
+        LocalDate adoptedDate,
         String speciesId,
         String speciesName,
         String scientificName,
@@ -22,6 +24,7 @@ public record PlantSummaryResponse(
         return new PlantSummaryResponse(
                 plant.getId(),
                 plant.getNickname(),
+                plant.getAdoptedDate(),
                 plant.getSpecies().getId(),
                 plant.getSpecies().getName(),
                 plant.getSpecies().getScientificName(),
