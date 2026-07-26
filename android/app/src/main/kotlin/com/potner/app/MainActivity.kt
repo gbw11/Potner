@@ -1,4 +1,4 @@
-package com.example.potner_app
+package com.potner.app
 
 import com.it_nomads.fluttersecurestorage.FlutterSecureStoragePlugin
 import io.flutter.embedding.android.FlutterActivity
