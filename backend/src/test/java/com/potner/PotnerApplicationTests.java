@@ -1289,6 +1289,69 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void plantDeviceStatusIsDerivedFromChildDevices() throws Exception {
+        SensorFixture fixture = createSensorFixture("device-status@example.com");
+        Tokens tokens = login("device-status@example.com");
+
+        // 두 장치가 모두 조용한 상태다. robot.connection_status 컬럼은 갱신되지 않으므로
+        // 장치 상태에서 파생한 값이 응답에 담긴다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(fixture.plantId()))
+                .andExpect(jsonPath("$.robot.name").value("테스트 로봇"))
+                .andExpect(jsonPath("$.robot.connectionStatus").value("OFFLINE"))
+                .andExpect(jsonPath("$.robot.lastSeenAt").value(nullValue()))
+                .andExpect(jsonPath("$.robot.batteryPercent").value(nullValue()))
+                .andExpect(jsonPath("$.robot.firmwareVersion").value(nullValue()))
+                .andExpect(jsonPath("$.robot.assignedAt").exists())
+                .andExpect(jsonPath("$.devices.length()").value(2))
+                // 장치 종류 문자열 순으로 정렬한다.
+                .andExpect(jsonPath("$.devices[0].deviceType").value("JETSON_ORIN"))
+                .andExpect(jsonPath("$.devices[0].connectionStatus").value("OFFLINE"))
+                .andExpect(jsonPath("$.devices[1].deviceType").value("RASPBERRY_PI"))
+                .andExpect(jsonPath("$.devices[1].deviceUid").value(fixture.raspberryUid()));
+
+        // 라즈베리 하나만 응답하면 로봇에 도달할 수 있다는 뜻이므로 로봇도 ONLINE 이다.
+        heartbeatService.recordHeartbeat(fixture.raspberryUid());
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot.connectionStatus").value("ONLINE"))
+                .andExpect(jsonPath("$.robot.lastSeenAt").exists())
+                .andExpect(jsonPath("$.devices[0].connectionStatus").value("OFFLINE"))
+                .andExpect(jsonPath("$.devices[1].connectionStatus").value("ONLINE"));
+    }
+
+    @Test
+    void plantWithoutRobotReturnsEmptyDevicePayload() throws Exception {
+        Tokens tokens = signupAndLogin("device-unassigned@example.com");
+        String body = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, "장치 없는 식물")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String plantId = JsonPath.read(body, "$.plantId");
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot").value(nullValue()))
+                .andExpect(jsonPath("$.devices.length()").value(0));
+
+        Tokens stranger = signupAndLogin("device-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
     void dailyLightSchedulerIsRegisteredWithValidCronAndZone() {
         // @Scheduled 의 zone 은 TimeZone.getTimeZone 으로 해석되므로 '+09:00' 같은 맨 오프셋을 받지 않는다.
         // 잘못된 값이면 이 빈 생성 단계에서 컨텍스트가 실패한다.
