@@ -71,6 +71,15 @@ potner:
       topic: ${MQTT_HEARTBEAT_TOPIC:potner/device/+/status/heartbeat}
       offline-timeout-seconds: ${MQTT_HEARTBEAT_OFFLINE_TIMEOUT_SECONDS:90}
       offline-check-interval-seconds: ${MQTT_HEARTBEAT_OFFLINE_CHECK_INTERVAL_SECONDS:30}
+  daily-light:
+    enabled: ${DAILY_LIGHT_ENABLED:true}
+    cron: "${DAILY_LIGHT_CRON:0 0 2 * * *}"
+    zone: "${DAILY_LIGHT_ZONE:${SENSOR_ZONE_OFFSET:+09:00}}"
+    light-on-threshold-lux: ${DAILY_LIGHT_ON_THRESHOLD_LUX:500}
+    max-gap-seconds: ${DAILY_LIGHT_MAX_GAP_SECONDS:600}
+    min-coverage-pct: ${DAILY_LIGHT_MIN_COVERAGE_PCT:80}
+    photoperiod-tolerance-ratio: ${DAILY_LIGHT_PHOTOPERIOD_TOLERANCE_RATIO:0.2}
+    max-history-days: ${DAILY_LIGHT_MAX_HISTORY_DAYS:90}
   alert:
     sample-size: ${ALERT_SAMPLE_SIZE:3}
     hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}

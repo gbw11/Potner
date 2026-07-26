@@ -36,6 +36,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -109,6 +110,12 @@ class PotnerApplicationTests {
     private AlertRepository alertRepository;
 
     @Autowired
+    private com.potner.light.application.DailyLightAggregationService dailyLightAggregationService;
+
+    @Autowired
+    private com.potner.light.domain.PlantDailyLightRepository plantDailyLightRepository;
+
+    @Autowired
     private Clock clock;
 
     @DynamicPropertySource
@@ -121,6 +128,7 @@ class PotnerApplicationTests {
     @BeforeEach
     void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM alert");
+        jdbcTemplate.update("DELETE FROM plant_daily_light");
         jdbcTemplate.update("DELETE FROM sensor_reading");
         jdbcTemplate.update("DELETE FROM plant_device_assignment");
         jdbcTemplate.update("DELETE FROM iot_device");
@@ -397,8 +405,9 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.illuminance.minLux").value(nullValue()))
                 .andExpect(jsonPath("$.illuminance.maxLux").value(nullValue()))
                 .andExpect(jsonPath("$.illuminance.targetLux").value(10000.0))
-                .andExpect(jsonPath("$.dailyLight.minLuxHour").value(nullValue()))
-                .andExpect(jsonPath("$.dailyLight.maxLuxHour").value(nullValue()))
+                // V7 이 목표값 대비 비율로 허용 범위를 채웠다. 순간 조도는 여전히 비어 있다.
+                .andExpect(jsonPath("$.dailyLight.minLuxHour").value(105000.0))
+                .andExpect(jsonPath("$.dailyLight.maxLuxHour").value(195000.0))
                 .andExpect(jsonPath("$.dailyLight.targetLuxHour").value(150000.0))
                 .andExpect(jsonPath("$.photoperiodHours").value(15.0))
                 .andExpect(jsonPath("$.revision").value(2))
@@ -1270,6 +1279,179 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + stranger.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ALERT_NOT_FOUND"));
+    }
+
+    @Test
+    void dailyLightBandsAreFilledByMigrationAndInstantBoundsStayEmpty() {
+        // 시드는 목표 광량만 채워져 있어 판정이 불가능했다. V7이 목표값 대비 비율로 범위를 채운다.
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForMap("""
+                        SELECT daily_light_target_lux_hour, daily_light_min_lux_hour,
+                               daily_light_max_lux_hour, illuminance_min_lux, illuminance_max_lux
+                          FROM species_growth_requirement
+                         WHERE requirement_id = '30000000-0000-0000-0000-000000000013'
+                        """))
+                .containsEntry("daily_light_target_lux_hour", new BigDecimal("150000.00"))
+                .containsEntry("daily_light_min_lux_hour", new BigDecimal("105000.00"))
+                .containsEntry("daily_light_max_lux_hour", new BigDecimal("195000.00"))
+                // 순간 조도는 의도적으로 비워 둔다. 밤에는 0 lux가 정상이다.
+                .containsEntry("illuminance_min_lux", null)
+                .containsEntry("illuminance_max_lux", null);
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM species_growth_requirement
+                 WHERE daily_light_min_lux_hour IS NULL OR daily_light_max_lux_hour IS NULL
+                """, Integer.class)).isZero();
+    }
+
+    @Test
+    void fullDayOfIlluminanceIsIntegratedAndJudgedNormal() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-normal@example.com");
+        LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
+        // 10분 간격 144개, 앞의 15시간은 10,000 lux, 나머지는 0 lux.
+        insertIlluminanceDay(fixture, lightDate, 90, "10000");
+
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+
+        var daily = plantDailyLightRepository
+                .findByPlantIdAndLightDate(fixture.plantId(), lightDate)
+                .orElseThrow();
+        // 10,000 lux × 15시간 = 150,000 lux·h 로 목표와 정확히 일치한다.
+        org.assertj.core.api.Assertions.assertThat(daily.getAccumulatedLuxHour())
+                .isEqualByComparingTo("150000.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightHours())
+                .isEqualByComparingTo("15.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getCoveragePct())
+                .isEqualByComparingTo("99.31");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightStatus().name()).isEqualTo("NORMAL");
+        org.assertj.core.api.Assertions.assertThat(daily.getPhotoperiodStatus().name())
+                .isEqualTo("NORMAL");
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+
+        // 같은 날짜를 다시 집계하면 행이 늘지 않는다.
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+        org.assertj.core.api.Assertions.assertThat(plantDailyLightRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void tooLongLightPeriodRaisesPhotoperiodAlertWhileTotalLightStaysNormal() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-photoperiod@example.com");
+        LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
+        // 7,500 lux × 20시간 = 150,000 lux·h. 총량은 정상이지만 일조가 허용 18시간을 넘는다.
+        insertIlluminanceDay(fixture, lightDate, 120, "7500");
+
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+
+        var daily = plantDailyLightRepository
+                .findByPlantIdAndLightDate(fixture.plantId(), lightDate)
+                .orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(daily.getAccumulatedLuxHour())
+                .isEqualByComparingTo("150000.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightHours())
+                .isEqualByComparingTo("20.00");
+        org.assertj.core.api.Assertions.assertThat(daily.getLightStatus().name()).isEqualTo("NORMAL");
+        org.assertj.core.api.Assertions.assertThat(daily.getPhotoperiodStatus().name())
+                .isEqualTo("HIGH");
+
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll())
+                .singleElement()
+                .satisfies(alert -> {
+                    org.assertj.core.api.Assertions.assertThat(alert.getMetricType())
+                            .isEqualTo(AlertMetricType.PHOTOPERIOD);
+                    org.assertj.core.api.Assertions.assertThat(alert.getDeviation())
+                            .isEqualTo(AlertDeviation.HIGH);
+                    org.assertj.core.api.Assertions.assertThat(alert.getMeasuredValue())
+                            .isEqualByComparingTo("20.00");
+                });
+    }
+
+    @Test
+    void lowCoverageDayIsRecordedWithoutJudgementOrAlert() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-sparse@example.com");
+        LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
+        LocalDateTime start = dailyLightAggregationService.startOfDayUtc(lightDate);
+        for (int index = 0; index < 5; index++) {
+            insertReading(
+                    fixture,
+                    SensorType.ILLUMINANCE,
+                    "100",
+                    SensorUnit.LUX,
+                    start.plusSeconds(index * 600L)
+            );
+        }
+
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
+
+        var daily = plantDailyLightRepository
+                .findByPlantIdAndLightDate(fixture.plantId(), lightDate)
+                .orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(daily.getLightStatus().name())
+                .isEqualTo("INSUFFICIENT_DATA");
+        org.assertj.core.api.Assertions.assertThat(daily.getPhotoperiodStatus().name())
+                .isEqualTo("INSUFFICIENT_DATA");
+        org.assertj.core.api.Assertions.assertThat(alertRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void dailyLightApiReturnsTodayProgressAndConfirmedHistory() throws Exception {
+        SensorFixture fixture = createSensorFixture("daily-light-api@example.com");
+        Tokens tokens = login("daily-light-api@example.com");
+        LocalDate yesterday = dailyLightAggregationService.today().minusDays(1);
+        insertIlluminanceDay(fixture, yesterday, 90, "10000");
+        dailyLightAggregationService.aggregateAndStore(fixture.plantId(), yesterday);
+        // 오늘은 아직 진행 중이므로 확실히 과거인 시각만 넣는다.
+        // DATETIME(0) 컬럼은 소수 초를 반올림하므로 현재 시각을 그대로 쓰면 조회 상한을 넘길 수 있다.
+        LocalDateTime now = nowUtc().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(1800));
+        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(1200));
+        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(600));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/daily-light", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(fixture.plantId()))
+                .andExpect(jsonPath("$.zoneOffset").value("+09:00"))
+                .andExpect(jsonPath("$.today.lightDate")
+                        .value(dailyLightAggregationService.today().toString()))
+                .andExpect(jsonPath("$.today.targetLuxHour").value(150000.0))
+                .andExpect(jsonPath("$.today.accumulatedLuxHour").value(3333.33))
+                .andExpect(jsonPath("$.today.progressPct").value(2.22))
+                .andExpect(jsonPath("$.today.targetPhotoperiodHours").value(15.0))
+                // 확정된 이력에만 판정 결과가 담기고 오늘은 포함되지 않는다.
+                .andExpect(jsonPath("$.history.length()").value(1))
+                .andExpect(jsonPath("$.history[0].lightDate").value(yesterday.toString()))
+                .andExpect(jsonPath("$.history[0].lightStatus").value("NORMAL"))
+                .andExpect(jsonPath("$.history[0].photoperiodStatus").value("NORMAL"))
+                .andExpect(jsonPath("$.history[0].thresholdMinLuxHour").value(105000.0));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/daily-light", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("days", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        Tokens stranger = signupAndLogin("daily-light-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/daily-light", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    /** 10분 간격 표본 144개로 하루를 채운다. 앞의 {@code lightIntervals}개만 빛이 있는 구간이다. */
+    private void insertIlluminanceDay(
+            SensorFixture fixture,
+            LocalDate lightDate,
+            int lightIntervals,
+            String lightLux
+    ) {
+        LocalDateTime start = dailyLightAggregationService.startOfDayUtc(lightDate);
+        for (int index = 0; index < 144; index++) {
+            insertReading(
+                    fixture,
+                    SensorType.ILLUMINANCE,
+                    index < lightIntervals ? lightLux : "0",
+                    SensorUnit.LUX,
+                    start.plusSeconds(index * 600L)
+            );
+        }
     }
 
     private void insertAlert(

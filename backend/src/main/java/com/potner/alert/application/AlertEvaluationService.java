@@ -94,26 +94,65 @@ public class AlertEvaluationService {
                 samples.stream().map(SensorReading::getMeasuredValue).toList()
         );
         LocalDateTime occurredAt = samples.getFirst().getMeasuredAt();
-        Optional<AlertDeviation> detected = DeviationEvaluator.detect(representative, thresholds);
+        return applyTransition(plant, metricType.get(), representative, thresholds, occurredAt);
+    }
+
+    /**
+     * 하루 단위로 확정된 값을 판정한다.
+     *
+     * <p>중앙값 표본 추출을 쓰지 않는다. 하루 누적값 자체가 이미 집계라서 순간 스파이크가
+     * 희석되어 있고, 허용 범위는 호출자가 계산해 넘긴다.
+     */
+    @Transactional
+    public AlertEvaluationResult evaluateDailyMetric(
+            String plantId,
+            AlertMetricType metricType,
+            BigDecimal value,
+            BigDecimal thresholdMin,
+            BigDecimal thresholdMax,
+            LocalDateTime occurredAt
+    ) {
+        Plant plant = plantRepository.findById(plantId).orElse(null);
+        if (plant == null || plant.getStatus() == PlantStatus.DELETED) {
+            return AlertEvaluationResult.PLANT_NOT_ACTIVE;
+        }
+        SensorThresholds thresholds = new SensorThresholds(thresholdMin, thresholdMax);
+        if (!thresholds.judgeable()) {
+            return AlertEvaluationResult.NOT_APPLICABLE;
+        }
+        return applyTransition(plant, metricType, value, thresholds, occurredAt);
+    }
+
+    /**
+     * 진입·방향 전환·복귀를 처리한다. 순간값 판정과 일일 판정이 같은 규칙을 쓰도록 공유한다.
+     */
+    private AlertEvaluationResult applyTransition(
+            Plant plant,
+            AlertMetricType metricType,
+            BigDecimal value,
+            SensorThresholds thresholds,
+            LocalDateTime occurredAt
+    ) {
+        Optional<AlertDeviation> detected = DeviationEvaluator.detect(value, thresholds);
         Alert active = alertRepository
-                .findByPlantIdAndMetricTypeAndResolvedAtIsNull(plantId, metricType.get())
+                .findByPlantIdAndMetricTypeAndResolvedAtIsNull(plant.getId(), metricType)
                 .orElse(null);
 
         if (active == null) {
             if (detected.isEmpty()) {
                 return AlertEvaluationResult.UNCHANGED;
             }
-            openAlert(plant, metricType.get(), detected.get(), representative, thresholds, occurredAt);
+            openAlert(plant, metricType, detected.get(), value, thresholds, occurredAt);
             return AlertEvaluationResult.CREATED;
         }
 
         if (detected.isPresent() && detected.get() != active.getDeviation()) {
             active.resolve(nowUtc());
-            openAlert(plant, metricType.get(), detected.get(), representative, thresholds, occurredAt);
+            openAlert(plant, metricType, detected.get(), value, thresholds, occurredAt);
             return AlertEvaluationResult.SWITCHED;
         }
         if (detected.isEmpty() && DeviationEvaluator.recovered(
-                representative,
+                value,
                 thresholds,
                 active.getDeviation(),
                 alertProperties.hysteresisRatio())) {
