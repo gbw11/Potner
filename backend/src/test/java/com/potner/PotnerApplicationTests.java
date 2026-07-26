@@ -50,6 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
 import static org.assertj.core.api.Assertions.tuple;
 
 @Testcontainers
@@ -875,6 +876,211 @@ class PotnerApplicationTests {
         org.assertj.core.api.Assertions.assertThat(
                 heartbeatService.recordHeartbeat("unknown-device")
         ).isEqualTo(HeartbeatUpdateResult.DEVICE_NOT_FOUND);
+    }
+
+    @Test
+    void currentSensorsAreJudgedAgainstAppliedGrowthProfile() throws Exception {
+        SensorFixture fixture = createSensorFixture("sensor-current@example.com");
+        Tokens tokens = login("sensor-current@example.com");
+        LocalDateTime fresh = nowUtc().minusMinutes(1);
+        insertReading(fixture, SensorType.TEMPERATURE, "24.00", SensorUnit.CELSIUS, fresh);
+        insertReading(fixture, SensorType.HUMIDITY, "85.00", SensorUnit.PERCENT, fresh);
+        insertReading(fixture, SensorType.SOIL_MOISTURE, "32.50", SensorUnit.PERCENT, fresh);
+        insertReading(fixture, SensorType.ILLUMINANCE, "8200", SensorUnit.LUX, fresh);
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/current", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(fixture.plantId()))
+                .andExpect(jsonPath("$.sensors.length()").value(4))
+                .andExpect(jsonPath("$.sensors[0].sensorType").value("TEMPERATURE"))
+                .andExpect(jsonPath("$.sensors[0].unit").value("CELSIUS"))
+                .andExpect(jsonPath("$.sensors[0].status").value("NORMAL"))
+                .andExpect(jsonPath("$.sensors[1].sensorType").value("HUMIDITY"))
+                .andExpect(jsonPath("$.sensors[1].status").value("HIGH"))
+                .andExpect(jsonPath("$.sensors[1].thresholdMax").value(80.0))
+                .andExpect(jsonPath("$.sensors[2].sensorType").value("SOIL_MOISTURE"))
+                .andExpect(jsonPath("$.sensors[2].status").value("LOW"))
+                .andExpect(jsonPath("$.sensors[2].value").value(32.5))
+                .andExpect(jsonPath("$.sensors[2].thresholdMin").value(40.0))
+                .andExpect(jsonPath("$.sensors[2].thresholdMax").value(55.0))
+                // 조도는 순간값으로 판정하지 않으므로 기준값도 비어 있다.
+                .andExpect(jsonPath("$.sensors[3].sensorType").value("ILLUMINANCE"))
+                .andExpect(jsonPath("$.sensors[3].unit").value("LUX"))
+                .andExpect(jsonPath("$.sensors[3].status").value("NOT_APPLICABLE"))
+                .andExpect(jsonPath("$.sensors[3].thresholdMin").value(nullValue()))
+                .andExpect(jsonPath("$.sensors[3].thresholdMax").value(nullValue()));
+
+        Tokens stranger = signupAndLogin("sensor-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/current", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/current", fixture.plantId()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void currentSensorsReportNoDataAndStaleReadings() throws Exception {
+        SensorFixture fixture = createSensorFixture("sensor-stale@example.com");
+        Tokens tokens = login("sensor-stale@example.com");
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/current", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sensors.length()").value(4))
+                .andExpect(jsonPath("$.sensors[0].status").value("NO_DATA"))
+                .andExpect(jsonPath("$.sensors[0].value").value(nullValue()))
+                .andExpect(jsonPath("$.sensors[0].measuredAt").value(nullValue()))
+                // 측정값이 없어도 단위와 기준값은 채워 앱이 카드를 그릴 수 있게 한다.
+                .andExpect(jsonPath("$.sensors[0].unit").value("CELSIUS"))
+                .andExpect(jsonPath("$.sensors[0].thresholdMin").value(21.0));
+
+        insertReading(
+                fixture,
+                SensorType.TEMPERATURE,
+                "24.00",
+                SensorUnit.CELSIUS,
+                nowUtc().minusMinutes(60)
+        );
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/current", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sensors[0].status").value("STALE"))
+                .andExpect(jsonPath("$.sensors[0].value").value(24.0));
+    }
+
+    @Test
+    void sensorHistoryAggregatesIntoServiceTimeZoneDayBuckets() throws Exception {
+        SensorFixture fixture = createSensorFixture("sensor-history@example.com");
+        Tokens tokens = login("sensor-history@example.com");
+        // 한국 시간으로는 07-25 23:00, 07-26 00:30, 07-26 01:00 이다.
+        // UTC 기준으로 하루를 끊으면 세 건이 모두 07-25 로 묶여 버린다.
+        insertReading(fixture, SensorType.TEMPERATURE, "20.00", SensorUnit.CELSIUS,
+                LocalDateTime.parse("2026-07-25T14:00:00"));
+        insertReading(fixture, SensorType.TEMPERATURE, "22.00", SensorUnit.CELSIUS,
+                LocalDateTime.parse("2026-07-25T15:30:00"));
+        insertReading(fixture, SensorType.TEMPERATURE, "26.00", SensorUnit.CELSIUS,
+                LocalDateTime.parse("2026-07-25T16:00:00"));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/history", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("sensorType", "TEMPERATURE")
+                        .param("from", "2026-07-24T15:00:00Z")
+                        .param("to", "2026-07-26T15:00:00Z")
+                        .param("interval", "DAY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sensorType").value("TEMPERATURE"))
+                .andExpect(jsonPath("$.unit").value("CELSIUS"))
+                .andExpect(jsonPath("$.interval").value("DAY"))
+                .andExpect(jsonPath("$.points.length()").value(2))
+                .andExpect(jsonPath("$.points[0].bucketAt").value(startsWith("2026-07-24T15:00")))
+                .andExpect(jsonPath("$.points[0].averageValue").value(20.0))
+                .andExpect(jsonPath("$.points[0].sampleCount").value(1))
+                .andExpect(jsonPath("$.points[1].bucketAt").value(startsWith("2026-07-25T15:00")))
+                .andExpect(jsonPath("$.points[1].averageValue").value(24.0))
+                .andExpect(jsonPath("$.points[1].minimumValue").value(22.0))
+                .andExpect(jsonPath("$.points[1].maximumValue").value(26.0))
+                .andExpect(jsonPath("$.points[1].sampleCount").value(2));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/history", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("sensorType", "TEMPERATURE")
+                        .param("from", "2026-07-25T15:00:00Z")
+                        .param("to", "2026-07-25T17:00:00Z")
+                        .param("interval", "HOUR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.points.length()").value(2))
+                .andExpect(jsonPath("$.points[0].bucketAt").value(startsWith("2026-07-25T15:00")))
+                .andExpect(jsonPath("$.points[0].averageValue").value(22.0))
+                .andExpect(jsonPath("$.points[1].bucketAt").value(startsWith("2026-07-25T16:00")))
+                .andExpect(jsonPath("$.points[1].averageValue").value(26.0));
+    }
+
+    @Test
+    void sensorHistoryRejectsInvalidRangeAndParameters() throws Exception {
+        SensorFixture fixture = createSensorFixture("sensor-history-invalid@example.com");
+        Tokens tokens = login("sensor-history-invalid@example.com");
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/history", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("sensorType", "TEMPERATURE")
+                        .param("from", "2026-07-26T00:00:00Z")
+                        .param("to", "2026-07-26T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SENSOR_QUERY_RANGE"));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/history", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("sensorType", "TEMPERATURE")
+                        .param("from", "2026-07-01T00:00:00Z")
+                        .param("to", "2026-07-15T00:00:01Z")
+                        .param("interval", "HOUR"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SENSOR_QUERY_RANGE"));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/history", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("sensorType", "PRESSURE")
+                        .param("from", "2026-07-26T00:00:00Z")
+                        .param("to", "2026-07-27T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/history", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("sensorType", "TEMPERATURE")
+                        .param("from", "2026-07-26T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        // 오프셋이 없는 시각은 UTC 로 단정하지 않고 거부한다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/sensors/history", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("sensorType", "TEMPERATURE")
+                        .param("from", "2026-07-26T00:00:00")
+                        .param("to", "2026-07-27T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    private void insertReading(
+            SensorFixture fixture,
+            SensorType sensorType,
+            String value,
+            SensorUnit unit,
+            LocalDateTime measuredAt
+    ) {
+        jdbcTemplate.update("""
+                        INSERT INTO sensor_reading (
+                            plant_id,
+                            robot_id,
+                            source_device_id,
+                            device_message_id,
+                            sensor_type,
+                            measured_value,
+                            unit,
+                            quality,
+                            measured_at,
+                            received_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'GOOD', ?, ?)
+                        """,
+                fixture.plantId(),
+                fixture.robotId(),
+                fixture.raspberryDeviceId(),
+                UUID.randomUUID().toString(),
+                sensorType.name(),
+                new BigDecimal(value),
+                unit.name(),
+                measuredAt,
+                measuredAt
+        );
+    }
+
+    private LocalDateTime nowUtc() {
+        return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 
     private void signup(String email) throws Exception {

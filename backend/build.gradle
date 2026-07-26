@@ -47,6 +47,13 @@ dependencies {
     testImplementation 'org.testcontainers:mysql'
 }
 
+// 애플리케이션은 hibernate.jdbc.time_zone 과 jackson.time-zone 을 UTC 로 고정해
+// JVM 기본 타임존이 UTC 라는 전제로 동작한다. 테스트 JVM도 같은 전제를 갖도록 맞춰야
+// 로컬 개발 장비의 타임존에 따라 결과가 달라지지 않는다.
+tasks.withType(Test).configureEach {
+    systemProperty 'user.timezone', 'UTC'
+}
+
 tasks.named('test') {
     useJUnitPlatform {
         excludeTags 'integration'
