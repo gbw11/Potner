@@ -58,13 +58,19 @@ class PlantReferenceServiceTest {
 
         // 스텁 안에서 다시 스텁을 만들지 않도록 종 목록을 먼저 준비한다.
         // 비활성 분류에 속한 종은 빈 드롭다운을 만들지 않도록 제외되어야 한다.
-        List<PlantSpecies> activeSpecies = List.of(
-                speciesIn(herb, "species-basil", "바질"),
-                speciesIn(herb, "species-agastache", "배초향"),
-                speciesIn(retired, "species-hidden", "숨김")
-        );
+        PlantSpecies basil = speciesIn(herb, "species-basil", "바질");
+        PlantSpecies agastache = speciesIn(herb, "species-agastache", "배초향");
+        PlantSpecies hidden = speciesIn(retired, "species-hidden", "숨김");
         when(plantSpeciesRepository.findAllByActiveTrueOrderByCategorySortOrderAscNameAsc())
-                .thenReturn(activeSpecies);
+                .thenReturn(List.of(basil, agastache, hidden));
+
+        PlantLifeStage seedling = stage("stage-seedling", "SEEDLING", "유묘기", 1);
+        List<SpeciesGrowthRequirement> requirements = List.of(
+                requirement(basil, seedling),
+                requirement(agastache, seedling),
+                requirement(hidden, seedling)
+        );
+        when(requirementRepository.findAllActiveRequirements()).thenReturn(requirements);
 
         var response = plantReferenceService.getCategoryTree();
 
@@ -75,6 +81,65 @@ class PlantReferenceServiceTest {
         assertThat(response.categories().getFirst().species())
                 .extracting(species -> species.name())
                 .containsExactly("바질", "배초향");
+    }
+
+    @Test
+    void categoryTreeCarriesSpeciesSpecificGrowthStages() {
+        // 자람 수준은 종마다 다르다. 앱이 하드코딩하지 않도록 종별로 담아 한 번에 내려준다.
+        com.potner.plant.domain.PlantCategory category =
+                mock(com.potner.plant.domain.PlantCategory.class);
+        when(category.getId()).thenReturn("category-herb");
+        when(category.isActive()).thenReturn(true);
+
+        PlantSpecies basil = speciesIn(category, "species-basil", "바질");
+        PlantSpecies tomato = speciesIn(category, "species-tomato", "방울토마토");
+        when(plantSpeciesRepository.findAllByActiveTrueOrderByCategorySortOrderAscNameAsc())
+                .thenReturn(List.of(basil, tomato));
+
+        PlantLifeStage seedling = stage("stage-seedling", "SEEDLING", "유묘기", 1);
+        PlantLifeStage regrowth = stage("stage-regrowth", "REGROWTH", "재생장기", 8);
+        PlantLifeStage fruiting = stage("stage-fruiting", "FRUITING", "결실기", 9);
+        List<SpeciesGrowthRequirement> requirements = List.of(
+                requirement(basil, seedling),
+                requirement(basil, regrowth),
+                requirement(tomato, seedling),
+                requirement(tomato, fruiting)
+        );
+        when(requirementRepository.findAllActiveRequirements()).thenReturn(requirements);
+
+        var species = plantReferenceService.getCategoryTree().categories().getFirst().species();
+
+        assertThat(species).extracting(item -> item.name()).containsExactly("바질", "방울토마토");
+        // 조회 순서를 그대로 유지해야 두 API의 자람 수준 순서가 어긋나지 않는다.
+        assertThat(species.getFirst().growthStages())
+                .extracting(stage -> stage.code())
+                .containsExactly("SEEDLING", "REGROWTH");
+        assertThat(species.get(1).growthStages())
+                .extracting(stage -> stage.code())
+                .containsExactly("SEEDLING", "FRUITING");
+    }
+
+    @Test
+    void categoryTreeExcludesSpeciesWithoutAnyGrowthStage() {
+        // 생육 기준이 없는 종은 고르면 복사할 기준이 없어 등록이 실패한다.
+        // 분류까지 비면 그 분류도 빠져야 한다.
+        com.potner.plant.domain.PlantCategory category =
+                mock(com.potner.plant.domain.PlantCategory.class);
+        when(category.isActive()).thenReturn(true);
+
+        PlantSpecies unsupported = speciesIn(category, "species-unsupported", "기준없음");
+        when(plantSpeciesRepository.findAllByActiveTrueOrderByCategorySortOrderAscNameAsc())
+                .thenReturn(List.of(unsupported));
+        when(requirementRepository.findAllActiveRequirements()).thenReturn(List.of());
+
+        assertThat(plantReferenceService.getCategoryTree().categories()).isEmpty();
+    }
+
+    private SpeciesGrowthRequirement requirement(PlantSpecies species, PlantLifeStage lifeStage) {
+        SpeciesGrowthRequirement requirement = mock(SpeciesGrowthRequirement.class);
+        when(requirement.getSpecies()).thenReturn(species);
+        when(requirement.getLifeStage()).thenReturn(lifeStage);
+        return requirement;
     }
 
     private PlantSpecies speciesIn(

@@ -18,6 +18,12 @@ spring:
     baseline-version: 0
   jackson:
     time-zone: UTC
+  servlet:
+    multipart:
+      # potner.photo.max-upload-bytes 보다 크게 둔다. 이 값이 더 작으면 Spring 이 먼저 거부해
+      # PHOTO_TOO_LARGE 대신 형식이 다른 일반 오류가 나가고 원인 파악이 어려워진다.
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:12MB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:12MB}
 
 server:
   port: ${SERVER_PORT:8080}
@@ -87,6 +93,17 @@ potner:
     sample-size: ${ALERT_SAMPLE_SIZE:3}
     hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}
     max-page-size: ${ALERT_MAX_PAGE_SIZE:100}
+  photo:
+    # 배포 sync 경로 밖의 named volume 이어야 한다. 배포 파이프라인이 배포 디렉토리를 매번
+    # 덮어쓰므로 그 안에 두면 배포마다 사진이 사라진다. docker compose down -v 도 이 볼륨을 지운다.
+    root: ${PHOTO_ROOT:./data/photos}
+    # Nginx 가 root 를 이 경로로 공개한다. 기본값이 절대 URL 이 아닌 이유는 사진이 API 와 같은
+    # origin 에서 나가기 때문이다. 앱이 자기 API base URL 에 붙이면 되므로 서버가 도메인을
+    # 알 필요가 없고, 배포마다 주입할 값도 없다. 다른 origin 으로 옮길 때만 덮어쓴다.
+    base-url: ${PHOTO_BASE_URL:/media}
+    playback-max-pixels: ${PHOTO_PLAYBACK_MAX_PIXELS:1280}
+    thumbnail-max-pixels: ${PHOTO_THUMBNAIL_MAX_PIXELS:400}
+    max-upload-bytes: ${PHOTO_MAX_UPLOAD_BYTES:10485760}
   sensor:
     zone-offset: "${SENSOR_ZONE_OFFSET:+09:00}"
     freshness-threshold-minutes: ${SENSOR_FRESHNESS_THRESHOLD_MINUTES:15}

@@ -29,7 +29,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -50,12 +52,16 @@ import java.util.concurrent.Future;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.assertj.core.api.Assertions.tuple;
@@ -69,6 +75,7 @@ class PotnerApplicationTests {
 
     private static final String BASIL_ID = "20000000-0000-0000-0000-000000000104";
     private static final String TOMATO_ID = "20000000-0000-0000-0000-000000000106";
+    private static final String KALANDIVA_ID = "20000000-0000-0000-0000-000000000103";
     private static final String GERMINATION_ID = "10000000-0000-0000-0000-000000000005";
     private static final String FLOWERING_ID = "10000000-0000-0000-0000-000000000004";
     private static final String FRUITING_ID = "10000000-0000-0000-0000-000000000009";
@@ -137,6 +144,7 @@ class PotnerApplicationTests {
         jdbcTemplate.update("DELETE FROM user_notification_setting");
         jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM plant_daily_light");
+        jdbcTemplate.update("DELETE FROM plant_photo");
         jdbcTemplate.update("DELETE FROM sensor_reading");
         jdbcTemplate.update("DELETE FROM plant_device_assignment");
         jdbcTemplate.update("DELETE FROM iot_device");
@@ -380,6 +388,24 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void growthStagesDifferPerSpeciesSoAppMustNotHardcodeThem() throws Exception {
+        Tokens tokens = signupAndLogin("stage-kalandiva@example.com");
+
+        // 칼란디바는 삽목 번식이라 발아기가 없고, 단일식물이라 꽃눈형성기가 따로 있다.
+        // 계층 조회(GET /plant-categories)가 싣는 자람 수준도 같은 쿼리·정렬을 쓴다.
+        mockMvc.perform(get("/api/v1/plant-species/{speciesId}/growth-stages", KALANDIVA_ID)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.speciesName").value("칼란디바"))
+                .andExpect(jsonPath("$.growthStages.length()").value(4))
+                .andExpect(jsonPath("$.growthStages[0].code").value("SEEDLING"))
+                .andExpect(jsonPath("$.growthStages[1].code").value("VEGETATIVE"))
+                .andExpect(jsonPath("$.growthStages[2].code").value("BUD_FORMATION"))
+                .andExpect(jsonPath("$.growthStages[3].code").value("FLOWERING"))
+                .andExpect(jsonPath("$.growthStages[?(@.code == 'GERMINATION')]").isEmpty());
+    }
+
+    @Test
     void missingPlantSpeciesReturnsNotFound() throws Exception {
         Tokens tokens = signupAndLogin("missing-species@example.com");
 
@@ -417,6 +443,9 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.dailyLight.minLuxHour").value(105000.0))
                 .andExpect(jsonPath("$.dailyLight.maxLuxHour").value(195000.0))
                 .andExpect(jsonPath("$.dailyLight.targetLuxHour").value(150000.0))
+                // 앱은 lux·h 대신 이 비율을 보여준다. V7 의 0.70 / 1.30 이 그대로 드러나야 한다.
+                .andExpect(jsonPath("$.dailyLight.minPctOfTarget").value(70.0))
+                .andExpect(jsonPath("$.dailyLight.maxPctOfTarget").value(130.0))
                 .andExpect(jsonPath("$.photoperiodHours").value(15.0))
                 .andExpect(jsonPath("$.revision").value(2))
                 .andExpect(jsonPath("$.sourceUrl").value(nullValue()));
@@ -1307,7 +1336,17 @@ class PotnerApplicationTests {
                         .value(containsInAnyOrder("바질", "배초향")))
                 .andExpect(jsonPath("$.categories[2].name").value("과채류"))
                 .andExpect(jsonPath("$.categories[2].species.length()").value(1))
-                .andExpect(jsonPath("$.categories[2].species[0].name").value("방울토마토"));
+                .andExpect(jsonPath("$.categories[2].species[0].name").value("방울토마토"))
+                // 자람 수준을 함께 실어 등록 화면이 한 번의 조회로 세 드롭다운을 채운다.
+                // 과채류는 종이 하나라 인덱스가 정렬에 의존하지 않는다. sortOrder 순이어야 한다.
+                .andExpect(jsonPath("$.categories[2].species[0].growthStages[*].code")
+                        .value(contains(
+                                "GERMINATION", "SEEDLING", "VEGETATIVE", "FLOWERING", "FRUITING")))
+                // 종마다 단계가 달라 앱이 하드코딩하면 안 된다는 것이 계층 전체에서 드러나야 한다.
+                // 재생장기는 바질만, 꽃눈형성기는 칼란디바만, 결실기는 방울토마토만 가진다.
+                // 종 정렬 순서에 기대지 않도록 계층 전체를 펼쳐서 확인한다.
+                .andExpect(jsonPath("$..growthStages..code")
+                        .value(hasItems("REGROWTH", "BUD_FORMATION", "FRUITING")));
 
         mockMvc.perform(get("/api/v1/plant-categories"))
                 .andExpect(status().isUnauthorized())
@@ -1640,6 +1679,316 @@ class PotnerApplicationTests {
         mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void registrationApiCompletesTheSensorIngestPath() throws Exception {
+        // 유입 경로는 device_uid → iot_device → robot → plant_device_assignment → plant 다.
+        // 세 행이 모두 API 로 만들어져야 수동 INSERT 없이 측정값이 저장된다.
+        Tokens tokens = signupAndLogin("robot-register@example.com");
+        String plantId = createPlant(tokens, "등록 테스트 식물");
+        String robotUid = "robot-register-01";
+        String sensorUid = "raspberry-register-01";
+
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"" + robotUid + "\",\"name\":\"거실 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.robot.deviceUid").value(robotUid))
+                // 등록만으로는 측정값이 저장되지 않는다는 것이 응답에 드러나야 한다.
+                .andExpect(jsonPath("$.robot.assignedPlantId").value(nullValue()))
+                .andExpect(jsonPath("$.robot.devices.length()").value(0))
+                .andExpect(jsonPath("$.robot.connectionStatus").value("OFFLINE"))
+                // 업로드 토큰 원문은 이 응답에서만 볼 수 있다.
+                .andExpect(jsonPath("$.uploadToken").isString())
+                .andReturn().getResponse().getContentAsString();
+        String robotId = JsonPath.read(robotBody, "$.robot.robotId");
+
+        mockMvc.perform(post("/api/v1/robots/{robotId}/devices", robotId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"" + sensorUid + "\",\"deviceType\":\"RASPBERRY_PI\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.deviceUid").value(sensorUid))
+                .andExpect(jsonPath("$.connectionStatus").value("OFFLINE"));
+
+        // 배정 전에는 담당 식물이 없어 측정값이 버려진다.
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingService.save(sensorMessage(
+                        UUID.randomUUID().toString(),
+                        sensorUid,
+                        SensorType.TEMPERATURE,
+                        "24.3",
+                        SensorUnit.CELSIUS))
+        ).isEqualTo(SensorReadingSaveResult.PLANT_ASSIGNMENT_NOT_FOUND);
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"robotId\":\"" + robotId + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.robotDeviceUid").value(robotUid));
+
+        // 배정 후에는 같은 장치의 측정값이 이 식물로 저장된다.
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingService.save(sensorMessage(
+                        UUID.randomUUID().toString(),
+                        sensorUid,
+                        SensorType.TEMPERATURE,
+                        "24.3",
+                        SensorUnit.CELSIUS))
+        ).isEqualTo(SensorReadingSaveResult.SAVED);
+
+        mockMvc.perform(get("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robots.length()").value(1))
+                .andExpect(jsonPath("$.robots[0].assignedPlantId").value(plantId))
+                .andExpect(jsonPath("$.robots[0].assignedPlantName").value("등록 테스트 식물"))
+                .andExpect(jsonPath("$.robots[0].devices.length()").value(1));
+    }
+
+    @Test
+    void unassignAllowsReassignmentAndKeepsHistory() throws Exception {
+        // V10 이 컬럼 전체 UNIQUE 를 생성 컬럼 기반 활성 유일성으로 바꾼 이유가 이것이다.
+        // 이전 스키마에서는 해제해도 같은 식물에 새 행을 넣을 수 없어 재배정이 불가능했다.
+        Tokens tokens = signupAndLogin("robot-reassign@example.com");
+        String plantId = createPlant(tokens, "재배정 테스트 식물");
+        String firstRobotId = registerRobot(tokens, "robot-reassign-01", "첫 로봇");
+        String secondRobotId = registerRobot(tokens, "robot-reassign-02", "둘째 로봇");
+
+        assignRobot(tokens, plantId, firstRobotId).andExpect(status().isCreated());
+
+        // 이미 배정된 식물과 이미 배정된 로봇은 각각 다른 코드로 막는다.
+        assignRobot(tokens, plantId, secondRobotId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PLANT_ALREADY_ASSIGNED"));
+        String otherPlantId = createPlant(tokens, "다른 식물");
+        assignRobot(tokens, otherPlantId, firstRobotId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ROBOT_ALREADY_ASSIGNED"));
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        // 해제되면 파생 키가 NULL 이 되어 UNIQUE 대상에서 빠지므로 재배정이 된다.
+        assignRobot(tokens, plantId, secondRobotId).andExpect(status().isCreated());
+
+        // 행을 지우지 않으므로 이력이 남는다.
+        Integer historyCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM plant_device_assignment WHERE plant_id = ?",
+                Integer.class,
+                plantId);
+        org.assertj.core.api.Assertions.assertThat(historyCount).isEqualTo(2);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_ASSIGNMENT_NOT_FOUND"));
+    }
+
+    @Test
+    void deviceUidIsUniqueAcrossRobotAndIotDevice() throws Exception {
+        // device_uid 는 MQTT 토픽 세그먼트로 쓰이므로 두 테이블을 통틀어 겹치면
+        // 어느 장치의 측정값인지 가릴 수 없다.
+        Tokens tokens = signupAndLogin("robot-uid@example.com");
+        String robotId = registerRobot(tokens, "robot-uid-01", "로봇");
+
+        mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot-uid-01\",\"name\":\"중복 로봇\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DEVICE_UID_ALREADY_REGISTERED"));
+
+        mockMvc.perform(post("/api/v1/robots/{robotId}/devices", robotId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot-uid-01\",\"deviceType\":\"RASPBERRY_PI\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DEVICE_UID_ALREADY_REGISTERED"));
+
+        // 토픽을 깨뜨리는 문자는 검증에서 막는다.
+        mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot/uid\",\"name\":\"슬래시\"}"))
+                .andExpect(status().isBadRequest());
+
+        Tokens stranger = signupAndLogin("robot-uid-stranger@example.com");
+        mockMvc.perform(post("/api/v1/robots/{robotId}/devices", robotId)
+                        .header("Authorization", "Bearer " + stranger.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot-uid-99\",\"deviceType\":\"RASPBERRY_PI\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ROBOT_NOT_FOUND"));
+        mockMvc.perform(get("/api/v1/robots"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void devicePhotoUploadIsAuthenticatedByTokenAndDerivesPlantFromAssignment() throws Exception {
+        Tokens tokens = signupAndLogin("photo-device@example.com");
+        String plantId = createPlant(tokens, "사진 테스트 식물");
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"photo-robot-01\",\"name\":\"사진 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String robotId = JsonPath.read(robotBody, "$.robot.robotId");
+        String uploadToken = JsonPath.read(robotBody, "$.uploadToken");
+
+        // 배정이 없으면 어느 식물의 사진인지 정할 수 없다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_ASSIGNMENT_NOT_FOUND"));
+
+        assignRobot(tokens, plantId, robotId).andExpect(status().isCreated());
+
+        // plantId 를 받지 않는다. 로봇의 활성 배정에서 서버가 정한다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken)
+                        .param("capturedAt", "2026-07-20T12:00:00Z"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.photoDate").value("2026-07-20"))
+                .andExpect(jsonPath("$.width").value(120))
+                .andExpect(jsonPath("$.height").value(80))
+                // 크기별 URL 세 개가 모두 채워져야 타임랩스와 그리드가 각각 알맞은 파일을 쓴다.
+                // 사진은 API 와 같은 origin 에서 나가므로 서버는 상대 경로를 내려준다.
+                // 앱이 자기 API base URL 에 붙이므로 서버가 도메인을 알 필요가 없다.
+                .andExpect(jsonPath("$.thumbnailUrl").value(startsWith("/media/")))
+                .andExpect(jsonPath("$.playbackUrl").value(containsString("/playback.jpg")))
+                .andExpect(jsonPath("$.originalUrl").value(containsString("/original.jpg")));
+
+        // 하루 한 장. 타임랩스 프레임 간격을 일정하게 유지하기 위함이다.
+        // 같은 서비스 타임존 날짜(07-20 KST)에 해당하는 다른 UTC 시각을 쓴다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken)
+                        .param("capturedAt", "2026-07-20T01:00:00Z"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PHOTO_ALREADY_EXISTS_FOR_DATE"));
+
+        // 날짜 경계는 UTC 자정이 아니라 서비스 타임존 자정이다. 15:00Z 부터 다음 날이므로
+        // 하루 한 장 제한에 걸리지 않는다. plant_daily_light.light_date 와 같은 규칙이다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken)
+                        .param("capturedAt", "2026-07-20T15:00:00Z"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.photoDate").value("2026-07-21"));
+
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", "wrong-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_DEVICE_TOKEN"));
+
+        // 이미지로 읽히지 않으면 확장자와 무관하게 거부한다. Content-Type 은 신뢰할 수 없다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(new MockMultipartFile(
+                                "file", "fake.jpg", "image/jpeg", "not an image".getBytes()))
+                        .header("X-Device-Token", uploadToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PHOTO"));
+    }
+
+    @Test
+    void photoQueryReturnsTimelapseOrderAndRevealsMissingDays() throws Exception {
+        Tokens tokens = signupAndLogin("photo-query@example.com");
+        String plantId = createPlant(tokens, "타임랩스 식물");
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"photo-robot-02\",\"name\":\"사진 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        assignRobot(tokens, plantId, (String) JsonPath.read(robotBody, "$.robot.robotId"))
+                .andExpect(status().isCreated());
+        String uploadToken = JsonPath.read(robotBody, "$.uploadToken");
+
+        // 3일 중 이틀만 촬영한다. 22일은 로봇이 꺼져 있던 날을 흉내낸다.
+        for (String captured : List.of("2026-07-21T03:00:00Z", "2026-07-23T03:00:00Z")) {
+            mockMvc.perform(multipart("/api/v1/device/photos")
+                            .file(jpegPart(120, 80))
+                            .header("X-Device-Token", uploadToken)
+                            .param("capturedAt", captured))
+                    .andExpect(status().isCreated());
+        }
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/photos", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("from", "2026-07-21")
+                        .param("to", "2026-07-23"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.zoneOffset").value("+09:00"))
+                .andExpect(jsonPath("$.photos.length()").value(2))
+                // 오래된 것부터다. 앱이 그대로 넘기면 타임랩스가 된다.
+                .andExpect(jsonPath("$.photos[0].photoDate").value("2026-07-21"))
+                .andExpect(jsonPath("$.photos[1].photoDate").value("2026-07-23"))
+                // 결측일을 드러낸다. 3일을 요청했지만 이틀만 찍혔다.
+                .andExpect(jsonPath("$.requestedDays").value(3))
+                .andExpect(jsonPath("$.capturedDays").value(2));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/photos", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("from", "2026-07-23")
+                        .param("to", "2026-07-21"))
+                .andExpect(status().isBadRequest());
+
+        Tokens stranger = signupAndLogin("photo-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/photos", plantId)
+                        .header("Authorization", "Bearer " + stranger.accessToken())
+                        .param("from", "2026-07-21")
+                        .param("to", "2026-07-23"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    /** 실제 JPEG 바이트를 만든다. 서버가 ImageIO 로 읽어 크기별 축소본을 만들기 때문이다. */
+    private MockMultipartFile jpegPart(int width, int height) throws Exception {
+        java.awt.image.BufferedImage image =
+                new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "jpg", out);
+        return new MockMultipartFile("file", "photo.jpg", "image/jpeg", out.toByteArray());
+    }
+
+    private String createPlant(Tokens tokens, String name) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, name)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.plantId");
+    }
+
+    private String registerRobot(Tokens tokens, String deviceUid, String name) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"" + deviceUid + "\",\"name\":\"" + name + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.robot.robotId");
+    }
+
+    private ResultActions assignRobot(Tokens tokens, String plantId, String robotId) throws Exception {
+        return mockMvc.perform(post("/api/v1/plants/{plantId}/assignment", plantId)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"robotId\":\"" + robotId + "\"}"));
     }
 
     @Test

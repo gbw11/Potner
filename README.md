@@ -66,9 +66,43 @@ Spring Boot BOM이 관리하는 의존성에는 개별 버전을 지정하지 �
 | mysql | `mysql:3306` | 없음 | 애플리케이션용 MySQL |
 | mosquitto | `mosquitto:1883` | `${MQTT_PORT:-1883}:1883` | 인증된 MQTT 브로커 |
 | backend | `backend:8080` | 없음 | Spring Boot API 및 Actuator |
-| nginx | `nginx:80` | `${POTNER_HTTP_PORT:-80}:80` | HTTP reverse proxy |
+| nginx | `nginx:80` | `${POTNER_HTTP_PORT:-80}:80` | HTTP reverse proxy 및 성장 사진 정적 서빙 |
 
 Health API는 `GET /api/v1/health`에서 `{"service":"potner","status":"UP"}`를 반환합니다. Actuator는 `health,info`만 외부 노출하며 `/actuator/env`, `/actuator/configprops`, `/actuator/beans`는 Nginx에서 차단합니다.
+
+## 성장 사진 저장
+
+라즈베리가 올린 사진은 backend가 디스크에 쓰고 Nginx가 정적으로 서빙합니다. 사진은 backend를 거치지 않고 나갑니다.
+
+```text
+장치 ──POST /api/v1/device/photos──▶ backend ──▶ potner-photo-data 볼륨
+                                                        │
+앱 ◀── GET {PHOTO_BASE_URL}/... ◀── Nginx (읽기 전용) ◀──┘
+```
+
+| | |
+| --- | --- |
+| 볼륨 | `potner-photo-data` (named volume) |
+| backend 마운트 | `/var/potner/photos` 읽기·쓰기. `PHOTO_ROOT`와 같아야 합니다 |
+| nginx 마운트 | `/var/potner/photos` **읽기 전용**. 쓰기는 backend만 합니다 |
+| 공개 경로 | `/media/{plantId}/{photoId}/{original\|playback\|thumbnail}.jpg` |
+| 응답 URL | **상대 경로**. 앱이 자기 API base URL에 붙입니다 |
+
+**배포 디렉터리 안이 아니라 named volume입니다.** 배포 파이프라인이 배포 디렉터리를 매번 GitLab 최신 내용으로 교체하므로, 그 안에 두면 배포마다 사진이 사라집니다.
+
+**배포 시 설정할 환경 변수가 없습니다.** 사진은 API와 같은 origin의 `/media`로 나가므로 서버가 상대 경로(`/media/...`)를 내려주고 앱이 자기 API base URL에 붙입니다. 서버가 도메인을 알 필요가 없어 도메인 변경이나 HTTPS 전환에도 설정을 건드리지 않습니다.
+
+사진을 다른 origin(CDN, 오브젝트 스토리지)으로 옮길 때만 `.env`에 `PHOTO_BASE_URL`을 절대 URL로 넣으면 됩니다.
+
+### 이 경로에는 인증이 걸리지 않습니다
+
+Nginx가 정적으로 서빙하므로 URL을 아는 사람은 누구나 볼 수 있습니다. 경로에 들어가는 UUID 두 개(식물, 사진)가 추측을 막는 유일한 방어선입니다. 그래서 Nginx는 backend가 쓰는 레이아웃과 정확히 일치하는 요청만 통과시키고 나머지는 404로 막습니다. 디렉터리 목록도, 예상 밖의 파일도 노출되지 않습니다.
+
+URL이 한 번 유출되면(공유·브라우저 이력·로그) 영구 접근이 가능합니다. 더 조여야 하면 Nginx `auth_request`로 backend에 인증을 위임하는 방향이 있습니다.
+
+### 컨테이너 사용자와 볼륨 소유권
+
+backend는 non-root(`10001:10001`)로 실행됩니다. Dockerfile이 `/var/potner/photos`를 미리 만들고 소유자를 맞추는 이유가 이것입니다. Docker는 빈 named volume을 처음 마운트할 때 이미지 경로의 소유·권한을 복사하므로, 그 단계가 없으면 볼륨이 root 소유로 만들어져 **업로드가 권한 오류로 실패**합니다.
 
 ## 비밀값 관리
 
@@ -170,7 +204,7 @@ docker compose --env-file .env restart backend nginx
 docker compose --env-file .env down
 ```
 
-`docker compose down -v`는 일반 배포 절차에서 사용하지 않습니다. 이 명령은 `mysql-data`, `mosquitto-data`, `mosquitto-log`를 삭제해 MySQL과 Mosquitto 데이터를 잃을 수 있습니다. 데이터 보존이 필요한 동안에는 `down`만 사용하십시오.
+`docker compose down -v`는 일반 배포 절차에서 사용하지 않습니다. 이 명령은 `mysql-data`, `mosquitto-data`, `mosquitto-log`, **`photo-data`**를 삭제해 MySQL, Mosquitto 데이터와 **업로드된 사진 전부**를 잃을 수 있습니다. 사진은 DB 행과 달리 다시 만들 수 없습니다. 데이터 보존이 필요한 동안에는 `down`만 사용하십시오.
 
 ## 범위 밖 항목과 다음 단계
 
