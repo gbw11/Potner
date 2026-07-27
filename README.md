@@ -86,10 +86,13 @@ Health API는 `GET /api/v1/health`에서 `{"service":"potner","status":"UP"}`를
 | backend 마운트 | `/var/potner/photos` 읽기·쓰기. `PHOTO_ROOT`와 같아야 합니다 |
 | nginx 마운트 | `/var/potner/photos` **읽기 전용**. 쓰기는 backend만 합니다 |
 | 공개 경로 | `/media/{plantId}/{photoId}/{original\|playback\|thumbnail}.jpg` |
+| 응답 URL | **상대 경로**. 앱이 자기 API base URL에 붙입니다 |
 
 **배포 디렉터리 안이 아니라 named volume입니다.** 배포 파이프라인이 배포 디렉터리를 매번 GitLab 최신 내용으로 교체하므로, 그 안에 두면 배포마다 사진이 사라집니다.
 
-`PHOTO_BASE_URL`은 기본값이 없습니다. 잘못된 값은 앱에 쓸 수 없는 URL을 조용히 내려보내므로 `.env`에 반드시 공개 origin으로 설정해야 합니다. Nginx의 `/media/` 경로와 일치해야 합니다.
+**배포 시 설정할 환경 변수가 없습니다.** 사진은 API와 같은 origin의 `/media`로 나가므로 서버가 상대 경로(`/media/...`)를 내려주고 앱이 자기 API base URL에 붙입니다. 서버가 도메인을 알 필요가 없어 도메인 변경이나 HTTPS 전환에도 설정을 건드리지 않습니다.
+
+사진을 다른 origin(CDN, 오브젝트 스토리지)으로 옮길 때만 `.env`에 `PHOTO_BASE_URL`을 절대 URL로 넣으면 됩니다.
 
 ### 이 경로에는 인증이 걸리지 않습니다
 

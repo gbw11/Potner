@@ -173,7 +173,26 @@ wait_for_backend_health() {
     return 1
 }
 
+# 설정 파일 변경은 reload로 적용되지만 볼륨·포트 같은 컨테이너 구성 변경은 재생성이 필요하다.
+# compose는 서비스 정의가 바뀐 경우에만 재생성하므로 평소 배포에서는 아무 일도 하지 않는다.
+compose_nginx_up() {
+    docker compose \
+        --project-name "$PROJECT_NAME" \
+        --env-file "$DEPLOY_ENV_FILE" \
+        -f "$COMPOSE_FILE" \
+        -f "$DEPLOY_COMPOSE_FILE" \
+        up -d \
+        --no-deps \
+        --no-build \
+        "$NGINX_SERVICE"
+}
+
 reload_and_check_nginx() {
+    if ! compose_nginx_up; then
+        echo "Nginx 컨테이너 구성 적용에 실패했습니다."
+        return 1
+    fi
+
     nginx_container="$(find_container "$NGINX_SERVICE")"
 
     if [ -z "$nginx_container" ]; then
@@ -181,14 +200,28 @@ reload_and_check_nginx() {
         return 1
     fi
 
-    docker exec "$nginx_container" nginx -s reload
-    sleep 2
+    # 재생성된 경우 새 컨테이너가 이미 최신 설정으로 떠 있어 reload가 필요하지 않고,
+    # 기동 직후여서 실패할 수도 있다. 재생성되지 않았을 때 동기화된 설정 파일을 반영하는 것이
+    # 목적이므로 실패는 무시하고 아래 Health Check로 판정한다.
+    docker exec "$nginx_container" nginx -s reload || true
 
-    docker exec "$nginx_container" \
-        wget -qO- http://127.0.0.1/actuator/health \
-        >/dev/null
+    attempt=1
 
-    echo "Nginx를 통한 운영 Health Check 성공"
+    while [ "$attempt" -le "$HEALTH_MAX_ATTEMPTS" ]; do
+        if docker exec "$nginx_container" \
+            wget -qO- http://127.0.0.1/actuator/health >/dev/null 2>&1; then
+            echo "Nginx를 통한 운영 Health Check 성공"
+            return 0
+        fi
+
+        echo "Nginx Health Check 대기 중: ${attempt}/${HEALTH_MAX_ATTEMPTS}"
+        attempt=$((attempt + 1))
+        sleep "$HEALTH_INTERVAL_SECONDS"
+    done
+
+    echo "Nginx Health Check 시간이 초과되었습니다."
+    docker logs --tail 200 "$nginx_container" || true
+    return 1
 }
 
 rollback_backend() {

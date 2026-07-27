@@ -1864,7 +1864,9 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.width").value(120))
                 .andExpect(jsonPath("$.height").value(80))
                 // 크기별 URL 세 개가 모두 채워져야 타임랩스와 그리드가 각각 알맞은 파일을 쓴다.
-                .andExpect(jsonPath("$.thumbnailUrl").value(startsWith("http://localhost/media/")))
+                // 사진은 API 와 같은 origin 에서 나가므로 서버는 상대 경로를 내려준다.
+                // 앱이 자기 API base URL 에 붙이므로 서버가 도메인을 알 필요가 없다.
+                .andExpect(jsonPath("$.thumbnailUrl").value(startsWith("/media/")))
                 .andExpect(jsonPath("$.playbackUrl").value(containsString("/playback.jpg")))
                 .andExpect(jsonPath("$.originalUrl").value(containsString("/original.jpg")));
 

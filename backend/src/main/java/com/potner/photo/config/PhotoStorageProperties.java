@@ -21,7 +21,13 @@ public record PhotoStorageProperties(
 
         /**
          * 앱에 내려줄 URL 의 앞부분이다. Nginx 가 {@code root} 를 이 경로로 공개한다.
-         * DB 에는 상대 경로만 저장하므로 도메인이 바뀌어도 이 값만 고치면 된다.
+         *
+         * <p>기본값은 절대 URL 이 아니라 {@code /media} 다. 사진은 API 와 같은 origin 에서
+         * 나가므로 앱이 자기 API base URL 에 붙이면 되고, 서버가 도메인을 알 필요가 없다.
+         * 배포마다 origin 을 주입하면 값이 틀렸을 때 앱에 쓸 수 없는 URL 이 조용히 나가는데,
+         * 상대 경로는 틀릴 값 자체가 없다.
+         *
+         * <p>사진을 다른 origin(CDN, 오브젝트 스토리지)으로 옮기면 그때 절대 URL 로 덮어쓴다.
          */
         @NotBlank String baseUrl,
 
