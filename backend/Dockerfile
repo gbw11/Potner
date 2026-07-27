@@ -22,6 +22,12 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=builder /workspace/build/libs/potner.jar /app/potner.jar
 
+# Create the photo directory before dropping privileges so the named volume inherits
+# this ownership. Docker copies the image path's owner and mode when it initializes an
+# empty named volume; without this the volume is created as root and the non-root
+# application cannot write uploaded photos.
+RUN mkdir -p /var/potner/photos && chown 10001:10001 /var/potner/photos
+
 USER 10001:10001
 
 EXPOSE 8080
