@@ -13,6 +13,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "iot_device")
@@ -48,6 +49,20 @@ public class IotDevice {
     private LocalDateTime updatedAt;
 
     protected IotDevice() {
+    }
+
+    /**
+     * 등록 직후에는 OFFLINE 이다. 장치가 heartbeat 를 보내기 시작하면 ONLINE 으로 바뀐다.
+     * {@code deviceUid} 는 MQTT 토픽 세그먼트와 페이로드 deviceId 와 같아야 한다.
+     */
+    public static IotDevice register(Robot robot, String deviceUid, IotDeviceType deviceType) {
+        IotDevice device = new IotDevice();
+        device.id = UUID.randomUUID().toString();
+        device.robot = robot;
+        device.deviceUid = deviceUid;
+        device.deviceType = deviceType;
+        device.connectionStatus = IotDeviceConnectionStatus.OFFLINE;
+        return device;
     }
 
     public void recordHeartbeat(LocalDateTime receivedAt) {

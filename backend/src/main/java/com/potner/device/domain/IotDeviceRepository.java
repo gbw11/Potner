@@ -16,6 +16,12 @@ public interface IotDeviceRepository extends JpaRepository<IotDevice, String> {
     /** 장치 종류 순으로 정렬해 앱이 카드 순서를 고정할 수 있게 한다. */
     List<IotDevice> findAllByRobotIdOrderByDeviceTypeAsc(String robotId);
 
+    /**
+     * device_uid 는 robot 과 iot_device 양쪽에서 전역 UNIQUE 다. MQTT 토픽 세그먼트로 쓰이므로
+     * 두 테이블을 통틀어 겹치면 어느 장치의 측정값인지 가릴 수 없다.
+     */
+    boolean existsByDeviceUid(String deviceUid);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             UPDATE IotDevice device

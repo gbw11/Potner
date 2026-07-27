@@ -1,11 +1,17 @@
 package com.potner.device.domain;
 
+import com.potner.user.domain.AppUser;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+
+import java.util.UUID;
 
 /**
  * 식물을 담당하는 로봇이다.
@@ -24,6 +30,17 @@ public class Robot {
     @Column(name = "robot_id", length = 36, nullable = false, columnDefinition = "char(36)")
     private String id;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private AppUser user;
+
+    /**
+     * 사용자가 로봇 스티커에서 읽어 입력하는 값이다. MQTT 토픽 세그먼트, 페이로드 deviceId,
+     * Mosquitto 계정명과 같아야 하므로 등록 후에는 바꾸지 않는다.
+     */
+    @Column(name = "device_uid", length = 100, nullable = false, unique = true)
+    private String deviceUid;
+
     @Column(name = "name", length = 50, nullable = false)
     private String name;
 
@@ -37,8 +54,33 @@ public class Robot {
     protected Robot() {
     }
 
+    /**
+     * connection_status 는 매핑하지 않으므로 DB 기본값 'OFFLINE' 이 들어간다.
+     * 실제 연결 상태는 하위 장치의 heartbeat 에서 파생한다.
+     */
+    public static Robot register(AppUser user, String deviceUid, String name) {
+        Robot robot = new Robot();
+        robot.id = UUID.randomUUID().toString();
+        robot.user = user;
+        robot.deviceUid = deviceUid;
+        robot.name = name;
+        return robot;
+    }
+
+    public void rename(String name) {
+        this.name = name;
+    }
+
     public String getId() {
         return id;
+    }
+
+    public AppUser getUser() {
+        return user;
+    }
+
+    public String getDeviceUid() {
+        return deviceUid;
     }
 
     public String getName() {
