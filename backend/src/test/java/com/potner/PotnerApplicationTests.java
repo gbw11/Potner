@@ -30,6 +30,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -1674,6 +1675,182 @@ class PotnerApplicationTests {
         mockMvc.perform(get("/api/v1/plants/{plantId}/devices", plantId))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void registrationApiCompletesTheSensorIngestPath() throws Exception {
+        // 유입 경로는 device_uid → iot_device → robot → plant_device_assignment → plant 다.
+        // 세 행이 모두 API 로 만들어져야 수동 INSERT 없이 측정값이 저장된다.
+        Tokens tokens = signupAndLogin("robot-register@example.com");
+        String plantId = createPlant(tokens, "등록 테스트 식물");
+        String robotUid = "robot-register-01";
+        String sensorUid = "raspberry-register-01";
+
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"" + robotUid + "\",\"name\":\"거실 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.deviceUid").value(robotUid))
+                // 등록만으로는 측정값이 저장되지 않는다는 것이 응답에 드러나야 한다.
+                .andExpect(jsonPath("$.assignedPlantId").value(nullValue()))
+                .andExpect(jsonPath("$.devices.length()").value(0))
+                .andExpect(jsonPath("$.connectionStatus").value("OFFLINE"))
+                .andReturn().getResponse().getContentAsString();
+        String robotId = JsonPath.read(robotBody, "$.robotId");
+
+        mockMvc.perform(post("/api/v1/robots/{robotId}/devices", robotId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"" + sensorUid + "\",\"deviceType\":\"RASPBERRY_PI\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.deviceUid").value(sensorUid))
+                .andExpect(jsonPath("$.connectionStatus").value("OFFLINE"));
+
+        // 배정 전에는 담당 식물이 없어 측정값이 버려진다.
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingService.save(sensorMessage(
+                        UUID.randomUUID().toString(),
+                        sensorUid,
+                        SensorType.TEMPERATURE,
+                        "24.3",
+                        SensorUnit.CELSIUS))
+        ).isEqualTo(SensorReadingSaveResult.PLANT_ASSIGNMENT_NOT_FOUND);
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"robotId\":\"" + robotId + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.robotDeviceUid").value(robotUid));
+
+        // 배정 후에는 같은 장치의 측정값이 이 식물로 저장된다.
+        org.assertj.core.api.Assertions.assertThat(
+                sensorReadingService.save(sensorMessage(
+                        UUID.randomUUID().toString(),
+                        sensorUid,
+                        SensorType.TEMPERATURE,
+                        "24.3",
+                        SensorUnit.CELSIUS))
+        ).isEqualTo(SensorReadingSaveResult.SAVED);
+
+        mockMvc.perform(get("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robots.length()").value(1))
+                .andExpect(jsonPath("$.robots[0].assignedPlantId").value(plantId))
+                .andExpect(jsonPath("$.robots[0].assignedPlantName").value("등록 테스트 식물"))
+                .andExpect(jsonPath("$.robots[0].devices.length()").value(1));
+    }
+
+    @Test
+    void unassignAllowsReassignmentAndKeepsHistory() throws Exception {
+        // V10 이 컬럼 전체 UNIQUE 를 생성 컬럼 기반 활성 유일성으로 바꾼 이유가 이것이다.
+        // 이전 스키마에서는 해제해도 같은 식물에 새 행을 넣을 수 없어 재배정이 불가능했다.
+        Tokens tokens = signupAndLogin("robot-reassign@example.com");
+        String plantId = createPlant(tokens, "재배정 테스트 식물");
+        String firstRobotId = registerRobot(tokens, "robot-reassign-01", "첫 로봇");
+        String secondRobotId = registerRobot(tokens, "robot-reassign-02", "둘째 로봇");
+
+        assignRobot(tokens, plantId, firstRobotId).andExpect(status().isCreated());
+
+        // 이미 배정된 식물과 이미 배정된 로봇은 각각 다른 코드로 막는다.
+        assignRobot(tokens, plantId, secondRobotId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PLANT_ALREADY_ASSIGNED"));
+        String otherPlantId = createPlant(tokens, "다른 식물");
+        assignRobot(tokens, otherPlantId, firstRobotId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ROBOT_ALREADY_ASSIGNED"));
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        // 해제되면 파생 키가 NULL 이 되어 UNIQUE 대상에서 빠지므로 재배정이 된다.
+        assignRobot(tokens, plantId, secondRobotId).andExpect(status().isCreated());
+
+        // 행을 지우지 않으므로 이력이 남는다.
+        Integer historyCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM plant_device_assignment WHERE plant_id = ?",
+                Integer.class,
+                plantId);
+        org.assertj.core.api.Assertions.assertThat(historyCount).isEqualTo(2);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/assignment", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_ASSIGNMENT_NOT_FOUND"));
+    }
+
+    @Test
+    void deviceUidIsUniqueAcrossRobotAndIotDevice() throws Exception {
+        // device_uid 는 MQTT 토픽 세그먼트로 쓰이므로 두 테이블을 통틀어 겹치면
+        // 어느 장치의 측정값인지 가릴 수 없다.
+        Tokens tokens = signupAndLogin("robot-uid@example.com");
+        String robotId = registerRobot(tokens, "robot-uid-01", "로봇");
+
+        mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot-uid-01\",\"name\":\"중복 로봇\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DEVICE_UID_ALREADY_REGISTERED"));
+
+        mockMvc.perform(post("/api/v1/robots/{robotId}/devices", robotId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot-uid-01\",\"deviceType\":\"RASPBERRY_PI\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DEVICE_UID_ALREADY_REGISTERED"));
+
+        // 토픽을 깨뜨리는 문자는 검증에서 막는다.
+        mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot/uid\",\"name\":\"슬래시\"}"))
+                .andExpect(status().isBadRequest());
+
+        Tokens stranger = signupAndLogin("robot-uid-stranger@example.com");
+        mockMvc.perform(post("/api/v1/robots/{robotId}/devices", robotId)
+                        .header("Authorization", "Bearer " + stranger.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"robot-uid-99\",\"deviceType\":\"RASPBERRY_PI\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ROBOT_NOT_FOUND"));
+        mockMvc.perform(get("/api/v1/robots"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    private String createPlant(Tokens tokens, String name) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPlantJson(BASIL_ID, GERMINATION_ID, name)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.plantId");
+    }
+
+    private String registerRobot(Tokens tokens, String deviceUid, String name) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"" + deviceUid + "\",\"name\":\"" + name + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.robotId");
+    }
+
+    private ResultActions assignRobot(Tokens tokens, String plantId, String robotId) throws Exception {
+        return mockMvc.perform(post("/api/v1/plants/{plantId}/assignment", plantId)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"robotId\":\"" + robotId + "\"}"));
     }
 
     @Test
