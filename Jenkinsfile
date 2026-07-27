@@ -140,6 +140,11 @@ pipeline {
                       | grep -E '^(SPRING_PROFILES_ACTIVE|SPRING_DATASOURCE_URL|SPRING_DATASOURCE_USERNAME|SPRING_DATASOURCE_PASSWORD)=' \
                       > .ci-backend.env
 
+                    # MQTT_CLIENT_ID는 운영 backend와 달라야 한다. MQTT는 같은 client ID로
+                    # 접속하면 브로커가 기존 세션을 끊으므로, 운영값을 그대로 쓰면 임시 컨테이너와
+                    # 운영 backend가 살아 있는 동안 서로를 계속 밀어낸다. 실제로 배포마다
+                    # 임시 컨테이너가 정리될 때까지 운영 MQTT 연결이 끊겼다 붙기를 반복했다.
+                    # 컨테이너 이름을 그대로 쓰면 브랜치·빌드마다 유일하고 로그에서 추적도 쉽다.
                     printf '%s\n' \
                       "JWT_SECRET=$JWT_SECRET" \
                       "JWT_ACCESS_TOKEN_EXPIRATION=$JWT_ACCESS_TOKEN_EXPIRATION" \
@@ -148,7 +153,7 @@ pipeline {
                       "MQTT_BROKER_URL=$MQTT_BROKER_URL" \
                       "MQTT_USERNAME=$MQTT_BACKEND_CREDENTIALS_USR" \
                       "MQTT_PASSWORD=$MQTT_BACKEND_CREDENTIALS_PSW" \
-                      "MQTT_CLIENT_ID=$MQTT_CLIENT_ID" \
+                      "MQTT_CLIENT_ID=$CI_CONTAINER" \
                       "MQTT_TOPIC=$MQTT_TOPIC" \
                       "MQTT_QOS=$MQTT_QOS" \
                       "MQTT_CONNECTION_TIMEOUT_SECONDS=$MQTT_CONNECTION_TIMEOUT_SECONDS" \
