@@ -44,6 +44,12 @@ pipeline {
         CI_CONTAINER = "potner-backend-ci-${BRANCH_SLUG}-${BUILD_NUMBER}"
         DOCKER_NETWORK = 'potner-network'
 
+        // 임시 컨테이너 전용 스키마. 운영 스키마에 Flyway가 마이그레이션을 적용하지 않도록 분리한다.
+        // MySQL 식별자로 쓰이므로 BRANCH_SLUG와 달리 하이픈 대신 밑줄을 쓴다.
+        // 브랜치별로 나누는 이유는 disableConcurrentBuilds가 브랜치 단위라
+        // 서로 다른 브랜치가 동시에 빌드될 수 있기 때문이다.
+        CI_DB_NAME = "potner_ci_${(env.BRANCH_NAME ?: 'single').replaceAll('[^A-Za-z0-9]', '_').toLowerCase()}"
+
         // 운영 배포가 이루어지는 고정 디렉토리.
         // Jenkins 컨테이너와 EC2 호스트가 같은 경로로 마운트하고 있어야 한다.
         DEPLOY_DIR = "${env.POTNER_DEPLOY_DIR ?: '/home/ubuntu/potner-infra-test'}"
@@ -134,11 +140,78 @@ pipeline {
 
                     echo "환경 설정을 가져올 컨테이너: $SOURCE_BACKEND_CONTAINER"
 
+                    MYSQL_CONTAINER="$(
+                        docker ps \
+                          --filter "label=com.docker.compose.service=mysql" \
+                          --format '{{.Names}}' \
+                        | head -1
+                    )"
+
+                    if [ -z "$MYSQL_CONTAINER" ]; then
+                        echo "실행 중인 Compose mysql 컨테이너를 찾지 못했습니다."
+                        exit 1
+                    fi
+
+                    # 임시 컨테이너가 운영 스키마를 쓰면 Flyway가 운영 DB에 마이그레이션을 적용한다.
+                    # 머지도 리뷰도 되지 않은 브랜치가 운영 스키마를 바꾸게 되므로 전용 스키마를 쓴다.
+                    # 매 빌드 비운 스키마로 시작하므로 V1부터 전부 실행되어, 신규 환경 구축이
+                    # 되는지도 함께 검증된다.
+                    MYSQL_ROOT_PW="$(
+                        docker inspect \
+                          --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                          "$MYSQL_CONTAINER" \
+                        | sed -n 's/^MYSQL_ROOT_PASSWORD=//p'
+                    )"
+                    APP_DB_USER="$(
+                        docker inspect \
+                          --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                          "$MYSQL_CONTAINER" \
+                        | sed -n 's/^MYSQL_USER=//p'
+                    )"
+
+                    if [ -z "$MYSQL_ROOT_PW" ] || [ -z "$APP_DB_USER" ]; then
+                        echo "MySQL 계정 정보를 가져오지 못했습니다."
+                        exit 1
+                    fi
+
+                    docker exec -e MYSQL_PWD="$MYSQL_ROOT_PW" "$MYSQL_CONTAINER" \
+                      mysql -uroot -e "
+                        DROP DATABASE IF EXISTS $CI_DB_NAME;
+                        CREATE DATABASE $CI_DB_NAME
+                          CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+                        GRANT ALL PRIVILEGES ON $CI_DB_NAME.* TO '$APP_DB_USER'@'%';
+                        FLUSH PRIVILEGES;"
+
+                    echo "임시 스키마 준비 완료: $CI_DB_NAME"
+
+                    PROD_DB_URL="$(
+                        docker inspect \
+                          --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                          "$SOURCE_BACKEND_CONTAINER" \
+                        | sed -n 's/^SPRING_DATASOURCE_URL=//p'
+                    )"
+                    CI_DB_URL="$(
+                        printf '%s' "$PROD_DB_URL" \
+                        | sed -E "s#(jdbc:mysql://[^/]+/)[^?]*#\\1$CI_DB_NAME#"
+                    )"
+
+                    # 치환이 실패하면 운영 DB를 그대로 쓰게 된다. 조용히 넘어가면 안 되는 지점이다.
+                    case "$CI_DB_URL" in
+                        *"/$CI_DB_NAME"?*|*"/$CI_DB_NAME") ;;
+                        *)
+                            echo "임시 스키마 URL 생성에 실패했습니다: $CI_DB_URL"
+                            exit 1
+                            ;;
+                    esac
+
+                    # SPRING_DATASOURCE_URL은 운영 값을 쓰지 않고 위에서 만든 것으로 덮는다.
                     docker inspect \
                       --format '{{range .Config.Env}}{{println .}}{{end}}' \
                       "$SOURCE_BACKEND_CONTAINER" \
-                      | grep -E '^(SPRING_PROFILES_ACTIVE|SPRING_DATASOURCE_URL|SPRING_DATASOURCE_USERNAME|SPRING_DATASOURCE_PASSWORD)=' \
+                      | grep -E '^(SPRING_PROFILES_ACTIVE|SPRING_DATASOURCE_USERNAME|SPRING_DATASOURCE_PASSWORD)=' \
                       > .ci-backend.env
+
+                    printf '%s\n' "SPRING_DATASOURCE_URL=$CI_DB_URL" >> .ci-backend.env
 
                     # MQTT_CLIENT_ID는 운영 backend와 달라야 한다. MQTT는 같은 client ID로
                     # 접속하면 브로커가 기존 세션을 끊으므로, 운영값을 그대로 쓰면 임시 컨테이너와
@@ -432,7 +505,30 @@ pipeline {
                 docker image rm -f "$CI_IMAGE" >/dev/null 2>&1
                 rm -f .ci-backend.env
 
-                echo "임시 컨테이너, 임시 이미지 및 환경 파일 정리 완료"
+                # 임시 스키마를 남기지 않는다. 다음 빌드가 어차피 DROP 하지만 브랜치가 삭제되면
+                # 그 스키마는 아무도 지우지 않아 계속 쌓인다.
+                MYSQL_CONTAINER="$(
+                    docker ps \
+                      --filter "label=com.docker.compose.service=mysql" \
+                      --format '{{.Names}}' \
+                    | head -1
+                )"
+
+                if [ -n "$MYSQL_CONTAINER" ]; then
+                    MYSQL_ROOT_PW="$(
+                        docker inspect \
+                          --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                          "$MYSQL_CONTAINER" \
+                        | sed -n 's/^MYSQL_ROOT_PASSWORD=//p'
+                    )"
+
+                    if [ -n "$MYSQL_ROOT_PW" ]; then
+                        docker exec -e MYSQL_PWD="$MYSQL_ROOT_PW" "$MYSQL_CONTAINER" \
+                          mysql -uroot -e "DROP DATABASE IF EXISTS $CI_DB_NAME;" >/dev/null 2>&1
+                    fi
+                fi
+
+                echo "임시 컨테이너, 임시 이미지, 임시 스키마 및 환경 파일 정리 완료"
                 exit 0
             '''
 
