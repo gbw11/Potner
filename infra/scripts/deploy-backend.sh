@@ -175,8 +175,14 @@ wait_for_backend_health() {
 
 # 설정 파일 변경은 reload로 적용되지만 볼륨·포트 같은 컨테이너 구성 변경은 재생성이 필요하다.
 # compose는 서비스 정의가 바뀐 경우에만 재생성하므로 평소 배포에서는 아무 일도 하지 않는다.
+#
+# nginx만 올리더라도 BACKEND_IMAGE를 넘겨야 한다. compose는 대상 서비스를 고르기 전에
+# 파일 전체를 해석하고, compose.deploy.yml이 backend.image에 그 변수를 요구하기 때문이다.
 compose_nginx_up() {
-    docker compose \
+    image_name="$1"
+
+    BACKEND_IMAGE="$image_name" \
+        docker compose \
         --project-name "$PROJECT_NAME" \
         --env-file "$DEPLOY_ENV_FILE" \
         -f "$COMPOSE_FILE" \
@@ -187,8 +193,10 @@ compose_nginx_up() {
         "$NGINX_SERVICE"
 }
 
+# 인자로 받은 이미지는 nginx 기동에 쓰이지 않는다. compose 해석을 통과시키기 위한 값이며
+# 지금 배포 중인 이미지와 같아야 backend 서비스 정의가 실행 중인 컨테이너와 어긋나지 않는다.
 reload_and_check_nginx() {
-    if ! compose_nginx_up; then
+    if ! compose_nginx_up "$1"; then
         echo "Nginx 컨테이너 구성 적용에 실패했습니다."
         return 1
     fi
@@ -237,7 +245,7 @@ rollback_backend() {
         return 1
     fi
 
-    if ! reload_and_check_nginx; then
+    if ! reload_and_check_nginx "$ROLLBACK_IMAGE"; then
         echo "롤백 후 Nginx Health Check에 실패했습니다."
         return 1
     fi
@@ -294,7 +302,7 @@ main() {
         deployment_failed=1
     elif ! wait_for_backend_health; then
         deployment_failed=1
-    elif ! reload_and_check_nginx; then
+    elif ! reload_and_check_nginx "$NEW_IMAGE"; then
         deployment_failed=1
     fi
 
