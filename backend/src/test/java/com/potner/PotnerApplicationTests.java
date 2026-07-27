@@ -10,6 +10,8 @@ import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
+import com.potner.push.application.PushTargetResolver;
+import com.potner.user.domain.NotificationCategory;
 import com.potner.sensor.application.SensorReadingSaveResult;
 import com.potner.sensor.application.SensorReadingService;
 import com.potner.sensor.domain.SensorReadingRepository;
@@ -55,6 +57,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -64,6 +67,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 @Testcontainers
@@ -130,6 +134,9 @@ class PotnerApplicationTests {
     private com.potner.light.application.DailyLightScheduler dailyLightScheduler;
 
     @Autowired
+    private PushTargetResolver pushTargetResolver;
+
+    @Autowired
     private Clock clock;
 
     @DynamicPropertySource
@@ -141,6 +148,7 @@ class PotnerApplicationTests {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM fcm_token");
         jdbcTemplate.update("DELETE FROM user_notification_setting");
         jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM plant_daily_light");
@@ -1619,6 +1627,146 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void fcmTokenRegistrationIsIdempotentPerInstallation() throws Exception {
+        Tokens tokens = signupAndLogin("fcm-upsert@example.com");
+        String userId = userIdOf("fcm-upsert@example.com");
+        String installationId = "fid-upsert-0001";
+
+        registerFcmToken(tokens, installationId, "token-first", "ANDROID")
+                .andExpect(status().isNoContent());
+        registerFcmToken(tokens, installationId, "token-rotated", "ANDROID")
+                .andExpect(status().isNoContent());
+
+        // 토큰이 회전해도 설치 ID 가 같으면 행이 늘어나지 않는다.
+        assertThat(fcmTokenCount()).isEqualTo(1);
+        assertThat(fcmTokenColumn(installationId, "token")).isEqualTo("token-rotated");
+        assertThat(fcmTokenColumn(installationId, "user_id")).isEqualTo(userId);
+        assertThat(fcmTokenColumn(installationId, "active")).isEqualTo("1");
+    }
+
+    @Test
+    void registeringSameInstallationForAnotherUserReplacesThePreviousOwner() throws Exception {
+        Tokens first = signupAndLogin("fcm-owner-a@example.com");
+        Tokens second = signupAndLogin("fcm-owner-b@example.com");
+        String secondUserId = userIdOf("fcm-owner-b@example.com");
+        String installationId = "fid-shared-device";
+
+        registerFcmToken(first, installationId, "token-a", "ANDROID")
+                .andExpect(status().isNoContent());
+
+        // 세션이 만료된 사용자는 등록을 지우지 못한 채 로그아웃된다. 그 상태에서 다른 사용자가
+        // 같은 기기로 로그인하면, 이전 사용자의 알림이 이 기기로 가지 않아야 한다.
+        registerFcmToken(second, installationId, "token-b", "ANDROID")
+                .andExpect(status().isNoContent());
+
+        assertThat(fcmTokenCount()).isEqualTo(1);
+        assertThat(fcmTokenColumn(installationId, "user_id")).isEqualTo(secondUserId);
+        assertThat(fcmTokenColumn(installationId, "token")).isEqualTo("token-b");
+    }
+
+    @Test
+    void fcmTokenUnregistrationIsIdempotentAndScopedToTheOwner() throws Exception {
+        Tokens owner = signupAndLogin("fcm-delete-owner@example.com");
+        Tokens stranger = signupAndLogin("fcm-delete-stranger@example.com");
+        String ownerInstallationId = "fid-owner-device";
+
+        registerFcmToken(owner, ownerInstallationId, "token-owner", "ANDROID")
+                .andExpect(status().isNoContent());
+
+        // 남의 설치 ID 로 해제를 시도해도 204 지만 그 등록은 지워지지 않는다.
+        mockMvc.perform(delete("/api/v1/users/me/fcm-tokens/{installationId}", ownerInstallationId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNoContent());
+        assertThat(fcmTokenCount()).isEqualTo(1);
+
+        mockMvc.perform(delete("/api/v1/users/me/fcm-tokens/{installationId}", ownerInstallationId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+        assertThat(fcmTokenCount()).isZero();
+
+        // 이미 지워진 뒤 재시도해도 성공이어야 앱이 로그아웃을 마칠 수 있다.
+        mockMvc.perform(delete("/api/v1/users/me/fcm-tokens/{installationId}", ownerInstallationId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void fcmTokenRegistrationRejectsInvalidRequests() throws Exception {
+        Tokens tokens = signupAndLogin("fcm-invalid@example.com");
+
+        // 앱은 android/iOS 가 아니면 등록을 건너뛰므로 이 값은 도달하지 않아야 한다.
+        registerFcmToken(tokens, "fid-invalid-platform", "token", "UNSUPPORTED")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        registerFcmToken(tokens, "fid-blank-token", "   ", "ANDROID")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        // 컬럼 길이를 넘기면 저장 단계에서 500 이 되므로 그 전에 막아야 한다.
+        registerFcmToken(tokens, "f".repeat(129), "token", "ANDROID")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        assertThat(fcmTokenCount()).isZero();
+
+        mockMvc.perform(put("/api/v1/users/me/fcm-tokens/{installationId}", "fid-no-auth")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"token\",\"platform\":\"ANDROID\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void pushTargetsFollowNotificationSettingsAndActiveFlag() throws Exception {
+        Tokens tokens = signupAndLogin("fcm-target@example.com");
+        String userId = userIdOf("fcm-target@example.com");
+        registerFcmToken(tokens, "fid-target-device", "token-target", "ANDROID")
+                .andExpect(status().isNoContent());
+
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).hasSize(1);
+        // 마케팅은 기본값이 꺼짐이라 같은 토큰이라도 대상이 아니다.
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.MARKETING)).isEmpty();
+
+        mockMvc.perform(patch("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"allEnabled\":false}"))
+                .andExpect(status().isOk());
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).isEmpty();
+
+        mockMvc.perform(patch("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"allEnabled\":true,\"marketingEnabled\":true}"))
+                .andExpect(status().isOk());
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.MARKETING)).hasSize(1);
+
+        // 무효로 판정되어 비활성된 토큰은 발송 대상에서 빠진다.
+        jdbcTemplate.update("UPDATE fcm_token SET active = 0 WHERE installation_id = ?", "fid-target-device");
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).isEmpty();
+
+        // 같은 기기가 다시 등록하면 활성으로 되돌아온다.
+        registerFcmToken(tokens, "fid-target-device", "token-target", "ANDROID")
+                .andExpect(status().isNoContent());
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).hasSize(1);
+    }
+
+    @Test
+    void withdrawnUserLosesRegisteredDevices() throws Exception {
+        Tokens tokens = signupAndLogin("fcm-withdraw@example.com");
+        registerFcmToken(tokens, "fid-withdraw-device", "token-withdraw", "ANDROID")
+                .andExpect(status().isNoContent());
+        assertThat(fcmTokenCount()).isEqualTo(1);
+
+        // 탈퇴는 소프트 처리라 행이 남지만, 계정을 물리 삭제하면 토큰이 함께 지워져야 한다.
+        // 생성 컬럼이 없어 CASCADE 를 쓸 수 있는 것이 이 테이블의 특징이다.
+        appUserRepository.deleteAll();
+
+        assertThat(fcmTokenCount()).isZero();
+    }
+
+    @Test
     void plantDeviceStatusIsDerivedFromChildDevices() throws Exception {
         SensorFixture fixture = createSensorFixture("device-status@example.com");
         Tokens tokens = login("device-status@example.com");
@@ -2448,6 +2596,36 @@ class PotnerApplicationTests {
                   FROM iot_device
                  WHERE device_uid = ?
                 """, LocalDateTime.class, deviceUid);
+    }
+
+    private ResultActions registerFcmToken(
+            Tokens tokens,
+            String installationId,
+            String token,
+            String platform
+    ) throws Exception {
+        return mockMvc.perform(put("/api/v1/users/me/fcm-tokens/{installationId}", installationId)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"token":"%s","platform":"%s"}
+                        """.formatted(token, platform)));
+    }
+
+    private int fcmTokenCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fcm_token", Integer.class);
+    }
+
+    private String fcmTokenColumn(String installationId, String column) {
+        return jdbcTemplate.queryForObject(
+                "SELECT `%s` FROM fcm_token WHERE installation_id = ?".formatted(column),
+                String.class,
+                installationId
+        );
+    }
+
+    private String userIdOf(String email) {
+        return appUserRepository.findByEmailIgnoreCase(email).orElseThrow().getId();
     }
 
     private record Tokens(String accessToken, String refreshToken) {

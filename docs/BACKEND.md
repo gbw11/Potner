@@ -451,8 +451,66 @@ marketingEnabled 기본 false   이벤트·공지. 회원가입의 선택 동의
 기존 사용자 backfill 마이그레이션도 필요 없습니다. 조회는 행을 만들지 않고 첫 수정에서만
 upsert합니다.
 
-발송 시 판정(`allEnabled && pushEnabled && 카테고리 토글`)은 아직 없습니다 — FCM이 없어
-호출자가 없기 때문입니다. **FCM 구현 시 이 설정을 반드시 읽어야 합니다.**
+### 발송 대상 판정
+
+발송 시 판정은 `UserNotificationSetting.allowsPush(NotificationCategory)`에 있습니다.
+
+```
+allEnabled && pushEnabled && 카테고리 토글
+```
+
+`PushTargetResolver`가 이 판정과 활성 토큰 조회를 함께 수행하고, 발송기는 그 결과만 받습니다.
+설정 판정과 토큰 조회를 한곳에 묶은 이유는 **발송기가 설정을 읽는 것을 잊는 실패를
+구조적으로 막기 위함**입니다. 판정에서 막히면 빈 목록이 나가므로 발송기는 아무것도 하지 않습니다.
+
+---
+
+## 10-1. FCM 기기 토큰
+
+```
+PUT    /api/v1/users/me/fcm-tokens/{installationId}   { token, platform }  → 204
+DELETE /api/v1/users/me/fcm-tokens/{installationId}                        → 204
+```
+
+앱이 정의한 계약을 서버가 따릅니다. **식별자가 FCM 토큰이 아니라 Firebase 설치 ID(FID)입니다.**
+토큰은 회전하지만 설치 ID는 앱 설치당 안정적이라, 토큰을 키로 두면 회전할 때마다 옛 행이
+고아로 남습니다.
+
+### 설치 ID가 PK인 이유
+
+앱은 세션이 만료되어 강제 로그아웃될 때 **서버 등록을 지우지 않습니다.** 이미 죽은 Access
+Token으로 DELETE를 부를 수 없으므로 클라이언트로서는 옳은 선택입니다. 그래서 사용자 A의 행이
+남은 채 같은 기기에서 B가 로그인할 수 있습니다.
+
+```
+UNIQUE (user_id, installation_id)  → (A, FID)와 (B, FID)가 공존 → A의 알림이 B의 기기로 간다
+PRIMARY KEY (installation_id)      → B의 등록이 A의 행을 대체한다
+```
+
+앱을 고치지 않고 **스키마가 이 상황을 막습니다.**
+
+### 쓰기는 한 문장으로
+
+`ON DUPLICATE KEY UPDATE`로 `user_id`까지 덮어씁니다. 조회 후 수정하면 `user_id`를 바꾸는
+구간에 경쟁이 생깁니다.
+
+> **주의**: `ON DUPLICATE KEY UPDATE`의 영향 행 수는 삽입 1, 갱신 2, 값이 그대로면 0입니다.
+> `sensor_reading`의 중복 판정처럼 **영향 행 수로 분기하면 안 됩니다.**
+
+### 해제는 소유자로 스코프
+
+```sql
+DELETE FROM fcm_token WHERE installation_id = :installationId AND user_id = :userId
+```
+
+`installation_id`만으로 지우면 남의 설치 ID를 알아낸 사람이 그 기기의 푸시를 끊을 수 있습니다.
+지운 행이 0건이어도 **204**입니다 — 앱이 로그아웃 중 실패해 재시도할 수 있어야 하고,
+존재 여부를 노출하지 않는 기존 방침과도 맞습니다.
+
+경로 변수는 `@Valid`가 걸리지 않고 `ConstraintViolationException`이 전역 처리에 없어
+`@Validated`를 쓰면 500이 됩니다. 그래서 설치 ID 길이는 **서비스에서 확인**합니다.
+
+**아직 발송은 없습니다.** Firebase 연동과 실제 전송은 별도 작업입니다.
 
 ---
 
@@ -680,6 +738,9 @@ Jenkins Credential로 주입해 sync 경로 **밖**에 두세요.
 | V7 | `plant_daily_light` + 광량 허용 범위 채우기 |
 | V8 | `user_notification_setting` |
 | V9 | `plant.adopted_date`, `plant_life_stage.description` |
+| V10 | `plant_device_assignment` 재배정 허용 (활성 유일성 생성 컬럼, FK RESTRICT 전환) |
+| V11 | `plant_photo`, `robot.upload_token_hash` |
+| V12 | `fcm_token` (설치 ID가 PK) |
 
 ---
 
@@ -700,7 +761,7 @@ Jenkins Credential로 주입해 sync 경로 **밖**에 두세요.
 
 | | 비고 |
 |---|---|
-| **FCM 푸시** | 알림 설정은 준비됨. 발송 시 그 설정을 읽어야 함 |
+| **FCM 발송** | 토큰 등록과 발송 대상 판정은 완료. Firebase 연동과 실제 전송이 남음. MQTT 수신 스레드에서 동기 호출하면 센서 수집이 멈추므로 커밋 이후 비동기로 분리해야 함 |
 | 장치 등록·페어링 API | 테이블은 있으나 등록 수단이 없어 수동 INSERT 필요 |
 | 로봇 배터리 수집 | 컬럼은 있음. MQTT 계약 확정 필요 |
 | MQTT 제어(급수·팬·LED) | publish 자체가 없음. ACL에 `command/#`만 예약 |
