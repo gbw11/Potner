@@ -2,11 +2,12 @@ package com.potner.device.presentation;
 
 import com.potner.config.OpenApiConfig;
 import com.potner.device.application.DeviceRegistrationService;
+import com.potner.device.dto.DeviceUploadTokenResponse;
 import com.potner.device.dto.IotDeviceResponse;
 import com.potner.device.dto.RegisterIotDeviceRequest;
 import com.potner.device.dto.RegisterRobotRequest;
-import com.potner.device.dto.RegisteredRobotResponse;
 import com.potner.device.dto.RobotListResponse;
+import com.potner.device.dto.RobotRegistrationResponse;
 import com.potner.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -47,13 +48,32 @@ public class RobotController {
 
                     등록만으로는 측정값이 저장되지 않는다. 하위 IoT 장치를 등록하고
                     식물에 배정까지 해야 유입 경로가 완성된다.
+
+                    uploadToken 원문은 이 응답에서만 볼 수 있다. 서버는 해시만 저장하므로 다시
+                    조회할 수 없다. 사용자가 라즈베리 설정에 넣도록 안내해야 하며 잃어버리면
+                    재발급해야 한다.
                     """
     )
-    public RegisteredRobotResponse registerRobot(
+    public RobotRegistrationResponse registerRobot(
             @AuthenticationPrincipal AuthenticatedUser principal,
             @Valid @RequestBody RegisterRobotRequest request
     ) {
         return deviceRegistrationService.registerRobot(principal.userId(), request);
+    }
+
+    @PostMapping("/{robotId}/upload-token")
+    @Operation(
+            summary = "업로드 토큰 재발급",
+            description = """
+                    토큰을 잃어버렸거나 유출됐을 때 쓴다. 재발급 즉시 이전 토큰이 무효가 되므로
+                    라즈베리 설정도 함께 바꿔야 한다. 원문은 이 응답에서만 볼 수 있다.
+                    """
+    )
+    public DeviceUploadTokenResponse reissueUploadToken(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable String robotId
+    ) {
+        return deviceRegistrationService.reissueUploadToken(principal.userId(), robotId);
     }
 
     @GetMapping

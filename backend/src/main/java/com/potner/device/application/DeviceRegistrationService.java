@@ -2,6 +2,7 @@ package com.potner.device.application;
 
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
+import com.potner.device.domain.DeviceUploadToken;
 import com.potner.device.domain.IotDevice;
 import com.potner.device.domain.IotDeviceRepository;
 import com.potner.device.domain.PlantDeviceAssignment;
@@ -9,12 +10,14 @@ import com.potner.device.domain.PlantDeviceAssignmentRepository;
 import com.potner.device.domain.Robot;
 import com.potner.device.domain.RobotConnectionState;
 import com.potner.device.domain.RobotRepository;
+import com.potner.device.dto.DeviceUploadTokenResponse;
 import com.potner.device.dto.IotDeviceResponse;
 import com.potner.device.dto.PlantAssignmentResponse;
 import com.potner.device.dto.RegisterIotDeviceRequest;
 import com.potner.device.dto.RegisterRobotRequest;
 import com.potner.device.dto.RegisteredRobotResponse;
 import com.potner.device.dto.RobotListResponse;
+import com.potner.device.dto.RobotRegistrationResponse;
 import com.potner.plant.domain.Plant;
 import com.potner.plant.domain.PlantRepository;
 import com.potner.plant.domain.PlantStatus;
@@ -51,6 +54,7 @@ public class DeviceRegistrationService {
     private final RobotRepository robotRepository;
     private final IotDeviceRepository iotDeviceRepository;
     private final PlantDeviceAssignmentRepository assignmentRepository;
+    private final DeviceUploadToken uploadTokenIssuer;
     private final Clock clock;
 
     public DeviceRegistrationService(
@@ -59,6 +63,7 @@ public class DeviceRegistrationService {
             RobotRepository robotRepository,
             IotDeviceRepository iotDeviceRepository,
             PlantDeviceAssignmentRepository assignmentRepository,
+            DeviceUploadToken uploadTokenIssuer,
             Clock clock
     ) {
         this.appUserRepository = appUserRepository;
@@ -66,18 +71,43 @@ public class DeviceRegistrationService {
         this.robotRepository = robotRepository;
         this.iotDeviceRepository = iotDeviceRepository;
         this.assignmentRepository = assignmentRepository;
+        this.uploadTokenIssuer = uploadTokenIssuer;
         this.clock = clock;
     }
 
+    /**
+     * 로봇을 등록하고 업로드 토큰을 발급한다.
+     *
+     * <p>토큰 원문은 이 응답에서만 노출된다. 해시만 저장하므로 다시 조회할 수 없다.
+     */
     @Transactional
-    public RegisteredRobotResponse registerRobot(String userId, RegisterRobotRequest request) {
+    public RobotRegistrationResponse registerRobot(String userId, RegisterRobotRequest request) {
         AppUser user = findUser(userId);
         String deviceUid = request.deviceUid().trim();
         requireUnusedDeviceUid(deviceUid);
 
-        Robot robot = robotRepository.save(Robot.register(user, deviceUid, request.name().trim()));
+        Robot robot = Robot.register(user, deviceUid, request.name().trim());
+        String uploadToken = uploadTokenIssuer.generate();
+        robot.replaceUploadTokenHash(uploadTokenIssuer.hash(uploadToken));
+        robotRepository.save(robot);
+
         // 방금 등록한 로봇이므로 하위 장치도 배정도 아직 없다.
-        return toResponse(robot, List.of(), null, Map.of());
+        return new RobotRegistrationResponse(
+                toResponse(robot, List.of(), null, Map.of()),
+                uploadToken
+        );
+    }
+
+    /**
+     * 업로드 토큰을 다시 발급한다. 토큰을 잃어버렸거나 유출됐을 때 쓴다.
+     * 이전 토큰은 즉시 무효가 되므로 라즈베리 설정도 함께 바꿔야 한다.
+     */
+    @Transactional
+    public DeviceUploadTokenResponse reissueUploadToken(String userId, String robotId) {
+        Robot robot = findOwnedRobot(userId, robotId);
+        String uploadToken = uploadTokenIssuer.generate();
+        robot.replaceUploadTokenHash(uploadTokenIssuer.hash(uploadToken));
+        return new DeviceUploadTokenResponse(robot.getId(), uploadToken);
     }
 
     public RobotListResponse getRobots(String userId) {

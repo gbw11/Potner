@@ -14,4 +14,7 @@ public interface RobotRepository extends JpaRepository<Robot, String> {
     Optional<Robot> findByIdAndUserId(String id, String userId);
 
     boolean existsByDeviceUid(String deviceUid);
+
+    /** 장치 업로드의 유일한 인증 경로다. 원문이 아니라 해시로 찾는다. */
+    Optional<Robot> findByUploadTokenHash(String uploadTokenHash);
 }

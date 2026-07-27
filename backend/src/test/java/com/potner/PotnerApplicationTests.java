@@ -29,6 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.containers.MySQLContainer;
@@ -51,6 +52,7 @@ import java.util.concurrent.Future;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -58,6 +60,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
@@ -141,6 +144,7 @@ class PotnerApplicationTests {
         jdbcTemplate.update("DELETE FROM user_notification_setting");
         jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM plant_daily_light");
+        jdbcTemplate.update("DELETE FROM plant_photo");
         jdbcTemplate.update("DELETE FROM sensor_reading");
         jdbcTemplate.update("DELETE FROM plant_device_assignment");
         jdbcTemplate.update("DELETE FROM iot_device");
@@ -1691,13 +1695,15 @@ class PotnerApplicationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"deviceUid\":\"" + robotUid + "\",\"name\":\"거실 로봇\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.deviceUid").value(robotUid))
+                .andExpect(jsonPath("$.robot.deviceUid").value(robotUid))
                 // 등록만으로는 측정값이 저장되지 않는다는 것이 응답에 드러나야 한다.
-                .andExpect(jsonPath("$.assignedPlantId").value(nullValue()))
-                .andExpect(jsonPath("$.devices.length()").value(0))
-                .andExpect(jsonPath("$.connectionStatus").value("OFFLINE"))
+                .andExpect(jsonPath("$.robot.assignedPlantId").value(nullValue()))
+                .andExpect(jsonPath("$.robot.devices.length()").value(0))
+                .andExpect(jsonPath("$.robot.connectionStatus").value("OFFLINE"))
+                // 업로드 토큰 원문은 이 응답에서만 볼 수 있다.
+                .andExpect(jsonPath("$.uploadToken").isString())
                 .andReturn().getResponse().getContentAsString();
-        String robotId = JsonPath.read(robotBody, "$.robotId");
+        String robotId = JsonPath.read(robotBody, "$.robot.robotId");
 
         mockMvc.perform(post("/api/v1/robots/{robotId}/devices", robotId)
                         .header("Authorization", "Bearer " + tokens.accessToken())
@@ -1826,6 +1832,136 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
     }
 
+    @Test
+    void devicePhotoUploadIsAuthenticatedByTokenAndDerivesPlantFromAssignment() throws Exception {
+        Tokens tokens = signupAndLogin("photo-device@example.com");
+        String plantId = createPlant(tokens, "사진 테스트 식물");
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"photo-robot-01\",\"name\":\"사진 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String robotId = JsonPath.read(robotBody, "$.robot.robotId");
+        String uploadToken = JsonPath.read(robotBody, "$.uploadToken");
+
+        // 배정이 없으면 어느 식물의 사진인지 정할 수 없다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_ASSIGNMENT_NOT_FOUND"));
+
+        assignRobot(tokens, plantId, robotId).andExpect(status().isCreated());
+
+        // plantId 를 받지 않는다. 로봇의 활성 배정에서 서버가 정한다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken)
+                        .param("capturedAt", "2026-07-20T12:00:00Z"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.photoDate").value("2026-07-20"))
+                .andExpect(jsonPath("$.width").value(120))
+                .andExpect(jsonPath("$.height").value(80))
+                // 크기별 URL 세 개가 모두 채워져야 타임랩스와 그리드가 각각 알맞은 파일을 쓴다.
+                .andExpect(jsonPath("$.thumbnailUrl").value(startsWith("http://localhost/media/")))
+                .andExpect(jsonPath("$.playbackUrl").value(containsString("/playback.jpg")))
+                .andExpect(jsonPath("$.originalUrl").value(containsString("/original.jpg")));
+
+        // 하루 한 장. 타임랩스 프레임 간격을 일정하게 유지하기 위함이다.
+        // 같은 서비스 타임존 날짜(07-20 KST)에 해당하는 다른 UTC 시각을 쓴다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken)
+                        .param("capturedAt", "2026-07-20T01:00:00Z"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PHOTO_ALREADY_EXISTS_FOR_DATE"));
+
+        // 날짜 경계는 UTC 자정이 아니라 서비스 타임존 자정이다. 15:00Z 부터 다음 날이므로
+        // 하루 한 장 제한에 걸리지 않는다. plant_daily_light.light_date 와 같은 규칙이다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken)
+                        .param("capturedAt", "2026-07-20T15:00:00Z"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.photoDate").value("2026-07-21"));
+
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", "wrong-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_DEVICE_TOKEN"));
+
+        // 이미지로 읽히지 않으면 확장자와 무관하게 거부한다. Content-Type 은 신뢰할 수 없다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(new MockMultipartFile(
+                                "file", "fake.jpg", "image/jpeg", "not an image".getBytes()))
+                        .header("X-Device-Token", uploadToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PHOTO"));
+    }
+
+    @Test
+    void photoQueryReturnsTimelapseOrderAndRevealsMissingDays() throws Exception {
+        Tokens tokens = signupAndLogin("photo-query@example.com");
+        String plantId = createPlant(tokens, "타임랩스 식물");
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"photo-robot-02\",\"name\":\"사진 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        assignRobot(tokens, plantId, (String) JsonPath.read(robotBody, "$.robot.robotId"))
+                .andExpect(status().isCreated());
+        String uploadToken = JsonPath.read(robotBody, "$.uploadToken");
+
+        // 3일 중 이틀만 촬영한다. 22일은 로봇이 꺼져 있던 날을 흉내낸다.
+        for (String captured : List.of("2026-07-21T03:00:00Z", "2026-07-23T03:00:00Z")) {
+            mockMvc.perform(multipart("/api/v1/device/photos")
+                            .file(jpegPart(120, 80))
+                            .header("X-Device-Token", uploadToken)
+                            .param("capturedAt", captured))
+                    .andExpect(status().isCreated());
+        }
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/photos", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("from", "2026-07-21")
+                        .param("to", "2026-07-23"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.zoneOffset").value("+09:00"))
+                .andExpect(jsonPath("$.photos.length()").value(2))
+                // 오래된 것부터다. 앱이 그대로 넘기면 타임랩스가 된다.
+                .andExpect(jsonPath("$.photos[0].photoDate").value("2026-07-21"))
+                .andExpect(jsonPath("$.photos[1].photoDate").value("2026-07-23"))
+                // 결측일을 드러낸다. 3일을 요청했지만 이틀만 찍혔다.
+                .andExpect(jsonPath("$.requestedDays").value(3))
+                .andExpect(jsonPath("$.capturedDays").value(2));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/photos", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("from", "2026-07-23")
+                        .param("to", "2026-07-21"))
+                .andExpect(status().isBadRequest());
+
+        Tokens stranger = signupAndLogin("photo-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/photos", plantId)
+                        .header("Authorization", "Bearer " + stranger.accessToken())
+                        .param("from", "2026-07-21")
+                        .param("to", "2026-07-23"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    /** 실제 JPEG 바이트를 만든다. 서버가 ImageIO 로 읽어 크기별 축소본을 만들기 때문이다. */
+    private MockMultipartFile jpegPart(int width, int height) throws Exception {
+        java.awt.image.BufferedImage image =
+                new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "jpg", out);
+        return new MockMultipartFile("file", "photo.jpg", "image/jpeg", out.toByteArray());
+    }
+
     private String createPlant(Tokens tokens, String name) throws Exception {
         String body = mockMvc.perform(post("/api/v1/plants")
                         .header("Authorization", "Bearer " + tokens.accessToken())
@@ -1843,7 +1979,7 @@ class PotnerApplicationTests {
                         .content("{\"deviceUid\":\"" + deviceUid + "\",\"name\":\"" + name + "\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$.robotId");
+        return JsonPath.read(body, "$.robot.robotId");
     }
 
     private ResultActions assignRobot(Tokens tokens, String plantId, String robotId) throws Exception {

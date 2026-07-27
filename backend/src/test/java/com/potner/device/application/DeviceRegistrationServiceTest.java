@@ -2,6 +2,7 @@ package com.potner.device.application;
 
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
+import com.potner.device.domain.DeviceUploadToken;
 import com.potner.device.domain.IotDeviceRepository;
 import com.potner.device.domain.IotDeviceType;
 import com.potner.device.domain.PlantDeviceAssignment;
@@ -12,6 +13,7 @@ import com.potner.device.dto.PlantAssignmentResponse;
 import com.potner.device.dto.RegisterIotDeviceRequest;
 import com.potner.device.dto.RegisterRobotRequest;
 import com.potner.device.dto.RegisteredRobotResponse;
+import com.potner.device.dto.RobotRegistrationResponse;
 import com.potner.plant.domain.Plant;
 import com.potner.plant.domain.PlantRepository;
 import com.potner.plant.domain.PlantStatus;
@@ -20,6 +22,7 @@ import com.potner.user.domain.AppUserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -72,6 +75,7 @@ class DeviceRegistrationServiceTest {
                 robotRepository,
                 iotDeviceRepository,
                 assignmentRepository,
+                new DeviceUploadToken(),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
@@ -85,18 +89,56 @@ class DeviceRegistrationServiceTest {
         when(robotRepository.save(any(Robot.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        RegisteredRobotResponse response = deviceRegistrationService.registerRobot(
+        RobotRegistrationResponse response = deviceRegistrationService.registerRobot(
                 USER_ID,
                 new RegisterRobotRequest("  " + DEVICE_UID + "  ", "  거실 로봇  ")
         );
 
+        RegisteredRobotResponse robot = response.robot();
         // 앞뒤 공백을 지운다. deviceUid 는 MQTT 토픽 세그먼트가 되므로 공백이 남으면 구독이 어긋난다.
-        assertThat(response.deviceUid()).isEqualTo(DEVICE_UID);
-        assertThat(response.name()).isEqualTo("거실 로봇");
+        assertThat(robot.deviceUid()).isEqualTo(DEVICE_UID);
+        assertThat(robot.name()).isEqualTo("거실 로봇");
         // 등록만으로는 측정값이 저장되지 않는다는 것이 응답에 드러나야 한다.
-        assertThat(response.devices()).isEmpty();
-        assertThat(response.assignedPlantId()).isNull();
-        assertThat(response.connectionStatus().name()).isEqualTo("OFFLINE");
+        assertThat(robot.devices()).isEmpty();
+        assertThat(robot.assignedPlantId()).isNull();
+        assertThat(robot.connectionStatus().name()).isEqualTo("OFFLINE");
+        // 업로드 토큰 원문은 이 응답에서만 볼 수 있다.
+        assertThat(response.uploadToken()).isNotBlank();
+    }
+
+    @Test
+    void uploadTokenIsStoredAsHashOnly() {
+        AppUser user = mock(AppUser.class);
+        when(appUserRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(robotRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(false);
+        when(iotDeviceRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(false);
+        ArgumentCaptor<Robot> saved = ArgumentCaptor.forClass(Robot.class);
+        when(robotRepository.save(saved.capture()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        String uploadToken = deviceRegistrationService.registerRobot(
+                USER_ID,
+                new RegisterRobotRequest(DEVICE_UID, "거실 로봇")
+        ).uploadToken();
+
+        // 저장소가 유출돼도 업로드 권한이 넘어가지 않아야 한다. Refresh Token 과 같은 이유다.
+        String storedHash = saved.getValue().getUploadTokenHash();
+        assertThat(storedHash).isNotEqualTo(uploadToken);
+        assertThat(storedHash).isEqualTo(new DeviceUploadToken().hash(uploadToken));
+    }
+
+    @Test
+    void reissuedTokenReplacesThePreviousOne() {
+        Robot robot = Robot.register(mock(AppUser.class), DEVICE_UID, "거실 로봇");
+        DeviceUploadToken hasher = new DeviceUploadToken();
+        robot.replaceUploadTokenHash(hasher.hash("old-token"));
+        when(robotRepository.findByIdAndUserId(ROBOT_ID, USER_ID)).thenReturn(Optional.of(robot));
+
+        String reissued = deviceRegistrationService.reissueUploadToken(USER_ID, ROBOT_ID).uploadToken();
+
+        // 재발급이 유출 시 회수 수단이므로 이전 토큰은 즉시 무효가 되어야 한다.
+        assertThat(robot.getUploadTokenHash()).isEqualTo(hasher.hash(reissued));
+        assertThat(robot.getUploadTokenHash()).isNotEqualTo(hasher.hash("old-token"));
     }
 
     @Test

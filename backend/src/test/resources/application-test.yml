@@ -24,6 +24,10 @@ springdoc:
     enabled: true
 
 potner:
+  photo:
+    # 테스트가 쓴 파일이 저장소에 남지 않도록 빌드 디렉터리 아래에 둔다.
+    root: build/test-photos
+    base-url: http://localhost/media
   daily-light:
     # 스케줄러 빈을 만들어 @Scheduled 의 cron·zone 이 실제로 유효한지 컨텍스트 시작 시점에 검증한다.
     # 빈을 만들지 않으면 잘못된 zone 값이 테스트를 통과해 배포에서 터진다.

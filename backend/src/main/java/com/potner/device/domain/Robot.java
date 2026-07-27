@@ -41,6 +41,13 @@ public class Robot {
     @Column(name = "device_uid", length = 100, nullable = false, unique = true)
     private String deviceUid;
 
+    /**
+     * 업로드 토큰의 SHA-256 해시다. 장치는 사용자 JWT 를 가질 수 없어 별도 자격이 필요하다.
+     * Refresh Token 과 같은 이유로 원문은 저장하지 않는다. 원문은 발급 응답에서 한 번만 노출된다.
+     */
+    @Column(name = "upload_token_hash", length = 64)
+    private String uploadTokenHash;
+
     @Column(name = "name", length = 50, nullable = false)
     private String name;
 
@@ -71,6 +78,11 @@ public class Robot {
         this.name = name;
     }
 
+    /** 재발급하면 이전 토큰은 즉시 무효가 된다. 유출 시 회수 수단이 된다. */
+    public void replaceUploadTokenHash(String uploadTokenHash) {
+        this.uploadTokenHash = uploadTokenHash;
+    }
+
     public String getId() {
         return id;
     }
@@ -81,6 +93,10 @@ public class Robot {
 
     public String getDeviceUid() {
         return deviceUid;
+    }
+
+    public String getUploadTokenHash() {
+        return uploadTokenHash;
     }
 
     public String getName() {
