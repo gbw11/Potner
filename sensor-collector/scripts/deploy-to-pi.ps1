@@ -21,8 +21,7 @@ ssh raspberrypi "mkdir -p $RemoteDir"
 Write-Host "Uploading project files..."
 scp -r `
     main.py `
-    plant.py `
-    capture_photo.py `
+    cli `
     config.yaml `
     config.raspberry_pi.yaml `
     requirements.txt `

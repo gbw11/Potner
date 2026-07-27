@@ -5,5 +5,7 @@ __pycache__/
 .pytest_cache/
 data/
 *.csv
+# Local secrets (API keys). Create next to main.py — never commit.
 .env
+.env.*
 .DS_Store

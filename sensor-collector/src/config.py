@@ -16,7 +16,7 @@ def load_dotenv_files(start: Path | None = None) -> None:
     candidates: list[Path] = []
     if start is not None:
         candidates.append(Path(start))
-    # plant.py / main.py live at repo root
+    # Project root: main.py + cli/ (parents[1] from src/config.py)
     candidates.append(Path.cwd() / ".env")
     candidates.append(Path(__file__).resolve().parents[1] / ".env")
 

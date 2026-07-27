@@ -1,6 +1,6 @@
 # Copy over config.yaml on the Pi, or run:
 #   python main.py --config config.raspberry_pi.yaml
-#   python plant.py --config config.raspberry_pi.yaml brief
+#   python -m cli.plant --config config.raspberry_pi.yaml brief
 platform: raspberry_pi
 
 interval_sec: 5

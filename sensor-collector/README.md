@@ -18,7 +18,7 @@ Pi/Jetson은 **측정값만** 서버로 보냅니다. 필요 급수량 계산·�
 
 ```bash
 # 1회 전송 테스트
-python plant.py push-soil
+python -m cli.plant push-soil
 
 # 수집 루프에서 주기 전송 (backend.enabled: true)
 python main.py --once
@@ -72,16 +72,16 @@ python main.py --once
 
 ```bash
 # 상태 브리핑 (1인칭 멘트)
-python plant.py brief
+python -m cli.plant brief
 
 # 외출 이벤트 리포트
-python plant.py report
+python -m cli.plant report
 
 # 자유 대화 (exit 로 종료)
-python plant.py chat
+python -m cli.plant chat
 
 # 수집+상태/이벤트만 보기
-python plant.py tick
+python -m cli.plant tick
 ```
 
 LLM을 쓰려면 프로젝트 루트 `.env`에 **SSAFY GMS 키**를 넣습니다:
@@ -94,20 +94,26 @@ OPENAI_MAX_TOKENS=200
 ```
 
 ```bash
-python plant.py llm-status
-python plant.py brief
+python -m cli.plant llm-status
+python -m cli.plant brief
 ```
 
 변수 이름이 `OPENAI_*`인 이유는 GMS가 OpenAI 호환 API이기 때문입니다. OpenAI 공식 키가 아닙니다.
 
-| 폴더 | 역할 |
+| 경로 | 역할 |
 |------|------|
+| `main.py` | 상시 센서 수집 루프 (루트 진입점) |
+| `cli/` | 부가 CLI (`plant`, `capture_photo` …) — `python -m cli.<name>` |
+| `scripts/` | PC↔Pi 배포·SSH 유틸 (`.ps1`) |
+| `src/` | 라이브러리 (센서·상태·LLM·비전) |
 | `src/status` | 임계값 기반 정상/이상 라벨 |
 | `src/events` | 상태 변화 JSONL 로그 |
 | `src/llm` | OpenAI 호환 API + tool use + 템플릿 |
 | `src/dialogue` | brief / report / chat 오케스트레이션 |
 | `src/voice` | STT/TTS 어댑터 |
 | `src/vision` | 카메라 캡처 (OV5647) + `data/camera` 저장 |
+| `config.yaml` | PC/mock 기본 설정 |
+| `config.raspberry_pi.yaml` | 라즈베리 파이 실기기 설정 |
 
 ### 카메라 (SunFounder Rev1.3 / OV5647)
 
@@ -116,13 +122,13 @@ python plant.py brief
 - 메타: `data/camera/index.jsonl`
 
 ```bash
-# PC 또는 Pi 어디서든
-python capture_photo.py
+# PC 또는 Pi 어디서든 (프로젝트 루트에서)
+python -m cli.capture_photo
 ```
 
 - **Pi에서 실행**: Pi의 `data/camera/`에 바로 저장
 - **PC에서 실행**: Pi에서 촬영 후 PC `data/camera/`로 자동 동기화
-- mock만: `python capture_photo.py --mock`
+- mock만: `python -m cli.capture_photo --mock`
 
 ## PC ↔ 라즈베리 파이 (WiFi / SSH)
 
