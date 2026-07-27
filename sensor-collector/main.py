@@ -18,8 +18,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect plant/environment sensor data")
     parser.add_argument(
         "--config",
-        default="config.yaml",
-        help="Path to YAML config (default: config.yaml)",
+        default="config/default.yaml",
+        help="Path to YAML config (default: config/default.yaml)",
     )
     parser.add_argument(
         "--once",

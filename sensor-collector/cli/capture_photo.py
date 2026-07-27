@@ -70,7 +70,7 @@ def _sync_from_pi() -> None:
     subprocess.run(cmd, check=True)
 
 
-def _capture_on_pi_and_sync(config_name: str = "config.raspberry_pi.yaml") -> int:
+def _capture_on_pi_and_sync(config_name: str = "config/raspberry_pi.yaml") -> int:
     print(f"[PC] Capture on {REMOTE_HOST}, then save to {LOCAL_CAMERA_DIR}/ ...")
     remote_cmd = (
         f"cd {REMOTE_DIR} && . .venv/bin/activate && "
@@ -103,11 +103,11 @@ def main() -> int:
     if args.config:
         config_path = Path(args.config)
     elif _is_raspberry_pi() or args.local_only:
-        config_path = Path("config.raspberry_pi.yaml")
+        config_path = Path("config/raspberry_pi.yaml")
         if not config_path.exists():
-            config_path = Path("config.yaml")
+            config_path = Path("config/default.yaml")
     else:
-        config_path = Path("config.yaml")
+        config_path = Path("config/default.yaml")
 
     if not config_path.exists():
         print(f"Config not found: {config_path}", file=sys.stderr)
@@ -119,10 +119,10 @@ def main() -> int:
 
     # Windows / other PC: shoot on Pi and sync into local data/camera
     if os.name == "nt" or sys.platform.startswith("win"):
-        return _capture_on_pi_and_sync("config.raspberry_pi.yaml")
+        return _capture_on_pi_and_sync("config/raspberry_pi.yaml")
 
     # Linux laptop without Pi board: same remote flow
-    return _capture_on_pi_and_sync("config.raspberry_pi.yaml")
+    return _capture_on_pi_and_sync("config/raspberry_pi.yaml")
 
 
 if __name__ == "__main__":

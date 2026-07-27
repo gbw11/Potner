@@ -1,6 +1,7 @@
-# Copy over config.yaml on the Pi, or run:
-#   python main.py --config config.raspberry_pi.yaml
-#   python -m cli.plant --config config.raspberry_pi.yaml brief
+# Pi 실행 예:
+#   python main.py --config config/raspberry_pi.yaml
+#   python -m cli.plant --config config/raspberry_pi.yaml brief
+#   python publish_climate_mqtt.py --yes
 platform: raspberry_pi
 
 interval_sec: 5
@@ -81,3 +82,23 @@ camera:
   saturation: 1.05
   capture_with_read: false
   capture_every_n: 1
+
+# Spring 백엔드로 온습도 JSON POST
+# 실제 서버 주소로 바꾸세요. 예: http://192.168.30.182:8080/api/sensors/climate
+spring:
+  enabled: true
+  url: http://127.0.0.1:18080/api/sensors/climate
+
+# potner MQTT (SSAFY 브로커)
+# password 는 가능하면 환경변수 MQTT_PASSWORD 로 두고, yaml 에는 넣지 마세요.
+mqtt:
+  enabled: true
+  host: i15e104.p.ssafy.io
+  port: 1884
+  qos: 1
+  device_id: raspberry-01
+  username: raspberry-01
+  password: ""  # set via MQTT_PASSWORD env
+  telemetry_topic: potner/device/raspberry-01/sensor/telemetry
+  heartbeat_topic: potner/device/raspberry-01/status/heartbeat
+

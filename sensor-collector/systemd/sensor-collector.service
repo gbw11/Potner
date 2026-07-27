@@ -1,0 +1,16 @@
+[Unit]
+Description=Plant sensor collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=e104
+WorkingDirectory=/home/e104/sensor-collector
+Environment=MQTT_PASSWORD=
+ExecStart=/home/e104/sensor-collector/.venv/bin/python main.py --config config/raspberry_pi.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -92,3 +92,15 @@ camera:
   saturation: 1.05
   capture_with_read: false
   capture_every_n: 1
+
+# potner MQTT (Pi에서 사용, mock에선 보통 비활성)
+mqtt:
+  enabled: false
+  host: i15e104.p.ssafy.io
+  port: 1884
+  qos: 1
+  device_id: raspberry-01
+  username: raspberry-01
+  password: ""
+  telemetry_topic: potner/device/raspberry-01/sensor/telemetry
+  heartbeat_topic: potner/device/raspberry-01/status/heartbeat
