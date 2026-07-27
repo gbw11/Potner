@@ -43,7 +43,7 @@ public record GrowthProfileResponse(
                         profile.getIlluminanceMinLux(),
                         profile.getIlluminanceMaxLux(),
                         profile.getIlluminanceTargetLux()),
-                new GrowthRequirementResponse.DailyLight(
+                GrowthRequirementResponse.DailyLight.of(
                         profile.getDailyLightMinLuxHour(),
                         profile.getDailyLightMaxLuxHour(),
                         profile.getDailyLightTargetLuxHour()),

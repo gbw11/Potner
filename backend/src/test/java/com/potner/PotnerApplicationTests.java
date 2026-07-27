@@ -55,7 +55,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.assertj.core.api.Assertions.tuple;
@@ -69,6 +71,7 @@ class PotnerApplicationTests {
 
     private static final String BASIL_ID = "20000000-0000-0000-0000-000000000104";
     private static final String TOMATO_ID = "20000000-0000-0000-0000-000000000106";
+    private static final String KALANDIVA_ID = "20000000-0000-0000-0000-000000000103";
     private static final String GERMINATION_ID = "10000000-0000-0000-0000-000000000005";
     private static final String FLOWERING_ID = "10000000-0000-0000-0000-000000000004";
     private static final String FRUITING_ID = "10000000-0000-0000-0000-000000000009";
@@ -380,6 +383,24 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void growthStagesDifferPerSpeciesSoAppMustNotHardcodeThem() throws Exception {
+        Tokens tokens = signupAndLogin("stage-kalandiva@example.com");
+
+        // 칼란디바는 삽목 번식이라 발아기가 없고, 단일식물이라 꽃눈형성기가 따로 있다.
+        // 계층 조회(GET /plant-categories)가 싣는 자람 수준도 같은 쿼리·정렬을 쓴다.
+        mockMvc.perform(get("/api/v1/plant-species/{speciesId}/growth-stages", KALANDIVA_ID)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.speciesName").value("칼란디바"))
+                .andExpect(jsonPath("$.growthStages.length()").value(4))
+                .andExpect(jsonPath("$.growthStages[0].code").value("SEEDLING"))
+                .andExpect(jsonPath("$.growthStages[1].code").value("VEGETATIVE"))
+                .andExpect(jsonPath("$.growthStages[2].code").value("BUD_FORMATION"))
+                .andExpect(jsonPath("$.growthStages[3].code").value("FLOWERING"))
+                .andExpect(jsonPath("$.growthStages[?(@.code == 'GERMINATION')]").isEmpty());
+    }
+
+    @Test
     void missingPlantSpeciesReturnsNotFound() throws Exception {
         Tokens tokens = signupAndLogin("missing-species@example.com");
 
@@ -417,6 +438,9 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.dailyLight.minLuxHour").value(105000.0))
                 .andExpect(jsonPath("$.dailyLight.maxLuxHour").value(195000.0))
                 .andExpect(jsonPath("$.dailyLight.targetLuxHour").value(150000.0))
+                // 앱은 lux·h 대신 이 비율을 보여준다. V7 의 0.70 / 1.30 이 그대로 드러나야 한다.
+                .andExpect(jsonPath("$.dailyLight.minPctOfTarget").value(70.0))
+                .andExpect(jsonPath("$.dailyLight.maxPctOfTarget").value(130.0))
                 .andExpect(jsonPath("$.photoperiodHours").value(15.0))
                 .andExpect(jsonPath("$.revision").value(2))
                 .andExpect(jsonPath("$.sourceUrl").value(nullValue()));
@@ -1307,7 +1331,17 @@ class PotnerApplicationTests {
                         .value(containsInAnyOrder("바질", "배초향")))
                 .andExpect(jsonPath("$.categories[2].name").value("과채류"))
                 .andExpect(jsonPath("$.categories[2].species.length()").value(1))
-                .andExpect(jsonPath("$.categories[2].species[0].name").value("방울토마토"));
+                .andExpect(jsonPath("$.categories[2].species[0].name").value("방울토마토"))
+                // 자람 수준을 함께 실어 등록 화면이 한 번의 조회로 세 드롭다운을 채운다.
+                // 과채류는 종이 하나라 인덱스가 정렬에 의존하지 않는다. sortOrder 순이어야 한다.
+                .andExpect(jsonPath("$.categories[2].species[0].growthStages[*].code")
+                        .value(contains(
+                                "GERMINATION", "SEEDLING", "VEGETATIVE", "FLOWERING", "FRUITING")))
+                // 종마다 단계가 달라 앱이 하드코딩하면 안 된다는 것이 계층 전체에서 드러나야 한다.
+                // 재생장기는 바질만, 꽃눈형성기는 칼란디바만, 결실기는 방울토마토만 가진다.
+                // 종 정렬 순서에 기대지 않도록 계층 전체를 펼쳐서 확인한다.
+                .andExpect(jsonPath("$..growthStages..code")
+                        .value(hasItems("REGROWTH", "BUD_FORMATION", "FRUITING")));
 
         mockMvc.perform(get("/api/v1/plant-categories"))
                 .andExpect(status().isUnauthorized())
