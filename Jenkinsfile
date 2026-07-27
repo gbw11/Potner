@@ -156,6 +156,11 @@ pipeline {
                     # 머지도 리뷰도 되지 않은 브랜치가 운영 스키마를 바꾸게 되므로 전용 스키마를 쓴다.
                     # 매 빌드 비운 스키마로 시작하므로 V1부터 전부 실행되어, 신규 환경 구축이
                     # 되는지도 함께 검증된다.
+                    # 여기서만 추적을 끈다. Jenkins sh 스텝은 기본이 `#!/bin/sh -xe` 라
+                    # set -eu 를 써도 -x 는 살아 있고, 셸은 대입문을 값까지 그대로 찍는다.
+                    # JWT_SECRET 처럼 Jenkins Credential 인 값은 자동 마스킹되지만 이 비밀번호는
+                    # docker inspect 로 읽어온 값이라 마스킹 대상이 아니어서 콘솔에 평문으로 남는다.
+                    set +x
                     MYSQL_ROOT_PW="$(
                         docker inspect \
                           --format '{{range .Config.Env}}{{println .}}{{end}}' \
@@ -181,6 +186,7 @@ pipeline {
                           CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
                         GRANT ALL PRIVILEGES ON $CI_DB_NAME.* TO '$APP_DB_USER'@'%';
                         FLUSH PRIVILEGES;"
+                    set -x
 
                     echo "임시 스키마 준비 완료: $CI_DB_NAME"
 
@@ -515,6 +521,8 @@ pipeline {
                 )"
 
                 if [ -n "$MYSQL_CONTAINER" ]; then
+                    # 준비 스테이지와 같은 이유로 이 구간만 추적을 끈다. 비밀번호가 콘솔에 남는다.
+                    set +x
                     MYSQL_ROOT_PW="$(
                         docker inspect \
                           --format '{{range .Config.Env}}{{println .}}{{end}}' \
@@ -526,6 +534,7 @@ pipeline {
                         docker exec -e MYSQL_PWD="$MYSQL_ROOT_PW" "$MYSQL_CONTAINER" \
                           mysql -uroot -e "DROP DATABASE IF EXISTS $CI_DB_NAME;" >/dev/null 2>&1
                     fi
+                    set -x
                 fi
 
                 echo "임시 컨테이너, 임시 이미지, 임시 스키마 및 환경 파일 정리 완료"
