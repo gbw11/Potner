@@ -97,9 +97,10 @@ potner:
     # 배포 sync 경로 밖의 named volume 이어야 한다. 배포 파이프라인이 배포 디렉토리를 매번
     # 덮어쓰므로 그 안에 두면 배포마다 사진이 사라진다. docker compose down -v 도 이 볼륨을 지운다.
     root: ${PHOTO_ROOT:./data/photos}
-    # Nginx 가 root 를 이 경로로 공개한다. DB 에는 상대 경로만 저장하므로 도메인이 바뀌어도
-    # 이 값만 고치면 된다.
-    base-url: ${PHOTO_BASE_URL:http://localhost:8080/media}
+    # Nginx 가 root 를 이 경로로 공개한다. 기본값이 절대 URL 이 아닌 이유는 사진이 API 와 같은
+    # origin 에서 나가기 때문이다. 앱이 자기 API base URL 에 붙이면 되므로 서버가 도메인을
+    # 알 필요가 없고, 배포마다 주입할 값도 없다. 다른 origin 으로 옮길 때만 덮어쓴다.
+    base-url: ${PHOTO_BASE_URL:/media}
     playback-max-pixels: ${PHOTO_PLAYBACK_MAX_PIXELS:1280}
     thumbnail-max-pixels: ${PHOTO_THUMBNAIL_MAX_PIXELS:400}
     max-upload-bytes: ${PHOTO_MAX_UPLOAD_BYTES:10485760}

@@ -79,9 +79,9 @@ services:
       MQTT_RECOVERY_INTERVAL_MS: "${MQTT_RECOVERY_INTERVAL_MS:-10000}"
       # 아래 photo-data 볼륨의 마운트 경로와 같아야 하므로 .env 로 빼지 않는다.
       PHOTO_ROOT: /var/potner/photos
-      # 앱에 내려줄 사진 URL 의 앞부분이다. 기본값을 두면 운영에서 localhost 로 조용히
-      # 잘못된 URL 이 나가므로 필수로 둔다.
-      PHOTO_BASE_URL: ${PHOTO_BASE_URL:?PHOTO_BASE_URL must be set}
+      # 사진은 API 와 같은 origin 의 /media 로 나가므로 기본값이 상대 경로다. 배포마다 주입할
+      # 값이 없다. 다른 origin(CDN 등)으로 옮길 때만 .env 에서 덮어쓴다.
+      PHOTO_BASE_URL: ${PHOTO_BASE_URL:-/media}
     expose:
       - "8080"
     volumes:
