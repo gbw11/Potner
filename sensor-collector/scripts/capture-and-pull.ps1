@@ -1,5 +1,5 @@
 # Capture on Pi and sync into the single folder data/camera
-# Prefer: python capture_photo.py  (same behavior from PC)
+# Prefer: python -m cli.capture_photo  (same behavior from PC)
 param(
     [string]$RemoteDir = "~/sensor-collector",
     [string]$LocalDir = "data/camera"
@@ -12,7 +12,7 @@ Set-Location $ProjectRoot
 New-Item -ItemType Directory -Force -Path $LocalDir | Out-Null
 
 Write-Host "1) Capturing on Pi..."
-ssh raspberrypi "cd $RemoteDir && . .venv/bin/activate && python capture_photo.py --local-only"
+ssh raspberrypi "cd $RemoteDir && . .venv/bin/activate && python -m cli.capture_photo --local-only"
 
 Write-Host "2) Syncing to $LocalDir ..."
 scp "raspberrypi:${RemoteDir}/data/camera/." "$LocalDir/"

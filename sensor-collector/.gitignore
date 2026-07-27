@@ -8,7 +8,9 @@ data/
 captures/
 *.jpg
 *.csv
+# Local secrets — create .env next to main.py, never commit
 .env
+.env.*
 .DS_Store
 *.pem
 config.local.yaml

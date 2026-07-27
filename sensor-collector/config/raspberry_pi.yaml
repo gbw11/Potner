@@ -1,6 +1,6 @@
 # Pi 실행 예:
 #   python main.py --config config/raspberry_pi.yaml
-#   python plant.py --config config/raspberry_pi.yaml brief
+#   python -m cli.plant --config config/raspberry_pi.yaml brief
 #   python publish_climate_mqtt.py --yes
 platform: raspberry_pi
 

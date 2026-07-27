@@ -4,10 +4,10 @@
 - On Raspberry Pi: shoot with OV5647 → data/camera/
 - On Windows PC: shoot on Pi over SSH, then sync into local data/camera/
 
-Usage:
-  python capture_photo.py
-  python capture_photo.py --mock          # PC dummy PNG only
-  python capture_photo.py --local-only    # do not SSH (Pi or mock)
+Usage (from project root):
+  python -m cli.capture_photo
+  python -m cli.capture_photo --mock          # PC dummy PNG only
+  python -m cli.capture_photo --local-only    # do not SSH (Pi or mock)
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def _capture_on_pi_and_sync(config_name: str = "config/raspberry_pi.yaml") -> in
     print(f"[PC] Capture on {REMOTE_HOST}, then save to {LOCAL_CAMERA_DIR}/ ...")
     remote_cmd = (
         f"cd {REMOTE_DIR} && . .venv/bin/activate && "
-        f"python capture_photo.py --local-only --config {config_name}"
+        f"python -m cli.capture_photo --local-only --config {config_name}"
     )
     result = subprocess.run(["ssh", REMOTE_HOST, remote_cmd])
     if result.returncode != 0:
@@ -113,15 +113,12 @@ def main() -> int:
         print(f"Config not found: {config_path}", file=sys.stderr)
         return 1
 
-    # Pi (or explicit local): save directly under data/camera
     if args.local_only or _is_raspberry_pi() or args.mock:
         return _run_local_capture(config_path, force_mock=args.mock)
 
-    # Windows / other PC: shoot on Pi and sync into local data/camera
     if os.name == "nt" or sys.platform.startswith("win"):
         return _capture_on_pi_and_sync("config/raspberry_pi.yaml")
 
-    # Linux laptop without Pi board: same remote flow
     return _capture_on_pi_and_sync("config/raspberry_pi.yaml")
 
 
