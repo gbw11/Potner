@@ -388,7 +388,11 @@ pipeline {
                 reportGitlabStatus('success')
             }
 
-            echo 'Potner Backend CI/CD 및 운영 배포 성공'
+            // 배포 스테이지는 IS_DEPLOY_TARGET 이 true 일 때만 실행된다. 그렇지 않은 브랜치에서
+            // "운영 배포 성공"으로 찍으면 배포되지 않았는데 배포된 것으로 오해하게 된다.
+            echo env.IS_DEPLOY_TARGET == 'true'
+                    ? 'Potner Backend CI/CD 및 운영 배포 성공'
+                    : "Potner Backend CI 성공 - 배포 대상 브랜치가 아니므로 배포는 건너뜀 (branch=${env.BRANCH_NAME ?: 'configured SCM branch'})"
         }
 
         failure {
