@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:potner_app/core/navigation/app_menu_button.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
-import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 
 class HomePage extends ConsumerWidget {
@@ -11,21 +11,12 @@ class HomePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authControllerProvider);
     final user = authState.user;
-    final isLoggingOut = authState.status == AuthStatus.authenticating;
 
     return Scaffold(
+      key: const Key('home_page'),
       appBar: AppBar(
         title: const Text('Potner'),
-        actions: [
-          TextButton(
-            key: const Key('logout_button'),
-            onPressed: isLoggingOut
-                ? null
-                : () => ref.read(authControllerProvider.notifier).logout(),
-            child: Text(isLoggingOut ? '로그아웃 중' : '로그아웃'),
-          ),
-          const SizedBox(width: 8),
-        ],
+        actions: const [AppMenuButton(), SizedBox(width: 8)],
       ),
       body: SafeArea(
         child: Center(
