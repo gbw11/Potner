@@ -47,6 +47,15 @@ pipeline {
         // 같아야 한다. 키 파일 소유자를 이 값으로 맞추지 않으면 애플리케이션이 읽지 못한다.
         BACKEND_APP_UID = '10001'
 
+        // SSAFY GMS 텍스트 생성 설정. 키는 Jenkins Credential(Secret text)에서 온다.
+        // 임시 CI 컨테이너에는 넘기지 않는다. 키 없이도 기동되는지가 검증 대상이다.
+        //
+        // 모델과 엔드포인트를 여기 두는 이유는 비용이나 정원 문제로 모델을 바꿀 때
+        // 이미지를 다시 만들지 않고 배포만 다시 돌리면 되게 하려는 것이다.
+        LLM_CREDENTIALS_ID = 'potner-llm-api-key'
+        LLM_BASE_URL = 'https://gms.ssafy.io/gmsapi/api.openai.com/v1'
+        LLM_MODEL = 'gpt-4.1-nano'
+
         // Multibranch에서는 브랜치마다 빌드 번호가 따로 매겨진다.
         // 서로 다른 브랜치가 동시에 빌드될 때 임시 이미지와 컨테이너 이름이
         // 겹치지 않도록 브랜치 이름을 함께 넣는다.
@@ -542,19 +551,48 @@ pipeline {
             }
 
             steps {
-                sh '''
-                    set -eu
+                script {
+                    // 배포 명령은 하나다. LLM 키가 있으면 withCredentials 안에서 실행해
+                    // Jenkins 가 콘솔에서 값을 가려 주도록 한다.
+                    def runDeploy = {
+                        sh '''
+                            set -eu
 
-                    test -f "$DEPLOY_DIR/compose.yml"
-                    test -f "$DEPLOY_DIR/compose.deploy.yml"
-                    test -x "$DEPLOY_DIR/infra/scripts/deploy-backend.sh"
+                            test -f "$DEPLOY_DIR/compose.yml"
+                            test -f "$DEPLOY_DIR/compose.deploy.yml"
+                            test -x "$DEPLOY_DIR/infra/scripts/deploy-backend.sh"
 
-                    POTNER_DEPLOY_DIR="$DEPLOY_DIR" \
-                    MQTT_USERNAME="$MQTT_BACKEND_CREDENTIALS_USR" \
-                    MQTT_PASSWORD="$MQTT_BACKEND_CREDENTIALS_PSW" \
-                    FIREBASE_CREDENTIALS_PATH="${FIREBASE_CREDENTIALS_PATH:-}" \
-                    "$DEPLOY_DIR/infra/scripts/deploy-backend.sh" "$RELEASE_IMAGE"
-                '''
+                            POTNER_DEPLOY_DIR="$DEPLOY_DIR" \
+                            MQTT_USERNAME="$MQTT_BACKEND_CREDENTIALS_USR" \
+                            MQTT_PASSWORD="$MQTT_BACKEND_CREDENTIALS_PSW" \
+                            FIREBASE_CREDENTIALS_PATH="${FIREBASE_CREDENTIALS_PATH:-}" \
+                            LLM_API_KEY="${LLM_API_KEY:-}" \
+                            "$DEPLOY_DIR/infra/scripts/deploy-backend.sh" "$RELEASE_IMAGE"
+                        '''
+                    }
+
+                    // 키가 아직 등록되지 않았다는 이유로 배포가 막히면 안 된다. 없으면 비운 채로
+                    // 진행하고 일기 생성만 no-op 이 된다. Firebase 자격증명과 같은 방침이다.
+                    //
+                    // 바인딩 직후에 깃발을 세워 "자격증명 없음"과 "배포 실패"를 가른다.
+                    // 구분하지 않으면 배포가 실패했을 때 키 없이 한 번 더 배포하게 된다.
+                    boolean deployStarted = false
+                    try {
+                        withCredentials([string(
+                                credentialsId: env.LLM_CREDENTIALS_ID,
+                                variable: 'LLM_API_KEY'
+                        )]) {
+                            deployStarted = true
+                            runDeploy()
+                        }
+                    } catch (Exception e) {
+                        if (deployStarted) {
+                            throw e
+                        }
+                        echo "LLM 키를 찾지 못해 일기 생성을 no-op 으로 둡니다: ${e.message}"
+                        runDeploy()
+                    }
+                }
             }
         }
 
