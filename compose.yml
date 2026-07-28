@@ -82,6 +82,12 @@ services:
       # 넣은 배포에서만 값이 채워진다. 값을 직접 적을 일은 없고, 적더라도 아래 마운트 경로
       # 안이어야 한다.
       FIREBASE_CREDENTIALS_PATH: "${FIREBASE_CREDENTIALS_PATH:-}"
+      # SSAFY GMS 텍스트 생성. 키가 비어 있으면 일기 생성이 no-op 으로 떨어지고 나머지는
+      # 그대로 동작한다. 모델과 엔드포인트를 환경변수로 둔 이유는 비용이나 정원 문제로
+      # 모델을 바꿀 때 이미지를 다시 만들지 않아도 되게 하려는 것이다.
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://gms.ssafy.io/gmsapi/api.openai.com/v1}"
+      LLM_MODEL: "${LLM_MODEL:-gpt-4.1-mini}"
       # 아래 photo-data 볼륨의 마운트 경로와 같아야 하므로 .env 로 빼지 않는다.
       PHOTO_ROOT: /var/potner/photos
       # 사진은 API 와 같은 origin 의 /media 로 나가므로 기본값이 상대 경로다. 배포마다 주입할
