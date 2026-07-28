@@ -35,6 +35,14 @@ pipeline {
         MQTT_KEEP_ALIVE_SECONDS = '60'
         MQTT_RECOVERY_INTERVAL_MS = '10000'
 
+        // Firebase 서비스 계정 키를 담는 named volume 과 컨테이너 안 경로다.
+        // compose.yml 의 firebase-credentials 볼륨 정의·마운트 경로와 맞아야 한다.
+        // 임시 CI 컨테이너에는 넘기지 않는다. 키 없이도 기동되는지가 검증 대상이다.
+        FIREBASE_CREDENTIALS_VOLUME = 'potner-firebase-credentials'
+        FIREBASE_CREDENTIALS_MOUNT = '/var/potner/secrets'
+        FIREBASE_CREDENTIALS_FILE_NAME = 'firebase-service-account.json'
+        FIREBASE_CREDENTIALS_ID = 'potner-firebase-service-account'
+
         // Multibranch에서는 브랜치마다 빌드 번호가 따로 매겨진다.
         // 서로 다른 브랜치가 동시에 빌드될 때 임시 이미지와 컨테이너 이름이
         // 겹치지 않도록 브랜치 이름을 함께 넣는다.
@@ -435,6 +443,70 @@ pipeline {
             }
         }
 
+        stage('Sync Firebase Credentials') {
+            when {
+                environment name: 'IS_DEPLOY_TARGET', value: 'true'
+            }
+
+            steps {
+                script {
+                    // 경로가 비어 있으면 애플리케이션이 no-op 발송기를 고른다. 기본값을 그렇게
+                    // 두는 이유는, 자격증명을 아직 등록하지 않았다는 이유로 배포가 막히면 안 되기
+                    // 때문이다. 푸시만 나가지 않고 나머지는 그대로 동작한다.
+                    env.FIREBASE_CREDENTIALS_PATH = ''
+
+                    try {
+                        withCredentials([file(
+                                credentialsId: env.FIREBASE_CREDENTIALS_ID,
+                                variable: 'FIREBASE_KEY_FILE'
+                        )]) {
+                            sh '''
+                                set -eu
+                                # 키 내용이 콘솔에 남지 않도록 추적을 끈다.
+                                # Jenkins sh 스텝은 기본이 `#!/bin/sh -xe` 라 set -eu 만으로는 -x 가 살아 있다.
+                                set +x
+
+                                test -s "$FIREBASE_KEY_FILE"
+
+                                # compose 가 자기 라벨이 없는 볼륨을 만나면 경고를 낸다. 먼저 만들면서
+                                # 라벨을 붙여 두면 배포 로그가 깨끗하고, 이미 있으면 아무 일도 하지 않는다.
+                                docker volume create \
+                                  --label com.docker.compose.project="$COMPOSE_PROJECT_NAME" \
+                                  --label com.docker.compose.volume=firebase-credentials \
+                                  "$FIREBASE_CREDENTIALS_VOLUME" >/dev/null
+
+                                EXPECTED_BYTES="$(wc -c < "$FIREBASE_KEY_FILE" | tr -d ' ')"
+
+                                # 호스트 경로를 쓰지 않고 표준 입력으로 넣는다. Jenkins 는 컨테이너
+                                # 안에서 돌아 키 파일이 호스트에 없고, 새 bind mount 를 추가하려면
+                                # Jenkins 컨테이너를 재생성해야 한다.
+                                #
+                                # 잘린 파일이 올라가도 애플리케이션은 조용히 no-op 으로 떨어질 뿐이라
+                                # 배포 로그만 보고는 알 수 없다. 같은 컨테이너 안에서 크기를 대조해
+                                # 여기서 실패시킨다. 내용은 출력하지 않는다.
+                                docker run --rm -i \
+                                  -v "$FIREBASE_CREDENTIALS_VOLUME":/secrets \
+                                  -e TARGET="$FIREBASE_CREDENTIALS_FILE_NAME" \
+                                  -e EXPECTED_BYTES="$EXPECTED_BYTES" \
+                                  alpine:3.20 \
+                                  sh -c 'umask 077 && cat > "/secrets/$TARGET" && [ "$(wc -c < "/secrets/$TARGET")" -eq "$EXPECTED_BYTES" ]' \
+                                  < "$FIREBASE_KEY_FILE"
+                            '''
+                        }
+
+                        env.FIREBASE_CREDENTIALS_PATH =
+                                "${env.FIREBASE_CREDENTIALS_MOUNT}/${env.FIREBASE_CREDENTIALS_FILE_NAME}"
+                        echo "Firebase 자격증명을 반영했습니다: ${env.FIREBASE_CREDENTIALS_PATH}"
+                    } catch (Exception e) {
+                        // 자격증명 미등록과 반영 실패를 구분하지 않는다. 어느 쪽이든 배포를 막지
+                        // 않는 것이 맞고, 실제로 어느 발송기가 선택됐는지는 기동 로그가 말해 준다.
+                        // "Firebase push sender initialized" 또는 "runs as a no-op" 을 확인한다.
+                        echo "Firebase 자격증명을 반영하지 못해 푸시를 no-op 으로 둡니다: ${e.message}"
+                    }
+                }
+            }
+        }
+
         stage('Deploy Production Backend') {
             when {
                 environment name: 'IS_DEPLOY_TARGET', value: 'true'
@@ -451,6 +523,7 @@ pipeline {
                     POTNER_DEPLOY_DIR="$DEPLOY_DIR" \
                     MQTT_USERNAME="$MQTT_BACKEND_CREDENTIALS_USR" \
                     MQTT_PASSWORD="$MQTT_BACKEND_CREDENTIALS_PSW" \
+                    FIREBASE_CREDENTIALS_PATH="${FIREBASE_CREDENTIALS_PATH:-}" \
                     "$DEPLOY_DIR/infra/scripts/deploy-backend.sh" "$RELEASE_IMAGE"
                 '''
             }
