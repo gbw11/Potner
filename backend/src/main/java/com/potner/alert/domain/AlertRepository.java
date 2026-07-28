@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface AlertRepository extends JpaRepository<Alert, String> {
@@ -16,6 +18,17 @@ public interface AlertRepository extends JpaRepository<Alert, String> {
     );
 
     Optional<Alert> findByIdAndUserId(String id, String userId);
+
+    /**
+     * 그날 어떤 이상이 있었는지 모을 때 쓴다. 일기 생성이 근거로 삼는다.
+     *
+     * <p>{@code occurredAt} 은 UTC 라 서비스 타임존 하루의 경계를 호출자가 계산해 넘긴다.
+     */
+    List<Alert> findAllByPlantIdAndOccurredAtBetweenOrderByOccurredAtAsc(
+            String plantId,
+            LocalDateTime fromInclusive,
+            LocalDateTime toInclusive
+    );
 
     long countByUserIdAndReadAtIsNull(String userId);
 
