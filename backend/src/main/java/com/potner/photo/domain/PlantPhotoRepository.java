@@ -37,6 +37,20 @@ public interface PlantPhotoRepository extends JpaRepository<PlantPhoto, String> 
     /** 대표 사진으로 지정하려는 사진이 그 식물의 것인지 확인한다. 남의 사진을 걸 수 없어야 한다. */
     Optional<PlantPhoto> findByIdAndPlantId(String photoId, String plantId);
 
+    /** 일기 상세가 그날 장치 사진을 함께 보여줄 때 쓴다. 없는 날은 비어 있다. */
+    Optional<PlantPhoto> findByPlantIdAndSourceAndPhotoDate(
+            String plantId,
+            PhotoSource source,
+            LocalDate photoDate
+    );
+
+    /** 일기 목록이 날짜별 썸네일을 한 번에 채우는 데 쓴다. */
+    List<PlantPhoto> findAllByPlantIdAndSourceAndPhotoDateIn(
+            String plantId,
+            PhotoSource source,
+            Collection<LocalDate> photoDates
+    );
+
     /** 식물 목록 화면이 대표 사진 썸네일을 한 번에 채우는 데 쓴다. */
     List<PlantPhoto> findAllByIdIn(Collection<String> photoIds);
 }
