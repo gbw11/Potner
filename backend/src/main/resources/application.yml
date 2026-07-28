@@ -116,8 +116,12 @@ potner:
     queue-capacity: ${PUSH_QUEUE_CAPACITY:200}
   diary:
     enabled: ${DIARY_ENABLED:true}
-    # 광량 집계(새벽 2시)보다 뒤에 돈다. 일기가 전일 광량 판정을 근거로 쓰기 때문이다.
-    cron: "${DIARY_CRON:0 0 3 * * *}"
+    # 하루를 마무리하는 시각에 그날 일기를 쓴다. 사용자가 자기 전에 읽는 흐름이다.
+    #
+    # 그 대가로 광량 판정이 일기에 들어가지 않는다. 누적 광량은 하루가 끝나야 확정되어
+    # 새벽 2시 배치가 전일분을 집계하므로, 오늘 것은 이 시각에 아직 없다.
+    # 알림과 사진은 그날 것이 이미 있어 그대로 쓰인다.
+    cron: "${DIARY_CRON:0 0 21 * * *}"
     # @Scheduled 의 zone 은 맨 오프셋을 받지 않는다. IANA 지역 ID 여야 하며
     # 잘못 넣으면 애플리케이션이 시작하지 않는다. potner.daily-light.zone 과 같은 제약이다.
     zone: "${DIARY_ZONE:Asia/Seoul}"

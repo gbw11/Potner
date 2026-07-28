@@ -19,10 +19,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 하루가 끝난 뒤 활성 식물마다 전일 일기를 한 편씩 남긴다.
+ * 하루를 마무리하는 시각에 활성 식물마다 그날 일기를 한 편씩 남긴다.
  *
- * <p>광량 집계보다 뒤에 돈다. 일기가 전일 광량 판정을 근거로 쓰는데 집계가 새벽 2시에 끝나므로
- * 그 전에 돌면 빛 이야기가 빠진다.
+ * <p>사용자가 자기 전에 오늘 일기를 읽는 흐름이라 자정을 넘기지 않는다. 그래서 전일이 아니라
+ * 오늘 날짜로 쓴다.
+ *
+ * <p>대신 광량 판정은 일기에 들어가지 않는다. 누적 광량은 하루가 끝나야 확정되어 새벽 2시
+ * 배치가 전일분을 집계하므로 이 시각에 오늘 것은 아직 없다. 알림과 사진은 그날 것이 이미
+ * 있으므로 그대로 쓰인다.
+ *
+ * <p>실행 시각 이후에 생긴 이상은 그날 일기에 담기지 않는다. 하루 한 편 제약 때문에 나중에
+ * 채워 넣을 수도 없다. 마감을 늦추면 사용자가 자정 넘어야 읽게 되므로 그 손해를 택했다.
  */
 @Component
 @ConditionalOnProperty(prefix = "potner.diary", name = "enabled", havingValue = "true")
@@ -48,8 +55,8 @@ public class DiaryScheduler {
     }
 
     @Scheduled(cron = "${potner.diary.cron}", zone = "${potner.diary.zone}")
-    public void writeYesterdayDiaries() {
-        writeFor(serviceToday().minusDays(1));
+    public void writeTodayDiaries() {
+        writeFor(serviceToday());
     }
 
     /**
