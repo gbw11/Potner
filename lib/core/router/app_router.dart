@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_shell.dart';
+import 'package:potner_app/core/navigation/app_section_page.dart';
 import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:potner_app/features/auth/presentation/pages/login_page.dart';
 import 'package:potner_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:potner_app/features/home/presentation/home_page.dart';
+import 'package:potner_app/features/menu/presentation/pages/menu_page.dart';
+
+final _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   late final GoRouter router;
   router = GoRouter(
+    navigatorKey: _rootNavigatorKey,
     initialLocation: '/splash',
     routes: [
       GoRoute(path: '/splash', builder: (context, state) => const SplashPage()),
@@ -21,7 +27,82 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),
-      GoRoute(path: '/', builder: (context, state) => const HomePage()),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return AppNavigationShell(navigationShell: navigationShell);
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/', builder: (context, state) => const HomePage()),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/growth',
+                builder: (context, state) => const AppSectionPage(
+                  sectionKey: Key('section_page_growth'),
+                  title: '성장기록',
+                  icon: Icons.local_florist_outlined,
+                  description: '성장 기록 화면은 다음 작업에서 연결합니다.',
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/alerts',
+                builder: (context, state) => const AppSectionPage(
+                  sectionKey: Key('section_page_alerts'),
+                  title: '알림',
+                  icon: Icons.notifications_none_rounded,
+                  description: '알림 내역 화면은 다음 작업에서 연결합니다.',
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/my',
+                builder: (context, state) => const AppSectionPage(
+                  sectionKey: Key('section_page_my'),
+                  title: '마이',
+                  icon: Icons.person_outline_rounded,
+                  description: '마이페이지는 다음 작업에서 연결합니다.',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/menu',
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          key: state.pageKey,
+          transitionDuration: const Duration(milliseconds: 320),
+          reverseTransitionDuration: const Duration(milliseconds: 240),
+          child: const MenuPage(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return SlideTransition(
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(-1, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    ),
+                  ),
+              child: child,
+            );
+          },
+        ),
+      ),
     ],
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
