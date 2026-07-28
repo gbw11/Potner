@@ -43,6 +43,10 @@ pipeline {
         FIREBASE_CREDENTIALS_FILE_NAME = 'firebase-service-account.json'
         FIREBASE_CREDENTIALS_ID = 'potner-firebase-service-account'
 
+        // backend 이미지가 애플리케이션을 실행하는 계정이다. backend/Dockerfile 의 USER 와
+        // 같아야 한다. 키 파일 소유자를 이 값으로 맞추지 않으면 애플리케이션이 읽지 못한다.
+        BACKEND_APP_UID = '10001'
+
         // Multibranch에서는 브랜치마다 빌드 번호가 따로 매겨진다.
         // 서로 다른 브랜치가 동시에 빌드될 때 임시 이미지와 컨테이너 이름이
         // 겹치지 않도록 브랜치 이름을 함께 넣는다.
@@ -484,13 +488,31 @@ pipeline {
                                 # 잘린 파일이 올라가도 애플리케이션은 조용히 no-op 으로 떨어질 뿐이라
                                 # 배포 로그만 보고는 알 수 없다. 같은 컨테이너 안에서 크기를 대조해
                                 # 여기서 실패시킨다. 내용은 출력하지 않는다.
+                                #
+                                # 소유자를 애플리케이션 계정으로 바꾸는 것이 핵심이다. 이 컨테이너는
+                                # root 로 돌기 때문에 umask 077 로 만든 파일이 root 소유 0600 이 되고,
+                                # backend 는 비루트 계정으로 돌아 읽지 못한다. 사진 볼륨은 이미지가
+                                # 마운트 지점을 미리 chown 해 두어 Docker 가 그 소유권을 빈 볼륨에
+                                # 복사하지만, 이 볼륨은 파이프라인이 바깥에서 직접 채우므로 그 경로를
+                                # 타지 않는다. 0600 은 유지해 다른 계정에는 계속 닫아 둔다.
                                 docker run --rm -i \
                                   -v "$FIREBASE_CREDENTIALS_VOLUME":/secrets \
                                   -e TARGET="$FIREBASE_CREDENTIALS_FILE_NAME" \
                                   -e EXPECTED_BYTES="$EXPECTED_BYTES" \
+                                  -e APP_UID="$BACKEND_APP_UID" \
                                   alpine:3.20 \
-                                  sh -c 'umask 077 && cat > "/secrets/$TARGET" && [ "$(wc -c < "/secrets/$TARGET")" -eq "$EXPECTED_BYTES" ]' \
+                                  sh -c 'umask 077 && cat > "/secrets/$TARGET" && chown "$APP_UID:$APP_UID" "/secrets/$TARGET" && [ "$(wc -c < "/secrets/$TARGET")" -eq "$EXPECTED_BYTES" ]' \
                                   < "$FIREBASE_KEY_FILE"
+
+                                # 애플리케이션 계정으로 실제로 읽히는지 확인한다. 권한이 어긋나면
+                                # 배포는 그대로 성공하고 기동 로그에만 ERROR 가 남아 조용히 no-op 이
+                                # 된다. 여기서 걸러 경고로 드러낸다.
+                                docker run --rm \
+                                  -v "$FIREBASE_CREDENTIALS_VOLUME":/secrets:ro \
+                                  --user "$BACKEND_APP_UID:$BACKEND_APP_UID" \
+                                  -e TARGET="$FIREBASE_CREDENTIALS_FILE_NAME" \
+                                  alpine:3.20 \
+                                  sh -c 'test -r "/secrets/$TARGET"'
                             '''
                         }
 
