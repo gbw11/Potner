@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 public interface FcmTokenRepository extends JpaRepository<FcmToken, String> {
@@ -72,6 +73,20 @@ public interface FcmTokenRepository extends JpaRepository<FcmToken, String> {
             @Param("userId") String userId,
             @Param("installationId") String installationId
     );
+
+    /**
+     * FCM 이 영구 무효라고 답한 기기를 비활성으로 내린다.
+     *
+     * <p>행을 지우지 않는다. 같은 기기가 새 토큰으로 다시 등록하면 {@link #upsert}가
+     * {@code active}를 1 로 되돌리므로 지울 이유가 없고, 남겨 두면 기기 이력이 유지된다.
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE fcm_token
+               SET active = 0
+             WHERE installation_id IN (:installationIds)
+            """, nativeQuery = true)
+    int deactivateAll(@Param("installationIds") Collection<String> installationIds);
 
     /** 발송 대상 조회다. 무효로 판정되어 비활성된 토큰은 제외한다. */
     List<FcmToken> findAllByUserIdAndActiveIsTrue(String userId);

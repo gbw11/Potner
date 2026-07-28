@@ -1,0 +1,107 @@
+package com.potner.push.application;
+
+import com.potner.alert.application.AlertOpenedEvent;
+import com.potner.alert.domain.AlertDeviation;
+import com.potner.alert.domain.AlertMetricType;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class AlertPushMessageFactoryTest {
+
+    private static final String ALERT_ID = "50000000-0000-0000-0000-0000000000ee";
+    private static final String PLANT_ID = "20000000-0000-0000-0000-0000000000bb";
+
+    private final AlertPushMessageFactory messageFactory = new AlertPushMessageFactory();
+
+    @ParameterizedTest
+    @EnumSource(AlertMetricType.class)
+    void everyMetricHasCopyForBothDirections(AlertMetricType metricType) {
+        for (AlertDeviation deviation : AlertDeviation.values()) {
+            PushMessage message = messageFactory.create(event(metricType, deviation, "로지"));
+
+            assertThat(message.title()).isNotBlank();
+            assertThat(message.body()).isNotBlank();
+            // 서식 문자열이 그대로 나가면 사용자가 "%s의 ..." 를 보게 된다.
+            assertThat(message.body()).doesNotContain("%s").contains("로지의");
+        }
+    }
+
+    @Test
+    void copyIsDistinctForEveryMetricAndDirection() {
+        List<String> bodies = new ArrayList<>();
+        for (AlertMetricType metricType : AlertMetricType.values()) {
+            for (AlertDeviation deviation : AlertDeviation.values()) {
+                bodies.add(messageFactory.create(event(metricType, deviation, "로지")).body());
+            }
+        }
+
+        // 지표 5종 × 방향 2종. 같은 문구가 겹치면 사용자가 무엇이 문제인지 구분할 수 없다.
+        assertThat(bodies).hasSize(10).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void lowSoilMoistureAsksForWater() {
+        PushMessage message = messageFactory.create(
+                event(AlertMetricType.SOIL_MOISTURE, AlertDeviation.LOW, "로지")
+        );
+
+        assertThat(message.title()).isEqualTo("흙이 말랐어요");
+        assertThat(message.body()).isEqualTo("로지의 토양 수분이 기준보다 낮아요. 물을 주세요.");
+    }
+
+    @Test
+    void dailyMetricCopyRefersToYesterday() {
+        // 광량은 전일분을 새벽에 판정한다. 오늘 일처럼 읽히면 사용자가 지금 조치하려 한다.
+        assertThat(messageFactory.create(
+                event(AlertMetricType.DAILY_LIGHT, AlertDeviation.LOW, "로지")).body())
+                .startsWith("어제 ");
+        assertThat(messageFactory.create(
+                event(AlertMetricType.PHOTOPERIOD, AlertDeviation.HIGH, "로지")).body())
+                .startsWith("어제 ");
+    }
+
+    @Test
+    void dataCarriesTheIdentifiersTheAppNeeds() {
+        PushMessage message = messageFactory.create(
+                event(AlertMetricType.TEMPERATURE, AlertDeviation.HIGH, "로지")
+        );
+
+        assertThat(message.data()).containsOnly(
+                java.util.Map.entry("type", "SENSOR_ALERT"),
+                java.util.Map.entry("alertId", ALERT_ID),
+                java.util.Map.entry("plantId", PLANT_ID),
+                java.util.Map.entry("route", "/alerts")
+        );
+    }
+
+    @Test
+    void nicknameWithFormatSpecifierIsNotInterpreted() {
+        // 별명은 사용자 입력이다. 서식 문자열의 인자로만 쓰여야 한다.
+        PushMessage message = messageFactory.create(
+                event(AlertMetricType.HUMIDITY, AlertDeviation.LOW, "100%s%d")
+        );
+
+        assertThat(message.body()).startsWith("100%s%d의 ");
+    }
+
+    private AlertOpenedEvent event(
+            AlertMetricType metricType,
+            AlertDeviation deviation,
+            String nickname
+    ) {
+        return new AlertOpenedEvent(
+                ALERT_ID,
+                "10000000-0000-0000-0000-0000000000aa",
+                PLANT_ID,
+                nickname,
+                metricType,
+                deviation
+        );
+    }
+}

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
@@ -46,6 +47,7 @@ class AlertEvaluationServiceTest {
 
     private static final String USER_ID = "10000000-0000-0000-0000-0000000000aa";
     private static final String PLANT_ID = "20000000-0000-0000-0000-0000000000bb";
+    private static final String NICKNAME = "로지";
     private static final Instant NOW = Instant.parse("2026-07-26T00:40:00Z");
     private static final LocalDateTime MEASURED_AT = LocalDateTime.of(2026, 7, 26, 0, 39);
 
@@ -61,6 +63,9 @@ class AlertEvaluationServiceTest {
     @Mock
     private SensorReadingRepository sensorReadingRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private AlertEvaluationService alertEvaluationService;
 
     @BeforeEach
@@ -72,6 +77,7 @@ class AlertEvaluationServiceTest {
                 sensorReadingRepository,
                 new AlertProperties(3, new BigDecimal("0.1"), 100),
                 new SensorQueryProperties("+09:00", 15, 14, 365),
+                eventPublisher,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
@@ -207,11 +213,75 @@ class AlertEvaluationServiceTest {
         assertThat(captor.getValue().getMeasuredValue()).isEqualByComparingTo("60.00");
     }
 
+    @Test
+    void openedAlertIsPublishedSoThatPushCanBeSent() {
+        givenActivePlant();
+        givenGrowthProfile();
+        givenSamples("35.00", "41.00", "34.00");
+        givenNoActiveAlert();
+
+        alertEvaluationService.evaluate(PLANT_ID, SensorType.SOIL_MOISTURE);
+
+        ArgumentCaptor<Alert> savedCaptor = ArgumentCaptor.forClass(Alert.class);
+        verify(alertRepository).save(savedCaptor.capture());
+        ArgumentCaptor<AlertOpenedEvent> eventCaptor = ArgumentCaptor.forClass(AlertOpenedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+
+        AlertOpenedEvent event = eventCaptor.getValue();
+        // 저장된 알림과 같은 식별자여야 앱이 푸시를 눌렀을 때 그 알림을 열 수 있다.
+        assertThat(event.alertId()).isEqualTo(savedCaptor.getValue().getId());
+        assertThat(event.userId()).isEqualTo(USER_ID);
+        assertThat(event.plantId()).isEqualTo(PLANT_ID);
+        assertThat(event.plantNickname()).isEqualTo(NICKNAME);
+        assertThat(event.metricType()).isEqualTo(AlertMetricType.SOIL_MOISTURE);
+        assertThat(event.deviation()).isEqualTo(AlertDeviation.LOW);
+    }
+
+    @Test
+    void recoveryIsNotPublished() {
+        givenActivePlant();
+        givenGrowthProfile();
+        givenSamples("43.00", "42.00", "44.00");
+        givenActiveAlert(AlertDeviation.LOW);
+
+        assertThat(alertEvaluationService.evaluate(PLANT_ID, SensorType.SOIL_MOISTURE))
+                .isEqualTo(AlertEvaluationResult.RESOLVED);
+        // 정상 복귀까지 알리면 기준선 근처를 오갈 때 푸시가 두 배로 늘어난다.
+        verify(eventPublisher, never()).publishEvent(any(AlertOpenedEvent.class));
+    }
+
+    @Test
+    void continuingDeviationIsNotPublishedAgain() {
+        givenActivePlant();
+        givenGrowthProfile();
+        givenSamples("34.00", "33.00", "35.00");
+        givenActiveAlert(AlertDeviation.LOW);
+
+        assertThat(alertEvaluationService.evaluate(PLANT_ID, SensorType.SOIL_MOISTURE))
+                .isEqualTo(AlertEvaluationResult.UNCHANGED);
+        verify(eventPublisher, never()).publishEvent(any(AlertOpenedEvent.class));
+    }
+
+    @Test
+    void switchedDeviationPublishesTheNewDirection() {
+        givenActivePlant();
+        givenGrowthProfile();
+        givenSamples("60.00", "61.00", "59.00");
+        givenActiveAlert(AlertDeviation.LOW);
+
+        alertEvaluationService.evaluate(PLANT_ID, SensorType.SOIL_MOISTURE);
+
+        ArgumentCaptor<AlertOpenedEvent> eventCaptor = ArgumentCaptor.forClass(AlertOpenedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().deviation()).isEqualTo(AlertDeviation.HIGH);
+    }
+
     private void givenActivePlant() {
         Plant plant = mock(Plant.class);
         when(plant.getStatus()).thenReturn(PlantStatus.ACTIVE);
         when(plantRepository.findById(PLANT_ID)).thenReturn(Optional.of(plant));
         org.mockito.Mockito.lenient().when(plant.getId()).thenReturn(PLANT_ID);
+        org.mockito.Mockito.lenient().when(plant.getNickname()).thenReturn(NICKNAME);
         AppUser user = mock(AppUser.class);
         org.mockito.Mockito.lenient().when(user.getId()).thenReturn(USER_ID);
         org.mockito.Mockito.lenient().when(plant.getUser()).thenReturn(user);
