@@ -10,7 +10,12 @@ import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
+import com.potner.push.application.AlertPushListener;
+import com.potner.push.application.FcmTokenService;
+import com.potner.push.application.LoggingPushSender;
+import com.potner.push.application.PushSender;
 import com.potner.push.application.PushTargetResolver;
+import com.potner.push.domain.FcmToken;
 import com.potner.user.domain.NotificationCategory;
 import com.potner.sensor.application.SensorReadingSaveResult;
 import com.potner.sensor.application.SensorReadingService;
@@ -135,6 +140,18 @@ class PotnerApplicationTests {
 
     @Autowired
     private PushTargetResolver pushTargetResolver;
+
+    @Autowired
+    private FcmTokenService fcmTokenService;
+
+    @Autowired
+    private PushSender pushSender;
+
+    /**
+     * 주입 자체가 검증이다. 리스너 빈이 없으면 알림이 저장돼도 발송 경로가 아예 돌지 않는다.
+     */
+    @Autowired
+    private AlertPushListener alertPushListener;
 
     @Autowired
     private Clock clock;
@@ -1750,6 +1767,39 @@ class PotnerApplicationTests {
         registerFcmToken(tokens, "fid-target-device", "token-target", "ANDROID")
                 .andExpect(status().isNoContent());
         assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).hasSize(1);
+    }
+
+    @Test
+    void invalidTokensAreDeactivatedWithoutDeletingTheDevice() throws Exception {
+        Tokens tokens = signupAndLogin("fcm-deactivate@example.com");
+        String userId = userIdOf("fcm-deactivate@example.com");
+        registerFcmToken(tokens, "fid-keep", "token-keep", "ANDROID")
+                .andExpect(status().isNoContent());
+        registerFcmToken(tokens, "fid-drop", "token-drop", "ANDROID")
+                .andExpect(status().isNoContent());
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).hasSize(2);
+
+        assertThat(fcmTokenService.deactivate(List.of("fid-drop"))).isEqualTo(1);
+
+        // 행은 남기고 active 만 내린다. 같은 기기가 새 토큰으로 돌아오면 upsert 가 되살린다.
+        assertThat(fcmTokenCount()).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT active FROM fcm_token WHERE installation_id = ?", Integer.class, "fid-drop"))
+                .isZero();
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE))
+                .extracting(FcmToken::getInstallationId)
+                .containsExactly("fid-keep");
+
+        // 빈 목록으로 부르면 쿼리를 만들지 않는다. MySQL 에서 IN () 은 문법 오류다.
+        assertThat(fcmTokenService.deactivate(List.of())).isZero();
+        assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).hasSize(1);
+    }
+
+    @Test
+    void pushSenderFallsBackToNoOpWithoutFirebaseCredentials() {
+        // 임시 CI 컨테이너에는 Firebase 키가 없다. 여기서 초기화가 예외를 던지면
+        // Health Check 가 실패해 배포가 막히므로, 자격증명이 없으면 구현만 갈아끼워야 한다.
+        assertThat(pushSender).isInstanceOf(LoggingPushSender.class);
     }
 
     @Test

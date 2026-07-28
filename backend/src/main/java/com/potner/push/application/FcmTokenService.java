@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
 
 @Service
 @Transactional(readOnly = true)
@@ -61,6 +62,20 @@ public class FcmTokenService {
     public void unregister(String userId, String installationId) {
         requireUser(userId);
         tokenRepository.deleteOwned(userId, requireValidInstallationId(installationId));
+    }
+
+    /**
+     * 발송에서 영구 무효로 확인된 기기를 비활성으로 내린다.
+     *
+     * <p>발송기가 트랜잭션 밖에서 돌기 때문에 쓰기를 여기로 모은다. 소유자를 확인하지 않는
+     * 이유는 대상이 사용자 입력이 아니라 FCM 응답에서 나온 설치 ID 이기 때문이다.
+     */
+    @Transactional
+    public int deactivate(Collection<String> installationIds) {
+        if (installationIds.isEmpty()) {
+            return 0;
+        }
+        return tokenRepository.deactivateAll(installationIds);
     }
 
     /**

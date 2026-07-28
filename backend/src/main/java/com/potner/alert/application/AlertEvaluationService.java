@@ -17,6 +17,7 @@ import com.potner.sensor.domain.SensorQuality;
 import com.potner.sensor.domain.SensorReading;
 import com.potner.sensor.domain.SensorReadingRepository;
 import com.potner.sensor.domain.SensorType;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,7 @@ public class AlertEvaluationService {
     private final SensorReadingRepository sensorReadingRepository;
     private final AlertProperties alertProperties;
     private final SensorQueryProperties sensorQueryProperties;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     public AlertEvaluationService(
@@ -46,6 +48,7 @@ public class AlertEvaluationService {
             SensorReadingRepository sensorReadingRepository,
             AlertProperties alertProperties,
             SensorQueryProperties sensorQueryProperties,
+            ApplicationEventPublisher eventPublisher,
             Clock clock
     ) {
         this.alertRepository = alertRepository;
@@ -54,6 +57,7 @@ public class AlertEvaluationService {
         this.sensorReadingRepository = sensorReadingRepository;
         this.alertProperties = alertProperties;
         this.sensorQueryProperties = sensorQueryProperties;
+        this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
 
@@ -179,6 +183,12 @@ public class AlertEvaluationService {
                 );
     }
 
+    /**
+     * 알림을 저장하고 발송 경로에 알린다.
+     *
+     * <p>알림이 새로 열리는 지점은 여기 하나뿐이라 발행도 한 곳에서 끝난다. 수신자는 커밋 이후에
+     * 도므로 발송이 실패해도 저장된 알림은 남는다.
+     */
     private void openAlert(
             Plant plant,
             AlertMetricType metricType,
@@ -187,7 +197,8 @@ public class AlertEvaluationService {
             SensorThresholds thresholds,
             LocalDateTime occurredAt
     ) {
-        alertRepository.save(Alert.open(
+        // 식별자를 생성자에서 만들기 때문에 저장 전에 이벤트에 담을 ID 를 알 수 있다.
+        Alert alert = Alert.open(
                 plant.getUser().getId(),
                 plant.getId(),
                 metricType,
@@ -196,6 +207,15 @@ public class AlertEvaluationService {
                 thresholds.min(),
                 thresholds.max(),
                 occurredAt
+        );
+        alertRepository.save(alert);
+        eventPublisher.publishEvent(new AlertOpenedEvent(
+                alert.getId(),
+                alert.getUserId(),
+                alert.getPlantId(),
+                plant.getNickname(),
+                metricType,
+                deviation
         ));
     }
 
