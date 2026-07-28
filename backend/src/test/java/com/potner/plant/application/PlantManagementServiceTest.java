@@ -2,6 +2,7 @@ package com.potner.plant.application;
 
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
+import com.potner.photo.application.PhotoService;
 import com.potner.plant.domain.Plant;
 import com.potner.plant.domain.PlantCategory;
 import com.potner.plant.domain.PlantGrowthProfile;
@@ -47,6 +48,7 @@ class PlantManagementServiceTest {
     private SpeciesGrowthRequirementRepository requirementRepository;
     private PlantRepository plantRepository;
     private PlantGrowthProfileRepository profileRepository;
+    private PhotoService photoService;
     private PlantManagementService service;
 
     @BeforeEach
@@ -57,6 +59,7 @@ class PlantManagementServiceTest {
         requirementRepository = mock(SpeciesGrowthRequirementRepository.class);
         plantRepository = mock(PlantRepository.class);
         profileRepository = mock(PlantGrowthProfileRepository.class);
+        photoService = mock(PhotoService.class);
         service = new PlantManagementService(
                 appUserRepository,
                 plantSpeciesRepository,
@@ -64,6 +67,7 @@ class PlantManagementServiceTest {
                 requirementRepository,
                 plantRepository,
                 profileRepository,
+                photoService,
                 Clock.fixed(Instant.parse("2026-07-22T00:00:00Z"), ZoneOffset.UTC)
         );
     }
