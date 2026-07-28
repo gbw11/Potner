@@ -1,30 +1,30 @@
-﻿﻿﻿# Sensor Collector
+# Sensor Collector
 
-??�� ?�노 / ?�즈베리 ?�이???�습?�·조?�·토?�수�??�집기입?�다.
+젯슨 나노 / 라즈베리 파이용 온습도·조도·토양수분 수집기입니다.
 
-## ?�서 구성
+## 센서 구성
 
-| ?�서 | 모델 | ?�터?�이??|
+| 센서 | 모델 | 인터페이스 |
 |------|------|------------|
 | 조도 | BH1750 (GY-302) | I2C |
-| ?�습??| DHT22/DHT11 ?�는 AHT20 (?�품�??�인 ??`config.yaml`?�서 ?�택) | GPIO ?�는 I2C |
-| ?�양?�분 | ?�날로그 모듈 | **ADS1115 ADC** 경유 (Pi/Jetson 공통) |
+| 온습도 | DHT22/DHT11 또는 AHT20 (제품명 확인 후 `config.yaml`에서 선택) | GPIO 또는 I2C |
+| 토양수분 | 아날로그 모듈 | **ADS1115 ADC** 경유 (Pi/Jetson 공통) |
 
-> ?�즈베리 ?�이?� ??�� ?�노?�는 ?�날로그 ?�력(ADC)???�습?�다. ?�양?�분 ?�서 AO ?�?� ADS1115 같�? I2C ADC???�결?�야 ?�니??
+> 라즈베리 파이와 젯슨 나노에는 아날로그 입력(ADC)이 없습니다. 토양수분 센서 AO 핀은 ADS1115 같은 I2C ADC에 연결해야 합니다.
 
-## ?�양?�분 ??Spring Boot
+## 토양수분 → Spring Boot
 
-Pi/Jetson?� **측정값만** ?�버�?보냅?�다. ?�요 급수??계산·?�프 ?�어??Spring / 급수?� �?책임?�니??
+Pi/Jetson은 **측정값만** 서버로 보냅니다. 필요 급수량 계산·펌프 제어는 Spring / 급수대 쪽 책임입니다.
 
 ```bash
-# 1???�송 ?�스??
-python -m cli.plant push-soil
+# 1회 전송 테스트
+python plant.py push-soil
 
-# ?�집 루프?�서 주기 ?�송 (backend.enabled: true)
+# 수집 루프에서 주기 전송 (backend.enabled: true)
 python main.py --once
 ```
 
-POST ?�이로드 ?�시 (`backend.soil_path`):
+POST 페이로드 예시 (`backend.soil_path`):
 
 ```json
 {
@@ -35,11 +35,11 @@ POST ?�이로드 ?�시 (`backend.soil_path`):
 }
 ```
 
-`config.yaml`??`backend:` ?�는 `.env`??`SPRING_BASE_URL` / `DEVICE_ID`�?주소�?바꿉?�다.
+`config.yaml`의 `backend:` 또는 `.env`의 `SPRING_BASE_URL` / `DEVICE_ID`로 주소를 바꿉니다.
 
-## 빠른 ?�작 (Windows ??mock)
+## 빠른 시작 (Windows — mock)
 
-?�재 PC?�서???�드?�어 ?�이 ?�이?�라?�을 검증할 ???�습?�다.
+현재 PC에서는 하드웨어 없이 파이프라인을 검증할 수 있습니다.
 
 ```bash
 cd C:\Users\SSAFY\Projects\sensor-collector
@@ -52,111 +52,104 @@ pip install -r requirements.txt
 python main.py --once
 ```
 
-기본 `config.yaml`??`platform: mock` ??가???�서값을 `data/readings.csv`???�?�합?�다.
+기본 `config.yaml`의 `platform: mock` 이 가상 센서값을 `data/readings.csv`에 저장합니다.
 
-## ?�?�형 ?�이?�라??(로컬 ?�단 + LLM 말투)
+## 대화형 파이프라인 (로컬 판단 + LLM 말투)
 
 ```
-[?�서] ??[?�집/CSV] ??[로컬 규칙 ?�태 ?�단] ??[?�벤??로그]
-                              ??
-                    [?�플�??�는 LLM 문장] ??[TTS/콘솔]
-                              ??
-                    [?�유 ?�??+ tool use]
+[센서] → [수집/CSV] → [로컬 규칙 상태 판단] → [이벤트 로그]
+                              ↓
+                    [템플릿 또는 LLM 문장] → [TTS/콘솔]
+                              ↓
+                    [자유 대화 + tool use]
 ```
 
-**?�정 ?�인??(?�안 ?��?**
-- ?�단?� ??�� 로컬 (`src/status`). LLM?� 말투/?�?�만.
-- API ???�으�??�플�??�백?�로 PC?�서??바로 ?�작.
-- ?�성?� `src/voice` ?�댑???�재 콘솔). Whisper/ElevenLabs???�중??교체.
-- ?�장 ?�진(`src/vision`)?� ?�리�??????�스??LLM�?분리.
+**수정 포인트 (원안 대비)**
+- 판단은 항상 로컬 (`src/status`). LLM은 말투/대화만.
+- API 키 없으면 템플릿 폴백으로 PC에서도 바로 동작.
+- 음성은 `src/voice` 어댑터(현재 콘솔). Whisper/ElevenLabs는 나중에 교체.
+- 성장 사진(`src/vision`)은 자리만 둠 — 텍스트 LLM과 분리.
 
 ```bash
-# ?�태 브리??(1?�칭 멘트)
-python -m cli.plant brief
+# 상태 브리핑 (1인칭 멘트)
+python plant.py brief
 
-# ?�출 ?�벤??리포??
-python -m cli.plant report
+# 외출 이벤트 리포트
+python plant.py report
 
-# ?�유 ?�??(exit �?종료)
-python -m cli.plant chat
+# 자유 대화 (exit 로 종료)
+python plant.py chat
 
-# ?�집+?�태/?�벤?�만 보기
-python -m cli.plant tick
+# 수집+상태/이벤트만 보기
+python plant.py tick
 ```
 
-LLM???�려�??�로?�트 루트 `.env`??**SSAFY GMS ??*�??�습?�다:
+LLM을 쓰려면 프로젝트 루트 `.env`에 **SSAFY GMS 키**를 넣습니다:
 
 ```env
-OPENAI_API_KEY=?�기??GMS_??
+OPENAI_API_KEY=여기에_GMS_키
 OPENAI_BASE_URL=https://gms.ssafy.io/gmsapi/api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-nano
 OPENAI_MAX_TOKENS=200
 ```
 
 ```bash
-python -m cli.plant llm-status
-python -m cli.plant brief
+python plant.py llm-status
+python plant.py brief
 ```
 
-변???�름??`OPENAI_*`???�유??GMS가 OpenAI ?�환 API?�기 ?�문?�니?? OpenAI 공식 ?��? ?�닙?�다.
+변수 이름이 `OPENAI_*`인 이유는 GMS가 OpenAI 호환 API이기 때문입니다. OpenAI 공식 키가 아닙니다.
 
-| 경로 | ??�� |
+| 폴더 | 역할 |
 |------|------|
-| `main.py` | ?�시 ?�서 ?�집 루프 (루트 진입?? |
-| `cli/` | 부가 CLI (`plant`, `capture_photo` ?? ??`python -m cli.<name>` |
-| `scripts/` | PC?�Pi 배포·SSH ?�틸 (`.ps1`) |
-| `config/` | ?�경�??�정 ?�일 (`default.yaml`, `raspberry_pi.yaml`) |
-| `src/` | 라이브러리 (센서·상태·LLM·비전) |
-| `src/status` | ?�계�?기반 ?�상/?�상 ?�벨 |
-| `src/events` | ?�태 변??JSONL 로그 |
-| `src/llm` | OpenAI ?�환 API + tool use + ?�플�?|
-| `src/dialogue` | brief / report / chat ?��??�트?�이??|
-| `src/voice` | STT/TTS ?�댑??|
-| `src/vision` | 카메??캡처 (OV5647) + `data/camera` ?�??|
-| `config.yaml` | PC/mock 기본 ?�정 |
-| `config.raspberry_pi.yaml` | ?�즈베리 ?�이 ?�기�??�정 |
+| `src/status` | 임계값 기반 정상/이상 라벨 |
+| `src/events` | 상태 변화 JSONL 로그 |
+| `src/llm` | OpenAI 호환 API + tool use + 템플릿 |
+| `src/dialogue` | brief / report / chat 오케스트레이션 |
+| `src/voice` | STT/TTS 어댑터 |
+| `src/vision` | 카메라 캡처 (OV5647) + `data/camera` 저장 |
 
-### 카메??(SunFounder Rev1.3 / OV5647)
+### 카메라 (SunFounder Rev1.3 / OV5647)
 
-?�???�치??**?�나**: `data/camera/`
-- ?��?지: `data/camera/frame_YYYYMMDD_HHMMSS.jpg`
-- 메�?: `data/camera/index.jsonl`
+저장 위치는 **하나**: `data/camera/`
+- 이미지: `data/camera/frame_YYYYMMDD_HHMMSS.jpg`
+- 메타: `data/camera/index.jsonl`
 
 ```bash
-# PC ?�는 Pi ?�디?�든 (?�로?�트 루트?�서)
-python -m cli.capture_photo
+# PC 또는 Pi 어디서든
+python capture_photo.py
 ```
 
-- **Pi?�서 ?�행**: Pi??`data/camera/`??바로 ?�??
-- **PC?�서 ?�행**: Pi?�서 촬영 ??PC `data/camera/`�??�동 ?�기??
-- mock�? `python -m cli.capture_photo --mock`
+- **Pi에서 실행**: Pi의 `data/camera/`에 바로 저장
+- **PC에서 실행**: Pi에서 촬영 후 PC `data/camera/`로 자동 동기화
+- mock만: `python capture_photo.py --mock`
 
-## PC ???�즈베리 ?�이 (WiFi / SSH)
+## PC ↔ 라즈베리 파이 (WiFi / SSH)
 
-같�? WiFi??PC?� Pi가 ?�어???�니?? ?�재 SSH 별칭:
+같은 WiFi에 PC와 Pi가 있어야 합니다. 현재 SSH 별칭:
 
-| ??�� | �?|
+| 항목 | 값 |
 |------|-----|
 | Host | `raspberrypi` |
 | IP | `192.168.30.91` |
 | User | `e104` |
 
-### 1) 최초 1????SSH ???�록
+### 1) 최초 1회 — SSH 키 등록
 
-PowerShell?�서 (Pi 비�?번호 1???�력). ?�행 ?�책 ?�문??막히�?`-ExecutionPolicy Bypass`�?붙입?�다:
+PowerShell에서 (Pi 비밀번호 1회 입력). 실행 정책 때문에 막히면 `-ExecutionPolicy Bypass`를 붙입니다:
 
 ```powershell
 cd C:\Users\SSAFY\Projects\sensor-collector
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-pi-ssh.ps1
 ```
 
-?�는 ?�크립트 ?�이 ??�?
+또는 스크립트 없이 한 줄:
 
 ```powershell
 Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | ssh raspberrypi "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo KEY_OK"
 ```
 
-?�공?�면 ?�후 `ssh raspberrypi` 가 비�?번호 ?�이 ?�니??
+성공하면 이후 `ssh raspberrypi` 가 비밀번호 없이 됩니다.
 
 ### 2) 코드 배포
 
@@ -164,96 +157,94 @@ Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | ssh raspberrypi "mkdir -p ~/.
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-to-pi.ps1 -Install -Once
 ```
 
-- `-Install`: Pi??venv + ?�키지 ?�치
-- `-Once`: 배포 ??`python main.py --once` 1???�행
+- `-Install`: Pi에 venv + 패키지 설치
+- `-Once`: 배포 후 `python main.py --once` 1회 실행
 
-Pi?�서 ?�제 ?�서???�정:
+Pi에서 실제 센서용 설정:
 
 ```bash
 ssh raspberrypi
 cd ~/sensor-collector
 source .venv/bin/activate
-cp config.raspberry_pi.yaml config.yaml   # ?�는 --config �?지??
+cp config.raspberry_pi.yaml config.yaml   # 또는 --config 로 지정
 python main.py --once
 ```
 
-### 3) Cursor?�서 Pi�?직접 ?�집 (권장)
+### 3) Cursor에서 Pi로 직접 편집 (권장)
 
-1. Cursor / VS Code?�서 **Remote - SSH** ?�장 ?�치
-2. `F1` ??`Remote-SSH: Connect to Host...` ??`raspberrypi` ?�택
-3. ?�격 창에??`~/sensor-collector` ?�더 ?�기
-4. ?��??�에??바로 ?�집 ?�행
+1. Cursor / VS Code에서 **Remote - SSH** 확장 설치
+2. `F1` → `Remote-SSH: Connect to Host...` → `raspberrypi` 선택
+3. 원격 창에서 `~/sensor-collector` 폴더 열기
+4. 터미널에서 바로 수집 실행
 
-IP가 바뀌면 `C:\Users\SSAFY\.ssh\config` ??`HostName` ???�정?�세??
+IP가 바뀌면 `C:\Users\SSAFY\.ssh\config` 의 `HostName` 을 수정하세요.
 
-## 보드?�서 ?�행 (?�즈베리 ?�이 / ??��)
+## 보드에서 실행 (라즈베리 파이 / 젯슨)
 
-1. `config.yaml` ?�정
+1. `config.yaml` 수정
 
 ```yaml
-platform: raspberry_pi   # ?�는 jetson
+platform: raspberry_pi   # 또는 jetson
 sensors:
   climate:
-    driver: dht22        # ???�면 dht11 ?�는 aht20
+    driver: dht22        # 안 되면 dht11 또는 aht20
     pin: 4
 ```
 
-2. ?�키지 ?�치
+2. 패키지 설치
 
 ```bash
 pip install -r requirements.txt
-pip install adafruit-circuitpython-dht Adafruit-Blinka   # DHT ?�용 ??
+pip install adafruit-circuitpython-dht Adafruit-Blinka   # DHT 사용 시
 ```
 
-3. I2C ?�성????주소 ?�인
+3. I2C 활성화 후 주소 확인
 
 ```bash
 sudo raspi-config   # Pi
 sudo i2cdetect -y 1
 ```
 
-?�상 주소: BH1750=`0x23`(?�는 `0x5C`), ADS1115=`0x48`, AHT20=`0x38`
+예상 주소: BH1750=`0x23`(또는 `0x5C`), ADS1115=`0x48`, AHT20=`0x38`
 
-4. ?�집 ?�작
+4. 수집 시작
 
 ```bash
 python main.py
-# ?�는 1?�만
+# 또는 1회만
 python main.py --once
 ```
 
-## 배선 ?�약
+## 배선 요약
 
 ### BH1750 (조도)
-- VCC ??3.3V
-- GND ??GND
-- SDA ??SDA
-- SCL ??SCL
-- ADDR ??비연�?0x23) ?�는 VCC(0x5C)
+- VCC → 3.3V
+- GND → GND
+- SDA → SDA
+- SCL → SCL
+- ADDR → 비연결(0x23) 또는 VCC(0x5C)
 
-### DHT11/22 (?�습??
-- VCC ??3.3V (?�는 모듈 ?�양??맞게 5V)
-- GND ??GND
-- DATA ??GPIO4 (BCM, `config.yaml`??`pin`)
-- ?�요 ??DATA?�VCC ?�이 4.7kΩ ?�??
+### DHT11/22 (온습도)
+- VCC → 3.3V (또는 모듈 사양에 맞게 5V)
+- GND → GND
+- DATA → GPIO4 (BCM, `config.yaml`의 `pin`)
+- 필요 시 DATA–VCC 사이 4.7kΩ 풀업
 
-### ?�양?�분 + ADS1115
-- ?�서 VCC/GND ??보드 ?�원/GND
-- ?�서 AO ??ADS1115 A0
-- ADS1115 VDD ??3.3V, GND ??GND, SDA/SCL ??I2C
+### 토양수분 + ADS1115
+- 센서 VCC/GND → 보드 전원/GND
+- 센서 AO → ADS1115 A0
+- ADS1115 VDD → 3.3V, GND → GND, SDA/SCL → I2C
 
-### ?�양 캘리브레?�션
-1. 공기 �?건조)?�서 `soil_raw` 기록 ??`dry_raw`
-2. 물에 ?�신 ???�는 충분???��? ?? `soil_raw` 기록 ??`wet_raw`
-3. `config.yaml`??반영
+### 토양 캘리브레이션
+1. 공기 중(건조)에서 `soil_raw` 기록 → `dry_raw`
+2. 물에 적신 후(또는 충분히 젖은 흙) `soil_raw` 기록 → `wet_raw`
+3. `config.yaml`에 반영
 
-값이 반�?�??�오�?`dry_raw` / `wet_raw`�??�로 바꿔 보세??
+값이 반대로 나오면 `dry_raw` / `wet_raw`를 서로 바꿔 보세요.
 
-## ??�� 분담 ?�시
+## 역할 분담 예시
 
-- **?�즈베리 ?�이**: ???�크립트�??�서 ?�집 ??CSV ?�는 ?�트?�크 ?�송
-- **??�� ?�노**: 같�? 코드�??�집?�거?? ?�이?�서 받�? ?�이?��? 분석/추론
+- **라즈베리 파이**: 이 스크립트로 센서 수집 → CSV 또는 네트워크 전송
+- **젯슨 나노**: 같은 코드로 수집하거나, 파이에서 받은 데이터를 분석/추론
 
-지금�? 로컬 CSV ?�?�입?�다. MQTT/HTTP ?�송???�요?�면 ?�어??붙일 ???�습?�다.
-
-| `src/` | ?�이브러�?(?�서·?�태·LLM·비전) |
+지금은 로컬 CSV 저장입니다. MQTT/HTTP 전송이 필요하면 이어서 붙일 수 있습니다.

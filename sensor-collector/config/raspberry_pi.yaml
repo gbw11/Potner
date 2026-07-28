@@ -1,7 +1,6 @@
 # Pi 실행 예:
 #   python main.py --config config/raspberry_pi.yaml
 #   python -m cli.plant --config config/raspberry_pi.yaml brief
-#   python publish_climate_mqtt.py --yes
 platform: raspberry_pi
 
 interval_sec: 5
@@ -20,9 +19,10 @@ sensors:
 
   climate:
     enabled: true
-    driver: dht22   # dht22 | dht11 | aht20 | mock
+    driver: iio   # iio (dtoverlay dht11) | dht22 | dht11 | aht20 | mock
     pin: 4
     address: 0x38
+    device_path: /sys/bus/iio/devices/iio:device0
 
   soil:
     enabled: true
@@ -47,10 +47,10 @@ status_rules:
     high: 5000
 
 backend:
-  enabled: true
+  enabled: false
   base_url: http://127.0.0.1:8080
   soil_path: /api/v1/sensors/soil
-  device_id: pi-01
+  device_id: auto
   timeout_sec: 5
 
 events:
@@ -69,7 +69,7 @@ voice:
   stt: console
 
 camera:
-  enabled: true
+  enabled: false
   driver: picamera2
   path: data/camera
   width: 1920
@@ -84,21 +84,21 @@ camera:
   capture_every_n: 1
 
 # Spring 백엔드로 온습도 JSON POST
-# 실제 서버 주소로 바꾸세요. 예: http://192.168.30.182:8080/api/sensors/climate
 spring:
-  enabled: true
+  enabled: false
   url: http://127.0.0.1:18080/api/sensors/climate
 
 # potner MQTT (SSAFY 브로커)
+# main.py 가 interval_sec(5초) 마다 센서값만 송신 (상태 문구/heartbeat 없음)
+# device_id: auto → Pi 보드 시리얼. 브로커 ACL용 토픽은 아래 telemetry_topic 유지.
 # password 는 가능하면 환경변수 MQTT_PASSWORD 로 두고, yaml 에는 넣지 마세요.
 mqtt:
   enabled: true
   host: i15e104.p.ssafy.io
   port: 1884
   qos: 1
-  device_id: raspberry-01
+  device_id: auto
   username: raspberry-01
   password: ""  # set via MQTT_PASSWORD env
   telemetry_topic: potner/device/raspberry-01/sensor/telemetry
-  heartbeat_topic: potner/device/raspberry-01/status/heartbeat
 

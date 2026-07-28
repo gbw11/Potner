@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.publish_climate_mqtt import heartbeat_payload, telemetry_payload
+from src.mqtt import heartbeat_payload, telemetry_payload
 from src.transport.spring import SpringSoilPublisher, build_spring_publisher
 
 

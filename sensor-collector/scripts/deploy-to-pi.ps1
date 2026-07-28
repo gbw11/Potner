@@ -21,8 +21,10 @@ ssh raspberrypi "mkdir -p $RemoteDir"
 Write-Host "Uploading project files..."
 scp -r `
     main.py `
-    cli `
-    config `
+    plant.py `
+    capture_photo.py `
+    config.yaml `
+    config.raspberry_pi.yaml `
     requirements.txt `
     src `
     "raspberrypi:${RemoteDir}/"
@@ -36,9 +38,9 @@ if ($Install) {
 
 if ($Once) {
     Write-Host "Running one collection cycle on Pi..."
-    ssh raspberrypi "cd $RemoteDir; . .venv/bin/activate; python main.py --config config/raspberry_pi.yaml --once"
+    ssh raspberrypi "cd $RemoteDir; . .venv/bin/activate; python main.py --config config.raspberry_pi.yaml --once"
 } else {
     Write-Host "Deploy done. To run on Pi:"
     Write-Host "  ssh raspberrypi"
-    Write-Host "  cd $RemoteDir && source .venv/bin/activate && python main.py --config config/raspberry_pi.yaml --once"
+    Write-Host "  cd $RemoteDir && source .venv/bin/activate && python main.py --config config.raspberry_pi.yaml --once"
 }

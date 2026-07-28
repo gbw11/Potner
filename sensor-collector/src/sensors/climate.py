@@ -1,6 +1,35 @@
 from __future__ import annotations
 
+import time
+from pathlib import Path
+
 from .base import ClimateReading, ClimateSensor
+
+
+class IIOClimateSensor(ClimateSensor):
+    """dtoverlay dht11 등으로 노출된 IIO 온습도 (/sys/bus/iio/...)."""
+
+    def __init__(self, device_path: str = "/sys/bus/iio/devices/iio:device0") -> None:
+        self._device = Path(device_path)
+        if not self._device.exists():
+            raise FileNotFoundError(f"IIO climate device not found: {self._device}")
+
+    def _read_milli(self, name: str) -> float | None:
+        path = self._device / name
+        for _ in range(5):
+            try:
+                return int(path.read_text().strip()) / 1000.0
+            except (OSError, ValueError):
+                time.sleep(0.5)
+        return None
+
+    def read(self) -> ClimateReading:
+        temp = self._read_milli("in_temp_input")
+        hum = self._read_milli("in_humidityrelative_input")
+        return ClimateReading(
+            temperature_c=None if temp is None else round(float(temp), 2),
+            humidity_pct=None if hum is None else round(float(hum), 2),
+        )
 
 
 class DHTClimateSensor(ClimateSensor):
@@ -52,15 +81,11 @@ class AHT20ClimateSensor(ClimateSensor):
         self._bus = SMBus(bus)
         # Soft reset + init
         self._bus.write_i2c_block_data(self._address, 0xBA, [])
-        import time
-
         time.sleep(0.02)
         self._bus.write_i2c_block_data(self._address, 0xBE, [0x08, 0x00])
         time.sleep(0.01)
 
     def read(self) -> ClimateReading:
-        import time
-
         self._bus.write_i2c_block_data(self._address, 0xAC, [0x33, 0x00])
         time.sleep(0.08)
         data = self._bus.read_i2c_block_data(self._address, 0x00, 6)

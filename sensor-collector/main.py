@@ -8,9 +8,8 @@ from pathlib import Path
 
 from src.collector import Collector
 from src.config import load_config
-from src.events.detector import EventDetector
-from src.events.store import EventStore
-from src.status.rules import evaluate_status
+from src.device import resolve_device_id
+from src.mqtt import build_mqtt_publisher
 from src.transport import build_spring_publisher
 
 
@@ -37,10 +36,10 @@ def main() -> int:
         return 1
 
     config = load_config(config_path)
+    device_id = resolve_device_id((config.get("mqtt") or {}).get("device_id"))
     collector = Collector(config)
     publisher = build_spring_publisher(config)
-    events_cfg = config.get("events", {}) or {}
-    detector = EventDetector(EventStore(events_cfg.get("path", "data/events.jsonl")))
+    mqtt_publisher = build_mqtt_publisher(config)
     running = True
 
     def _stop(_signum, _frame) -> None:
@@ -51,34 +50,43 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
 
     interval = float(config.get("interval_sec", 5))
+    mqtt_note = (
+        f"on {mqtt_publisher.host}:{mqtt_publisher.port}"
+        if mqtt_publisher.enabled
+        else "off"
+    )
     print(
-        f"platform={config.get('platform')} interval={interval}s "
+        f"platform={config.get('platform')} device_id={device_id} interval={interval}s "
         f"storage={config.get('storage', {}).get('path')} "
-        f"backend={'on ' + publisher.url if publisher.enabled else 'off'}"
+        f"backend={'on ' + publisher.url if publisher.enabled else 'off'} "
+        f"mqtt={mqtt_note}"
     )
 
     try:
         while running:
             row = collector.read_once()
-            status = evaluate_status(row, config.get("status_rules"))
-            events = detector.update(status)
+            row["device_id"] = device_id
             pub = publisher.publish(row)
             pub_note = "skip" if not publisher.enabled else ("ok" if pub.ok else pub.message)
+            mqtt = mqtt_publisher.publish(row)
+            mqtt_status = (
+                "skip"
+                if not mqtt_publisher.enabled
+                else (f"ok({mqtt.count})" if mqtt.ok else mqtt.message)
+            )
             print(
-                f"[{row['timestamp']}] "
+                f"[{row['timestamp']}] device={device_id} "
                 f"T={row['temperature_c']}C H={row['humidity_pct']}% "
                 f"Lux={row['light_lux']} Soil={row['soil_moisture_pct']}% "
-                f"(raw={row['soil_raw']}) | {status.summary_ko} | spring={pub_note}"
+                f"(raw={row['soil_raw']}) | spring={pub_note} mqtt={mqtt_status}"
             )
-            for event in events:
-                if event.get("type") != "session_start":
-                    print(f"  event: {event.get('message')}")
             if args.once:
                 break
             end = time.time() + interval
             while running and time.time() < end:
                 time.sleep(0.2)
     finally:
+        mqtt_publisher.close()
         collector.close()
 
     return 0

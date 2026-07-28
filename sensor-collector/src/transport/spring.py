@@ -7,6 +7,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ..device import resolve_device_id
+
 
 @dataclass(frozen=True)
 class PublishResult:
@@ -19,7 +21,7 @@ class SpringSoilPublisher:
     """
     토양수분 측정값을 Spring Boot로 POST.
 
-    급수량 계산은 서버 책임. Pi는 raw/% 만 넘긴다.
+    급수량 계산은 서버 책임. Pi는 deviceId + raw/% 만 넘긴다.
     """
 
     def __init__(
@@ -27,7 +29,7 @@ class SpringSoilPublisher:
         base_url: str,
         path: str = "/api/v1/sensors/soil",
         *,
-        device_id: str = "pi-01",
+        device_id: str = "unknown-device",
         timeout_sec: float = 5.0,
         enabled: bool = True,
     ) -> None:
@@ -43,7 +45,7 @@ class SpringSoilPublisher:
 
     def build_payload(self, reading: dict[str, Any]) -> dict[str, Any]:
         return {
-            "deviceId": self.device_id,
+            "deviceId": str(reading.get("device_id") or self.device_id),
             "timestamp": reading.get("timestamp"),
             "soilRaw": reading.get("soil_raw"),
             "soilMoisturePct": reading.get("soil_moisture_pct"),
@@ -89,7 +91,7 @@ def build_spring_publisher(config: dict[str, Any]) -> SpringSoilPublisher:
     return SpringSoilPublisher(
         base_url=base_url,
         path=str(cfg.get("soil_path", "/api/v1/sensors/soil")),
-        device_id=str(os.getenv("DEVICE_ID") or cfg.get("device_id", "pi-01")),
+        device_id=resolve_device_id(cfg.get("device_id")),
         timeout_sec=float(cfg.get("timeout_sec", 5)),
         enabled=bool(cfg.get("enabled", False)),
     )

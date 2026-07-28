@@ -26,9 +26,9 @@ class Collector:
         self._capture_every_n = int(cam_cfg.get("capture_every_n", 1))
 
     def read_once(self, *, capture: bool | None = None) -> dict[str, Any]:
-        climate = self.sensors.climate.read() if self.sensors.climate else None
-        light = self.sensors.light.read() if self.sensors.light else None
-        soil = self.sensors.soil.read() if self.sensors.soil else None
+        climate = self._safe_read(self.sensors.climate)
+        light = self._safe_read(self.sensors.light)
+        soil = self._safe_read(self.sensors.soil)
 
         row: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -65,6 +65,17 @@ class Collector:
             return False
         self._read_count += 1
         return self._read_count % max(1, self._capture_every_n) == 0
+
+    @staticmethod
+    def _safe_read(sensor: Any) -> Any:
+        if sensor is None:
+            return None
+        try:
+            return sensor.read()
+        except Exception as exc:  # noqa: BLE001 — 개별 센서 읽기 실패 시 None
+            name = type(sensor).__name__
+            print(f"warn: {name}.read failed: {exc}")
+            return None
 
     def close(self) -> None:
         for sensor in (self.sensors.climate, self.sensors.light, self.sensors.soil):

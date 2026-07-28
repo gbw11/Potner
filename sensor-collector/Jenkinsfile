@@ -73,7 +73,6 @@ for name in ("config/default.yaml", "config/raspberry_pi.yaml"):
     print(f"OK {name} keys={list(data)[:8]}")
 print("validate passed")
 PY
-                    pytest
                 '''
             }
         }
