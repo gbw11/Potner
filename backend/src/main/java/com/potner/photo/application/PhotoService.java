@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -205,6 +206,32 @@ public class PhotoService {
     public void clearRepresentativePhoto(String userId, String plantId) {
         Plant plant = requireOwnedPlant(userId, plantId);
         replaceRepresentative(plant, null, nowUtc());
+    }
+
+    /**
+     * 그날 장치가 찍은 사진이다. 일기 상세가 사진을 함께 보여줄 때 쓴다.
+     *
+     * <p>일기가 사진을 따로 갖지 않는 이유다. 장치가 하루 한 장 찍으므로 날짜만 알면 찾을 수
+     * 있고, 사용자가 일기에 따로 올리게 하면 같은 날 사진이 둘 생겨 하루 한 장 정책과 충돌한다.
+     */
+    public Optional<PhotoResponse> findDevicePhotoOfDate(String plantId, LocalDate photoDate) {
+        return photoRepository
+                .findByPlantIdAndSourceAndPhotoDate(plantId, PhotoSource.DEVICE, photoDate)
+                .map(this::toResponse);
+    }
+
+    /** 일기 목록이 날짜별 썸네일을 한 번에 채우는 데 쓴다. 사진이 없는 날은 결과에서 빠진다. */
+    public Map<LocalDate, PhotoResponse> findDevicePhotosOfDates(
+            String plantId,
+            Collection<LocalDate> photoDates
+    ) {
+        if (photoDates.isEmpty()) {
+            return Map.of();
+        }
+        return photoRepository
+                .findAllByPlantIdAndSourceAndPhotoDateIn(plantId, PhotoSource.DEVICE, photoDates)
+                .stream()
+                .collect(Collectors.toMap(PlantPhoto::getPhotoDate, this::toResponse));
     }
 
     /**

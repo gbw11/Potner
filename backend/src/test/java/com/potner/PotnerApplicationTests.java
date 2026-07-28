@@ -6,6 +6,8 @@ import com.potner.alert.domain.AlertDeviation;
 import com.potner.alert.domain.AlertMetricType;
 import com.potner.alert.domain.AlertRepository;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.diary.application.DiaryService;
+import com.potner.diary.application.DiaryWriteResult;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
@@ -139,6 +141,9 @@ class PotnerApplicationTests {
     private com.potner.light.application.DailyLightScheduler dailyLightScheduler;
 
     @Autowired
+    private DiaryService diaryService;
+
+    @Autowired
     private PushTargetResolver pushTargetResolver;
 
     @Autowired
@@ -169,6 +174,7 @@ class PotnerApplicationTests {
         jdbcTemplate.update("DELETE FROM user_notification_setting");
         jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM plant_daily_light");
+        jdbcTemplate.update("DELETE FROM plant_diary");
         jdbcTemplate.update("DELETE FROM plant_photo");
         jdbcTemplate.update("DELETE FROM sensor_reading");
         jdbcTemplate.update("DELETE FROM plant_device_assignment");
@@ -2102,6 +2108,73 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void diaryListAndDetailReuseThatDaysDevicePhoto() throws Exception {
+        Tokens tokens = signupAndLogin("diary@example.com");
+        String plantId = createPlant(tokens, "일기 식물");
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"diary-robot-01\",\"name\":\"일기 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        assignRobot(tokens, plantId, JsonPath.read(robotBody, "$.robot.robotId"))
+                .andExpect(status().isCreated());
+        String uploadToken = JsonPath.read(robotBody, "$.uploadToken");
+
+        // 07-20 은 사진이 있고 07-21 은 없다. 로봇이 꺼져 있던 날을 흉내낸다.
+        mockMvc.perform(multipart("/api/v1/device/photos")
+                        .file(jpegPart(120, 80))
+                        .header("X-Device-Token", uploadToken)
+                        .param("capturedAt", "2026-07-20T01:00:00Z"))
+                .andExpect(status().isCreated());
+
+        // 작성 API 가 없다. 일기는 LLM 배치가 쓰므로 서비스를 직접 부른다.
+        assertThat(diaryService.write(plantId, LocalDate.of(2026, 7, 20), "첫 잎", "잎이 하나 났어요."))
+                .isEqualTo(DiaryWriteResult.WRITTEN);
+        assertThat(diaryService.write(plantId, LocalDate.of(2026, 7, 21), "흐린 날", "오늘은 조용했어요."))
+                .isEqualTo(DiaryWriteResult.WRITTEN);
+
+        // 배치가 두 번 돌아도 멀쩡한 일기를 갈아치우지 않는다.
+        assertThat(diaryService.write(plantId, LocalDate.of(2026, 7, 20), "덮어쓰기", "새 내용"))
+                .isEqualTo(DiaryWriteResult.SKIPPED_ALREADY_WRITTEN);
+        assertThat(diaryCount(plantId)).isEqualTo(2);
+
+        // 목록은 최신순이고 본문을 담지 않는다. 사진이 없던 날은 썸네일이 null 이다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/diaries", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("from", "2026-07-01")
+                        .param("to", "2026-07-31"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.diaries.length()").value(2))
+                .andExpect(jsonPath("$.diaries[0].diaryDate").value("2026-07-21"))
+                .andExpect(jsonPath("$.diaries[0].thumbnailUrl").doesNotExist())
+                .andExpect(jsonPath("$.diaries[1].diaryDate").value("2026-07-20"))
+                .andExpect(jsonPath("$.diaries[1].thumbnailUrl").value(startsWith("/media/")));
+
+        String diaryId = JsonPath.read(
+                mockMvc.perform(get("/api/v1/plants/{plantId}/diaries", plantId)
+                                .header("Authorization", "Bearer " + tokens.accessToken())
+                                .param("from", "2026-07-20")
+                                .param("to", "2026-07-20"))
+                        .andReturn().getResponse().getContentAsString(),
+                "$.diaries[0].diaryId");
+
+        // 상세는 본문과 그날 장치 사진을 함께 준다. 일기가 사진을 따로 갖지 않는 이유다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/diaries/{diaryId}", plantId, diaryId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("잎이 하나 났어요."))
+                .andExpect(jsonPath("$.photo.originalUrl").value(containsString("/original.jpg")));
+
+        // 남의 식물 일기는 존재 여부를 숨긴다.
+        Tokens other = signupAndLogin("diary-other@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/diaries/{diaryId}", plantId, diaryId)
+                        .header("Authorization", "Bearer " + other.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
     void representativePhotoIsSeparateFromThePhotoLog() throws Exception {
         Tokens tokens = signupAndLogin("photo-representative@example.com");
         String plantId = createPlant(tokens, "대표 사진 식물");
@@ -2762,6 +2835,14 @@ class PotnerApplicationTests {
                 .content("""
                         {"token":"%s","platform":"%s"}
                         """.formatted(token, platform)));
+    }
+
+    private int diaryCount(String plantId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM plant_diary WHERE plant_id = ?",
+                Integer.class,
+                plantId
+        );
     }
 
     private int photoCount(String plantId, String source) {
