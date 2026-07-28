@@ -2,6 +2,8 @@ package com.potner.photo.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -34,6 +36,10 @@ public class PlantPhoto {
     @Column(name = "source_robot_id", length = 36, columnDefinition = "char(36)")
     private String sourceRobotId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", length = 10, nullable = false)
+    private PhotoSource source;
+
     @Column(name = "photo_date", nullable = false)
     private LocalDate photoDate;
 
@@ -64,10 +70,67 @@ public class PlantPhoto {
     protected PlantPhoto() {
     }
 
-    public static PlantPhoto create(
+    /** 장치가 촬영한 성장 사진이다. 포토 로그와 타임랩스에 쓰인다. */
+    public static PlantPhoto fromDevice(
             String photoId,
             String plantId,
             String sourceRobotId,
+            LocalDate photoDate,
+            LocalDateTime capturedAt,
+            StoredPhotoPaths paths,
+            int width,
+            int height,
+            long byteSize
+    ) {
+        return create(
+                photoId,
+                plantId,
+                sourceRobotId,
+                PhotoSource.DEVICE,
+                photoDate,
+                capturedAt,
+                paths,
+                width,
+                height,
+                byteSize
+        );
+    }
+
+    /**
+     * 사용자가 앱에서 올린 사진이다. 출처 로봇이 없다.
+     *
+     * <p>포토 로그에 섞이지 않으므로 {@code photoDate} 는 조회 키가 아니라 기록용이다.
+     * 그래도 컬럼이 {@code NOT NULL} 이라 업로드 시각의 서비스 날짜를 넣는다.
+     */
+    public static PlantPhoto fromUser(
+            String photoId,
+            String plantId,
+            LocalDate photoDate,
+            LocalDateTime capturedAt,
+            StoredPhotoPaths paths,
+            int width,
+            int height,
+            long byteSize
+    ) {
+        return create(
+                photoId,
+                plantId,
+                null,
+                PhotoSource.USER,
+                photoDate,
+                capturedAt,
+                paths,
+                width,
+                height,
+                byteSize
+        );
+    }
+
+    private static PlantPhoto create(
+            String photoId,
+            String plantId,
+            String sourceRobotId,
+            PhotoSource source,
             LocalDate photoDate,
             LocalDateTime capturedAt,
             StoredPhotoPaths paths,
@@ -79,6 +142,7 @@ public class PlantPhoto {
         photo.id = photoId;
         photo.plantId = plantId;
         photo.sourceRobotId = sourceRobotId;
+        photo.source = source;
         photo.photoDate = photoDate;
         photo.capturedAt = capturedAt;
         photo.originalPath = paths.originalPath();
@@ -105,6 +169,14 @@ public class PlantPhoto {
 
     public String getSourceRobotId() {
         return sourceRobotId;
+    }
+
+    public PhotoSource getSource() {
+        return source;
+    }
+
+    public boolean isUserUploaded() {
+        return source == PhotoSource.USER;
     }
 
     public LocalDate getPhotoDate() {

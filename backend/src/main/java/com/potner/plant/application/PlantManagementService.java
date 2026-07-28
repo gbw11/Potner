@@ -2,6 +2,8 @@ package com.potner.plant.application;
 
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
+import com.potner.photo.application.PhotoService;
+import com.potner.photo.dto.PhotoResponse;
 import com.potner.plant.domain.GrowthProfileValues;
 import com.potner.plant.domain.Plant;
 import com.potner.plant.domain.PlantGrowthProfile;
@@ -44,6 +46,7 @@ public class PlantManagementService {
     private final SpeciesGrowthRequirementRepository requirementRepository;
     private final PlantRepository plantRepository;
     private final PlantGrowthProfileRepository profileRepository;
+    private final PhotoService photoService;
     private final Clock clock;
 
     public PlantManagementService(
@@ -53,6 +56,7 @@ public class PlantManagementService {
             SpeciesGrowthRequirementRepository requirementRepository,
             PlantRepository plantRepository,
             PlantGrowthProfileRepository profileRepository,
+            PhotoService photoService,
             Clock clock
     ) {
         this.appUserRepository = appUserRepository;
@@ -61,7 +65,21 @@ public class PlantManagementService {
         this.requirementRepository = requirementRepository;
         this.plantRepository = plantRepository;
         this.profileRepository = profileRepository;
+        this.photoService = photoService;
         this.clock = clock;
+    }
+
+    /**
+     * 대표 사진을 응답에 채운다. 지정하지 않았으면 null 이다.
+     *
+     * <p>URL 조립은 사진 쪽 책임이라 식별자만 넘기고 결과를 받는다.
+     */
+    private PhotoResponse representativePhotoOf(Plant plant) {
+        String photoId = plant.getRepresentativePhotoId();
+        if (photoId == null) {
+            return null;
+        }
+        return photoService.findResponsesByIds(java.util.List.of(photoId)).get(photoId);
     }
 
     @Transactional
@@ -85,7 +103,7 @@ public class PlantManagementService {
                 now));
         PlantGrowthProfile profile = profileRepository.save(
                 PlantGrowthProfile.create(plant, requirement, now));
-        return PlantDetailResponse.from(plant, profile);
+        return PlantDetailResponse.from(plant, profile, representativePhotoOf(plant));
     }
 
     public PlantListResponse getMyPlants(String userId) {
@@ -102,13 +120,23 @@ public class PlantManagementService {
                 .stream()
                 .collect(Collectors.toMap(PlantGrowthProfile::getPlantId, Function.identity()));
 
+        // 식물마다 사진을 조회하면 목록 길이만큼 쿼리가 나간다. 한 번에 받아 매핑한다.
+        Map<String, PhotoResponse> representativePhotos = photoService.findResponsesByIds(
+                plants.stream().map(Plant::getRepresentativePhotoId).toList());
+
         var responses = plants.stream()
                 .map(plant -> {
                     PlantGrowthProfile profile = profiles.get(plant.getId());
                     if (profile == null) {
                         throw new BusinessException(ErrorCode.PLANT_GROWTH_PROFILE_NOT_FOUND);
                     }
-                    return PlantSummaryResponse.from(plant, profile.isCustomized());
+                    // Map.of() 는 null 키 조회에서 NPE 를 내므로 먼저 거른다.
+                    String photoId = plant.getRepresentativePhotoId();
+                    return PlantSummaryResponse.from(
+                            plant,
+                            profile.isCustomized(),
+                            photoId == null ? null : representativePhotos.get(photoId)
+                    );
                 })
                 .toList();
         return new PlantListResponse(responses);
@@ -116,7 +144,7 @@ public class PlantManagementService {
 
     public PlantDetailResponse getMyPlant(String userId, String plantId) {
         Plant plant = findOwnedPlant(userId, plantId);
-        return PlantDetailResponse.from(plant, findProfile(plantId));
+        return PlantDetailResponse.from(plant, findProfile(plantId), representativePhotoOf(plant));
     }
 
     @Transactional
@@ -129,7 +157,7 @@ public class PlantManagementService {
         if (request.adoptedDate() != null) {
             plant.updateAdoptedDate(request.adoptedDate(), now());
         }
-        return PlantDetailResponse.from(plant, findProfile(plantId));
+        return PlantDetailResponse.from(plant, findProfile(plantId), representativePhotoOf(plant));
     }
 
     @Transactional
@@ -187,7 +215,7 @@ public class PlantManagementService {
 
         plant.changeLifeStage(newLifeStage, now);
         profile.applyRequirement(requirement, now);
-        return PlantDetailResponse.from(plant, profile);
+        return PlantDetailResponse.from(plant, profile, representativePhotoOf(plant));
     }
 
     private AppUser findUser(String userId) {

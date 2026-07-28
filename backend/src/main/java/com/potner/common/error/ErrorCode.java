@@ -34,6 +34,7 @@ public enum ErrorCode {
     INVALID_PHOTO(HttpStatus.BAD_REQUEST, "Invalid photo", "이미지 파일이 아닙니다."),
     PHOTO_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "Photo too large", "허용된 크기를 넘는 이미지입니다."),
     PHOTO_ALREADY_EXISTS_FOR_DATE(HttpStatus.CONFLICT, "Photo already exists for date", "그 날짜의 사진이 이미 있습니다."),
+    PHOTO_NOT_FOUND(HttpStatus.NOT_FOUND, "Photo not found", "사진을 찾을 수 없습니다."),
     INVALID_SENSOR_QUERY_RANGE(HttpStatus.BAD_REQUEST, "Invalid sensor query range", "센서 조회 기간이 유효하지 않습니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Invalid request", "요청값이 유효하지 않습니다."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied", "접근 권한이 없습니다."),

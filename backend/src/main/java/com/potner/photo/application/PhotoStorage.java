@@ -83,6 +83,21 @@ public class PhotoStorage {
         );
     }
 
+    /**
+     * 사진 하나의 파일 세 개와 그 디렉터리를 지운다.
+     *
+     * <p>대표 사진을 바꿀 때 이전 사용자 업로드를 정리하는 데 쓴다. 그 사진은 포토 로그에도
+     * 보이지 않으므로 남겨두면 어디서도 닿을 수 없는 파일이 디스크에만 쌓인다.
+     *
+     * <p>장치 사진에는 쓰지 않는다. 포토 로그와 타임랩스가 계속 참조한다.
+     *
+     * <p>실패해도 예외를 내지 않는다. 파일 정리가 실패했다고 대표 사진 변경까지 되돌리는 것은
+     * 사용자에게 손해다. DB 행이 사라졌으므로 남은 파일은 어차피 접근 경로가 없다.
+     */
+    public void delete(String plantId, String photoId) {
+        deleteQuietly(Path.of(properties.root(), plantId, photoId));
+    }
+
     /** 상대 경로를 앱이 바로 쓸 수 있는 URL 로 만든다. */
     public String toUrl(String relativePath) {
         return properties.baseUrl().replaceAll("/+$", "") + "/" + relativePath;

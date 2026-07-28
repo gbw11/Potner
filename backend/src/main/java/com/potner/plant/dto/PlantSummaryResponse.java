@@ -1,5 +1,6 @@
 package com.potner.plant.dto;
 
+import com.potner.photo.dto.PhotoResponse;
 import com.potner.plant.domain.Plant;
 
 import java.time.LocalDate;
@@ -18,9 +19,15 @@ public record PlantSummaryResponse(
         String lifeStageCode,
         String lifeStageName,
         LocalDateTime createdAt,
-        boolean customized
+        boolean customized,
+        /** 목록 썸네일용이다. 지정하지 않았으면 null 이다. */
+        PhotoResponse representativePhoto
 ) {
-    public static PlantSummaryResponse from(Plant plant, boolean customized) {
+    public static PlantSummaryResponse from(
+            Plant plant,
+            boolean customized,
+            PhotoResponse representativePhoto
+    ) {
         return new PlantSummaryResponse(
                 plant.getId(),
                 plant.getNickname(),
@@ -34,7 +41,8 @@ public record PlantSummaryResponse(
                 plant.getLifeStage().getCode(),
                 plant.getLifeStage().getName(),
                 plant.getCreatedAt(),
-                customized
+                customized,
+                representativePhoto
         );
     }
 }
