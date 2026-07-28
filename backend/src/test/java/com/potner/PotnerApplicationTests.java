@@ -2143,8 +2143,8 @@ class PotnerApplicationTests {
         List<String> examples = jdbcTemplate.queryForList(
                 "SELECT diary_example FROM species_persona", String.class);
 
-        // 지원 6종 중 기획 자료(v2)와 맞는 다섯만 있다. 배초향은 코드의 기본 화법으로 간다.
-        assertThat(examples).hasSize(5);
+        // 지원 6종에 모두 있다. 기획 자료 v2.1 의 봉선화와 란타나는 지원 종이 아니라 뺐다.
+        assertThat(examples).hasSize(6);
         assertThat(examples).allSatisfy(example ->
                 assertThat(example).doesNotContain("이동했", "옮겼", "물을 받", "급수"));
     }
