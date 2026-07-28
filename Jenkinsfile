@@ -54,7 +54,7 @@ pipeline {
         // 이미지를 다시 만들지 않고 배포만 다시 돌리면 되게 하려는 것이다.
         LLM_CREDENTIALS_ID = 'potner-llm-api-key'
         LLM_BASE_URL = 'https://gms.ssafy.io/gmsapi/api.openai.com/v1'
-        LLM_MODEL = 'gpt-4.1-nano'
+        LLM_MODEL = 'gpt-4.1-mini'
 
         // Multibranch에서는 브랜치마다 빌드 번호가 따로 매겨진다.
         // 서로 다른 브랜치가 동시에 빌드될 때 임시 이미지와 컨테이너 이름이

@@ -94,7 +94,7 @@ prepare_compose_environment() {
         "FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}" \
         "LLM_API_KEY=${LLM_API_KEY:-}" \
         "LLM_BASE_URL=${LLM_BASE_URL:-https://gms.ssafy.io/gmsapi/api.openai.com/v1}" \
-        "LLM_MODEL=${LLM_MODEL:-gpt-4.1-nano}" \
+        "LLM_MODEL=${LLM_MODEL:-gpt-4.1-mini}" \
         >> "$DEPLOY_ENV_FILE"
 
     env_count="$(wc -l < "$DEPLOY_ENV_FILE" | tr -d ' ')"
