@@ -79,6 +79,23 @@ public class UserNotificationSetting {
         }
     }
 
+    /**
+     * 이 카테고리의 푸시를 보내도 되는지 판정한다.
+     *
+     * <p>{@code allEnabled}는 마스터 스위치라 세부 설정과 무관하게 전체를 막고,
+     * {@code pushEnabled}는 기기 팝업 알림 자체를 막는다. 둘을 통과한 뒤에야 카테고리 토글을 본다.
+     * 세 단계를 모두 만족해야 발송한다.
+     */
+    public boolean allowsPush(NotificationCategory category) {
+        if (!allEnabled || !pushEnabled) {
+            return false;
+        }
+        return switch (category) {
+            case PLANT_CARE -> plantCareEnabled;
+            case MARKETING -> marketingEnabled;
+        };
+    }
+
     public String getUserId() {
         return userId;
     }

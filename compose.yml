@@ -77,6 +77,11 @@ services:
       MQTT_CONNECTION_TIMEOUT_SECONDS: "${MQTT_CONNECTION_TIMEOUT_SECONDS:-10}"
       MQTT_KEEP_ALIVE_SECONDS: "${MQTT_KEEP_ALIVE_SECONDS:-60}"
       MQTT_RECOVERY_INTERVAL_MS: "${MQTT_RECOVERY_INTERVAL_MS:-10000}"
+      # Firebase 서비스 계정 키 경로다. 비어 있으면 발송기가 no-op 으로 떨어지고 푸시만
+      # 나가지 않는다. 파이프라인이 Jenkins Credential 을 아래 firebase-credentials 볼륨에
+      # 넣은 배포에서만 값이 채워진다. 값을 직접 적을 일은 없고, 적더라도 아래 마운트 경로
+      # 안이어야 한다.
+      FIREBASE_CREDENTIALS_PATH: "${FIREBASE_CREDENTIALS_PATH:-}"
       # 아래 photo-data 볼륨의 마운트 경로와 같아야 하므로 .env 로 빼지 않는다.
       PHOTO_ROOT: /var/potner/photos
       # 사진은 API 와 같은 origin 의 /media 로 나가므로 기본값이 상대 경로다. 배포마다 주입할
@@ -87,6 +92,9 @@ services:
     volumes:
       # 업로드된 사진이다. 배포 디렉터리 안이 아니라 named volume 이므로 배포로 덮이지 않는다.
       - photo-data:/var/potner/photos
+      # Firebase 서비스 계정 키다. 사진과 같은 이유로 named volume 에 둔다. 배포 디렉터리
+      # 안에 두면 Sync Deploy Configs 가 덮어쓴다. 애플리케이션은 읽기만 한다.
+      - firebase-credentials:/var/potner/secrets:ro
     networks:
       - potner-network
     depends_on:
@@ -145,3 +153,7 @@ volumes:
   # 업로드된 사진. down -v 로 지우면 복구할 수 없다.
   photo-data:
     name: potner-photo-data
+  # Firebase 서비스 계정 키. 파이프라인이 Jenkins Credential 에서 채운다. down -v 로 지워도
+  # 다음 배포가 다시 채우므로 사진과 달리 복구 수단이 있다.
+  firebase-credentials:
+    name: potner-firebase-credentials
