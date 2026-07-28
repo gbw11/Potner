@@ -504,15 +504,22 @@ pipeline {
                                   sh -c 'umask 077 && cat > "/secrets/$TARGET" && chown "$APP_UID:$APP_UID" "/secrets/$TARGET" && [ "$(wc -c < "/secrets/$TARGET")" -eq "$EXPECTED_BYTES" ]' \
                                   < "$FIREBASE_KEY_FILE"
 
-                                # 애플리케이션 계정으로 실제로 읽히는지 확인한다. 권한이 어긋나면
-                                # 배포는 그대로 성공하고 기동 로그에만 ERROR 가 남아 조용히 no-op 이
-                                # 된다. 여기서 걸러 경고로 드러낸다.
+                                # 애플리케이션 계정으로 실제로 읽히는지, 그리고 서비스 계정 키가 맞는지
+                                # 확인한다. 둘 중 하나라도 어긋나면 배포는 그대로 성공하고 기동 로그에만
+                                # ERROR 가 남아 조용히 no-op 이 된다. 여기서 걸러 경고로 드러낸다.
+                                #
+                                # 종류 확인이 필요한 이유는 Firebase 가 이름이 비슷한 파일을 두 개
+                                # 주기 때문이다. google-services.json 은 앱 클라이언트 설정이라
+                                # APK 에 들어가고 저장소에도 커밋돼 있는데, 서버 인증에는 쓸 수 없다.
+                                # 실제로 그 파일이 Credential 에 올라가 배포가 성공한 채 푸시만
+                                # 꺼져 있던 적이 있다. 크기 대조로는 잡히지 않는다.
+                                # grep -q 는 일치 여부만 돌려주고 내용을 출력하지 않는다.
                                 docker run --rm \
                                   -v "$FIREBASE_CREDENTIALS_VOLUME":/secrets:ro \
                                   --user "$BACKEND_APP_UID:$BACKEND_APP_UID" \
                                   -e TARGET="$FIREBASE_CREDENTIALS_FILE_NAME" \
                                   alpine:3.20 \
-                                  sh -c 'test -r "/secrets/$TARGET"'
+                                  sh -c 'test -r "/secrets/$TARGET" && grep -q service_account "/secrets/$TARGET"'
                             '''
                         }
 
