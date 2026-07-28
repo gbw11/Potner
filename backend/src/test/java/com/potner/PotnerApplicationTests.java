@@ -6,6 +6,9 @@ import com.potner.alert.domain.AlertDeviation;
 import com.potner.alert.domain.AlertMetricType;
 import com.potner.alert.domain.AlertRepository;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.diary.application.DiaryGenerationResult;
+import com.potner.diary.application.DiaryGenerationService;
+import com.potner.diary.application.DiaryScheduler;
 import com.potner.diary.application.DiaryService;
 import com.potner.diary.application.DiaryWriteResult;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
@@ -142,6 +145,16 @@ class PotnerApplicationTests {
 
     @Autowired
     private DiaryService diaryService;
+
+    @Autowired
+    private DiaryGenerationService diaryGenerationService;
+
+    /**
+     * 주입 자체가 검증이다. 빈이 만들어지지 않으면 @Scheduled 의 cron·zone 이 검증되지 않은 채
+     * 배포로 넘어간다. 광량 스케줄러와 같은 이유다.
+     */
+    @Autowired
+    private DiaryScheduler diaryScheduler;
 
     @Autowired
     private PushTargetResolver pushTargetResolver;
@@ -2105,6 +2118,35 @@ class PotnerApplicationTests {
                         .header("X-Device-Token", uploadToken))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PHOTO"));
+    }
+
+    @Test
+    void diaryGenerationIsSkippedWithoutAnLlmKeyAndWritesNothing() throws Exception {
+        Tokens tokens = signupAndLogin("diary-generation@example.com");
+        String plantId = createPlant(tokens, "바질이");
+
+        // 테스트 컨텍스트에는 LLM 키가 없다. 임시 CI 컨테이너와 같은 상태이며, 여기서 예외가
+        // 나면 배치가 죽고 배포 이후 매일 새벽에 실패한다. 조용히 건너뛰어야 한다.
+        assertThat(diaryGenerationService.generate(plantId, LocalDate.of(2026, 7, 20)))
+                .isEqualTo(DiaryGenerationResult.SKIPPED_NO_CONTENT);
+        assertThat(diaryCount(plantId)).isZero();
+
+        // 배치도 같은 이유로 살아남아야 한다. 식물 수만큼 돌고 결과만 세어 돌려준다.
+        assertThat(diaryScheduler.writeFor(LocalDate.of(2026, 7, 20)))
+                .containsEntry(DiaryGenerationResult.SKIPPED_NO_CONTENT, 1);
+    }
+
+    @Test
+    void seededPersonaExamplesDoNotClaimRobotActions() {
+        // 기획 자료의 일기 예시가 전부 이동과 급수를 말하는데 서버는 둘 다 하지 않는다.
+        // 그 문장을 시드에 그대로 넣으면 모델이 문체를 따라 하며 없는 행동을 지어낸다.
+        List<String> examples = jdbcTemplate.queryForList(
+                "SELECT diary_example FROM species_persona", String.class);
+
+        // 지원 6종에 모두 있다. 기획 자료 v2.1 의 봉선화와 란타나는 지원 종이 아니라 뺐다.
+        assertThat(examples).hasSize(6);
+        assertThat(examples).allSatisfy(example ->
+                assertThat(example).doesNotContain("이동했", "옮겼", "물을 받", "급수"));
     }
 
     @Test
