@@ -92,11 +92,14 @@ prepare_compose_environment() {
         "MQTT_KEEP_ALIVE_SECONDS=${MQTT_KEEP_ALIVE_SECONDS:-60}" \
         "MQTT_RECOVERY_INTERVAL_MS=${MQTT_RECOVERY_INTERVAL_MS:-10000}" \
         "FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}" \
+        "LLM_API_KEY=${LLM_API_KEY:-}" \
+        "LLM_BASE_URL=${LLM_BASE_URL:-https://gms.ssafy.io/gmsapi/api.openai.com/v1}" \
+        "LLM_MODEL=${LLM_MODEL:-gpt-4.1-mini}" \
         >> "$DEPLOY_ENV_FILE"
 
     env_count="$(wc -l < "$DEPLOY_ENV_FILE" | tr -d ' ')"
 
-    if [ "$env_count" -lt 20 ]; then
+    if [ "$env_count" -lt 23 ]; then
         echo "Compose 실행에 필요한 환경변수를 모두 가져오지 못했습니다."
         return 1
     fi
