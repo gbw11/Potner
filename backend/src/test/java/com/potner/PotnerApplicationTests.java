@@ -11,11 +11,16 @@ import com.potner.diary.application.DiaryGenerationService;
 import com.potner.diary.application.DiaryScheduler;
 import com.potner.diary.application.DiaryService;
 import com.potner.diary.application.DiaryWriteResult;
+import com.potner.happiness.application.ExpressionPublishScheduler;
+import com.potner.mqtt.application.LoggingRobotCommandPublisher;
+import com.potner.mqtt.application.RobotCommandPublisher;
+import com.potner.mqtt.application.RobotStateMessageProcessor;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.push.application.AlertPushListener;
+import com.potner.push.application.BloomPushListener;
 import com.potner.push.application.FcmTokenService;
 import com.potner.push.application.LoggingPushSender;
 import com.potner.push.application.PushSender;
@@ -128,6 +133,9 @@ class PotnerApplicationTests {
     private SensorTelemetryMessageProcessor telemetryProcessor;
 
     @Autowired
+    private RobotStateMessageProcessor robotStateProcessor;
+
+    @Autowired
     private AlertRepository alertRepository;
 
     @Autowired
@@ -165,11 +173,25 @@ class PotnerApplicationTests {
     @Autowired
     private PushSender pushSender;
 
+    @Autowired
+    private RobotCommandPublisher robotCommandPublisher;
+
+    /**
+     * 주입 자체가 검증이다. 빈이 만들어지지 않으면 @Scheduled 의 주기 설정이 검증되지 않은 채
+     * 배포로 넘어간다. 광량·일기 스케줄러와 같은 이유다.
+     */
+    @Autowired
+    private ExpressionPublishScheduler expressionPublishScheduler;
+
     /**
      * 주입 자체가 검증이다. 리스너 빈이 없으면 알림이 저장돼도 발송 경로가 아예 돌지 않는다.
      */
     @Autowired
     private AlertPushListener alertPushListener;
+
+    /** 같은 이유다. 개화를 기록해도 리스너가 없으면 푸시가 나가지 않는다. */
+    @Autowired
+    private BloomPushListener bloomPushListener;
 
     @Autowired
     private Clock clock;
@@ -187,6 +209,7 @@ class PotnerApplicationTests {
         jdbcTemplate.update("DELETE FROM user_notification_setting");
         jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM plant_daily_light");
+        jdbcTemplate.update("DELETE FROM plant_bloom");
         jdbcTemplate.update("DELETE FROM plant_diary");
         jdbcTemplate.update("DELETE FROM plant_photo");
         jdbcTemplate.update("DELETE FROM sensor_reading");
@@ -1815,6 +1838,14 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void robotCommandPublisherFallsBackToNoOpWithoutABroker() {
+        // 테스트 컨텍스트에는 MQTT 브로커가 없다. 임시 CI 컨테이너와 같은 상태이며, 여기서
+        // 발행기 빈이 만들어지지 않으면 주입받는 쪽이 전부 뜨지 못한다. Firebase 키가 없을
+        // 때와 같은 이유로 구현만 갈아끼워야 한다.
+        assertThat(robotCommandPublisher).isInstanceOf(LoggingRobotCommandPublisher.class);
+    }
+
+    @Test
     void pushSenderFallsBackToNoOpWithoutFirebaseCredentials() {
         // 임시 CI 컨테이너에는 Firebase 키가 없다. 여기서 초기화가 예외를 던지면
         // Health Check 가 실패해 배포가 막히므로, 자격증명이 없으면 구현만 갈아끼워야 한다.
@@ -2214,6 +2245,388 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + other.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void robotStateFromMqttIsStoredAndExposed() throws Exception {
+        SensorFixture fixture = createSensorFixture("robot-state@example.com");
+        Tokens tokens = login("robot-state@example.com");
+
+        // 상태를 한 번도 받지 못한 로봇은 IDLE 이다. 마이그레이션 기본값이 그렇다.
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "NAVIGATING"));
+
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("NAVIGATING");
+        LocalDateTime firstChangedAt = robotStateChangedAt(fixture.robotId());
+        assertThat(firstChangedAt).isNotNull();
+
+        // 젯슨이 이동하는 동안 같은 상태를 계속 보낸다. 그때마다 시각을 갱신하면 '언제부터
+        // 이 상태인지' 를 잃는다. 급수 작업이 이동 시작 시점을 알아야 한다.
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "NAVIGATING"));
+        assertThat(robotStateChangedAt(fixture.robotId())).isEqualTo(firstChangedAt);
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "SERVICING"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("SERVICING");
+
+        // 앱이 "지금 물 받는 중" 을 보여줄 수 있어야 한다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot.currentState").value("SERVICING"))
+                .andExpect(jsonPath("$.robot.stateChangedAt").isNotEmpty());
+
+        // 상태 보고도 장치가 살아 있다는 증거다. 하드웨어가 heartbeat 를 상태 보고로
+        // 대체하더라도 OFFLINE 으로 오판되지 않아야 한다.
+        assertDeviceState(fixture.jetsonUid(), "ONLINE", true);
+    }
+
+    @Test
+    void robotStateRejectsForgedAndUnknownReports() throws Exception {
+        SensorFixture fixture = createSensorFixture("robot-state-reject@example.com");
+
+        // 페이로드가 다른 장치를 주장한다. ACL 은 토픽만 제한하고 페이로드는 검사하지 못하므로
+        // 이 대조가 없으면 한 로봇이 다른 로봇을 '스테이션 도착' 으로 속일 수 있다.
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson("jetson-somebody-else", "SERVICING"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+
+        // 서버가 모르는 상태다. 임의로 떨어뜨리지 않고 버린다.
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "CHARGING"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+
+        // 등록되지 않은 장치다. 예외로 번지면 MQTT 수집 스레드가 깨진다.
+        robotStateProcessor.process(
+                statusStateTopic("jetson-unregistered"),
+                robotStateJson("jetson-unregistered", "IDLE"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+    }
+
+    @Test
+    void servicingRobotGetsTheHappiestFace() throws Exception {
+        SensorFixture fixture = createSensorFixture("robot-state-face@example.com");
+        Tokens tokens = login("robot-state-face@example.com");
+        // 온도를 기준 밖으로 두어도 급수 중에는 매우행복이어야 한다.
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS,
+                nowUtc().minusMinutes(1));
+        assertExpression(tokens, fixture.plantId(), "SAD", "TEMPERATURE");
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "SERVICING"));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.expression").value("VERY_HAPPY"))
+                .andExpect(jsonPath("$.reason").value("WATERING"))
+                // 다 마시고 나면 우울로 돌아간다는 사실이 남아 있어야 한다.
+                .andExpect(jsonPath("$.baseline").value("SAD"));
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "GREETING"));
+        assertExpression(tokens, fixture.plantId(), "VERY_HAPPY", "GREETING");
+    }
+
+    private String statusStateTopic(String deviceUid) {
+        return "potner/device/" + deviceUid + "/status/state";
+    }
+
+    private String robotStateJson(String deviceUid, String state) {
+        return """
+                {"messageId":"%s","deviceId":"%s","state":"%s","changedAt":"%s"}
+                """.formatted(
+                UUID.randomUUID(),
+                deviceUid,
+                state,
+                nowUtc().minusSeconds(5).format(UTC_ISO));
+    }
+
+    private String robotCurrentState(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT current_state FROM robot WHERE robot_id = ?", String.class, robotId);
+    }
+
+    private LocalDateTime robotStateChangedAt(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT state_changed_at FROM robot WHERE robot_id = ?",
+                LocalDateTime.class,
+                robotId);
+    }
+
+    @Test
+    void expressionFollowsSensorsAndBloom() throws Exception {
+        SensorFixture fixture = createSensorFixture("expression@example.com");
+        Tokens tokens = login("expression@example.com");
+
+        // 측정값이 없으면 판정할 근거가 없다. 표정이 비면 로봇 화면이 빈다.
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+
+        // 바질 발아기 기준은 온도 21~29, 습도 60~80, 목표 조도 10,000 lux 다.
+        LocalDateTime base = nowUtc().minusMinutes(3);
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS, base);
+        assertExpression(tokens, fixture.plantId(), "SAD", "TEMPERATURE");
+
+        insertReading(fixture, SensorType.TEMPERATURE, "24.00", SensorUnit.CELSIUS, base.plusMinutes(1));
+        insertReading(fixture, SensorType.HUMIDITY, "70.00", SensorUnit.PERCENT, base.plusMinutes(1));
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+
+        // 목표의 절반(5,000 lux)을 넘으면 햇볕으로 본다. 형광등 300~500 lux 는 못 넘는다.
+        insertReading(fixture, SensorType.ILLUMINANCE, "400", SensorUnit.LUX, base.plusMinutes(1));
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+        insertReading(fixture, SensorType.ILLUMINANCE, "6000", SensorUnit.LUX, base.plusMinutes(2));
+        assertExpression(tokens, fixture.plantId(), "HAPPY", "SUNLIGHT");
+
+        // 꽃이 핀 날은 하루 내내 그 사실이 표정을 정한다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isCreated());
+        assertExpression(tokens, fixture.plantId(), "HAPPY", "BLOOMED");
+
+        Tokens stranger = signupAndLogin("expression-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void staleReadingsFallBackToTheNeutralFace() throws Exception {
+        SensorFixture fixture = createSensorFixture("expression-stale@example.com");
+        Tokens tokens = login("expression-stale@example.com");
+
+        // 신선도 기준이 15분이다. 로봇이 꺼져 있던 동안의 값으로 우울을 표시하면 이미 지난
+        // 문제를 계속 보여준다.
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS,
+                nowUtc().minusMinutes(30));
+
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+    }
+
+    @Test
+    void expressionTargetsOnlyAssignedRobotsOfLivingPlants() throws Exception {
+        SensorFixture fixture = createSensorFixture("expression-publish@example.com");
+        Tokens tokens = login("expression-publish@example.com");
+
+        // 엔티티 세 개를 식별자로 조인하는 쿼리다. 여기서만 실제로 검증된다.
+        assertThat(expressionPublishScheduler.publishOnce()).isEqualTo(1);
+
+        // 식물 삭제는 소프트 삭제인데 plant_device_assignment 참조가 RESTRICT 라 배정이 남는다.
+        // 걸러내지 않으면 지워진 식물의 로봇에 표정이 계속 나간다.
+        mockMvc.perform(delete("/api/v1/plants/{plantId}", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        assertThat(expressionPublishScheduler.publishOnce()).isZero();
+    }
+
+    private void assertExpression(
+            Tokens tokens,
+            String plantId,
+            String expression,
+            String reason
+    ) throws Exception {
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(plantId))
+                .andExpect(jsonPath("$.expression").value(expression))
+                .andExpect(jsonPath("$.reason").value(reason));
+    }
+
+    @Test
+    void bloomRecordingIsScopedToOwnerAndValidatesTheDate() throws Exception {
+        Tokens tokens = signupAndLogin("bloom-record@example.com");
+        String plantId = createPlant(tokens, "칼란디바");
+        LocalDate today = serviceToday();
+
+        // 기본 사용은 본문 없이 누르는 것이다. 서버가 서비스 타임존 기준 오늘로 채운다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plantId").value(plantId))
+                .andExpect(jsonPath("$.plantName").value("칼란디바"))
+                .andExpect(jsonPath("$.bloomDate").value(today.toString()))
+                .andExpect(jsonPath("$.source").value("USER"))
+                .andExpect(jsonPath("$.read").value(false))
+                .andExpect(jsonPath("$.note").value(nullValue()))
+                // 저장 직후 그대로 응답한다. DB 기본값에 맡기면 여기가 null 로 나간다.
+                .andExpect(jsonPath("$.createdAt").isNotEmpty());
+
+        // 며칠 지나서 기록하는 경우다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bloomDate\":\"%s\",\"note\":\"  분홍 꽃  \"}"
+                                .formatted(today.minusDays(3))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.bloomDate").value(today.minusDays(3).toString()))
+                .andExpect(jsonPath("$.note").value("분홍 꽃"));
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bloomDate\":\"%s\"}".formatted(today.plusDays(1))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"%s\"}".formatted("가".repeat(201))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        // 남의 식물은 존재 여부를 숨긴다.
+        Tokens stranger = signupAndLogin("bloom-stranger@example.com");
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+
+        // 목록은 개화한 날 기준 최신순이고 다른 사용자에게는 보이지 않는다.
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blooms.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.unreadCount").value(2))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.blooms[0].bloomDate").value(today.toString()))
+                .andExpect(jsonPath("$.blooms[1].bloomDate").value(today.minusDays(3).toString()));
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blooms.length()").value(0))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "500"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(100));
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/v1/blooms"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void bloomReadProcessingIsIdempotentAndOwnershipChecked() throws Exception {
+        Tokens tokens = signupAndLogin("bloom-read@example.com");
+        String plantId = createPlant(tokens, "읽음 처리 식물");
+        String bloomId = recordBloom(tokens, plantId, null);
+
+        mockMvc.perform(patch("/api/v1/blooms/{bloomId}/read", bloomId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        LocalDateTime firstReadAt = jdbcTemplate.queryForObject(
+                "SELECT read_at FROM plant_bloom WHERE bloom_id = ?", LocalDateTime.class, bloomId);
+        assertThat(firstReadAt).isNotNull();
+
+        mockMvc.perform(patch("/api/v1/blooms/{bloomId}/read", bloomId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT read_at FROM plant_bloom WHERE bloom_id = ?", LocalDateTime.class, bloomId))
+                .isEqualTo(firstReadAt);
+
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("unreadOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blooms.length()").value(0))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+
+        Tokens stranger = signupAndLogin("bloom-read-stranger@example.com");
+        mockMvc.perform(patch("/api/v1/blooms/{bloomId}/read", bloomId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BLOOM_NOT_FOUND"));
+    }
+
+    @Test
+    void plantBloomStoresWhatTheAlertTableCannotAndDeletesPhysically() throws Exception {
+        Tokens tokens = signupAndLogin("bloom-delete@example.com");
+        String plantId = createPlant(tokens, "두 송이 식물");
+        LocalDate today = serviceToday();
+
+        // alert 는 active_key 가 (plant_id, metric_type) 라 같은 식물의 두 번째를 UNIQUE 로 막는다.
+        // 개화는 하루에 두 송이가 필 수 있어 같은 날짜로도 두 건이 남아야 한다.
+        String first = recordBloom(tokens, plantId, today);
+        String second = recordBloom(tokens, plantId, today);
+        assertThat(first).isNotEqualTo(second);
+        assertThat(bloomCount(plantId)).isEqualTo(2);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/blooms/{bloomId}", plantId, first)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        // 물리 삭제다. 잘못 누른 것을 되돌리는 용도라 흔적을 남기지 않는다.
+        assertThat(bloomCount(plantId)).isEqualTo(1);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/blooms/{bloomId}", plantId, first)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BLOOM_NOT_FOUND"));
+
+        Tokens stranger = signupAndLogin("bloom-delete-stranger@example.com");
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/blooms/{bloomId}", plantId, second)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+        assertThat(bloomCount(plantId)).isEqualTo(1);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        // 식물 삭제 API 는 소프트 삭제라 개화 기록이 남는다.
+        assertThat(bloomCount(plantId)).isEqualTo(1);
+
+        // 물리 삭제하면 함께 사라진다. plant_id 가 생성 컬럼의 기반이 아니어서 CASCADE 를 쓸 수
+        // 있고, 같은 자리에서 alert 는 RESTRICT 라 이 삭제 자체가 막힌다.
+        //
+        // 사용자를 지워서 확인할 수는 없다. plant.user_id 가 RESTRICT 라 식물이 남아 있으면
+        // app_user 삭제가 먼저 막힌다.
+        jdbcTemplate.update("DELETE FROM plant WHERE plant_id = ?", plantId);
+        assertThat(bloomCount(plantId)).isZero();
+    }
+
+    /** 서비스 타임존 기준 오늘이다. {@code potner.sensor.zone-offset} 과 같아야 한다. */
+    private LocalDate serviceToday() {
+        return clock.instant().atOffset(ZoneOffset.of("+09:00")).toLocalDate();
+    }
+
+    private String recordBloom(Tokens tokens, String plantId, LocalDate bloomDate) throws Exception {
+        var request = post("/api/v1/plants/{plantId}/blooms", plantId)
+                .header("Authorization", "Bearer " + tokens.accessToken());
+        if (bloomDate != null) {
+            request = request
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"bloomDate\":\"%s\"}".formatted(bloomDate));
+        }
+        return JsonPath.read(
+                mockMvc.perform(request)
+                        .andExpect(status().isCreated())
+                        .andReturn().getResponse().getContentAsString(),
+                "$.bloomId");
+    }
+
+    private int bloomCount(String plantId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM plant_bloom WHERE plant_id = ?", Integer.class, plantId);
     }
 
     @Test

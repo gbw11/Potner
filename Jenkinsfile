@@ -128,6 +128,19 @@ pipeline {
             }
         }
 
+        // 가중치는 5MB 남짓이라 git 에 그대로 커밋돼 있다. 파일이 깨진 채 커밋되면 컨테이너는
+        // 뜨지만 /ready 가 계속 실패한다. 배포 전에 값싸게 걸러낸다.
+        stage('Verify Inference Weights') {
+            steps {
+                sh '''
+                    set -eux
+
+                    cd yolo_cpu_handoff/models
+                    sha256sum -c SHA256SUMS
+                '''
+            }
+        }
+
         stage('Docker Image Build') {
             steps {
                 sh '''
@@ -379,6 +392,47 @@ pipeline {
             }
         }
 
+        stage('Build Inference Image') {
+            when {
+                environment name: 'IS_DEPLOY_TARGET', value: 'true'
+            }
+
+            steps {
+                script {
+                    // 태그를 빌드 번호가 아니라 디렉터리 tree 해시로 정한다. yolo_cpu_handoff/
+                    // 가 바뀌지 않으면 값이 같아서 compose 가 컨테이너를 재생성하지 않고,
+                    // 배포마다 모델을 다시 적재하지 않는다.
+                    def treeHash = sh(
+                        script: 'git rev-parse --short=12 HEAD:yolo_cpu_handoff',
+                        returnStdout: true
+                    ).trim()
+
+                    env.YOLO_IMAGE = "potner-yolo:tree-${treeHash}"
+                }
+
+                sh '''
+                    set -eux
+
+                    # 같은 내용의 이미지가 이미 있으면 다시 만들지 않는다. torch 설치가 무거워
+                    # 매번 빌드하면 배포가 몇 분씩 길어진다.
+                    if docker image inspect "$YOLO_IMAGE" >/dev/null 2>&1; then
+                        echo "추론 이미지가 이미 있어 빌드를 생략합니다: $YOLO_IMAGE"
+                        exit 0
+                    fi
+
+                    docker build \
+                      --tag "$YOLO_IMAGE" \
+                      yolo_cpu_handoff
+
+                    docker image inspect \
+                      --format 'image={{index .RepoTags 0}} id={{.Id}}' \
+                      "$YOLO_IMAGE"
+
+                    echo "추론 이미지 준비 완료: $YOLO_IMAGE"
+                '''
+            }
+        }
+
         stage('Sync Deploy Configs') {
             when {
                 environment name: 'IS_DEPLOY_TARGET', value: 'true'
@@ -567,6 +621,7 @@ pipeline {
                             MQTT_PASSWORD="$MQTT_BACKEND_CREDENTIALS_PSW" \
                             FIREBASE_CREDENTIALS_PATH="${FIREBASE_CREDENTIALS_PATH:-}" \
                             LLM_API_KEY="${LLM_API_KEY:-}" \
+                            YOLO_IMAGE="$YOLO_IMAGE" \
                             "$DEPLOY_DIR/infra/scripts/deploy-backend.sh" "$RELEASE_IMAGE"
                         '''
                     }

@@ -10,6 +10,10 @@ Dockerfile text eol=lf
 *.gradle text eol=lf
 *.java text eol=lf
 
+# sha256sum -c 는 파일명 뒤의 CR 을 이름의 일부로 읽어 검증이 실패한다.
+# Windows 작업 사본에서 CRLF 로 바뀌면 로컬에서 확인할 수 없다.
+SHA256SUMS text eol=lf
+
 *.bat text eol=crlf
 
 *.jar binary

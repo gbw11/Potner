@@ -40,3 +40,8 @@ potner:
     # 빈이 없으면 @Scheduled 의 cron·zone 이 검증되지 않은 채 배포로 넘어간다.
     enabled: true
     cron: "0 0 3 1 1 *"
+  happiness:
+    # 표정 발행은 cron 이 아니라 fixedDelay 라 '실행되지 않는 시각'을 줄 수 없다. 대신 발행만
+    # 끈다. 빈은 그대로 만들어져 @Scheduled 설정이 검증되고, 주기 실행이 DB 를 비우는 도중에
+    # 끼어들지도 않는다. 판정과 발행 대상 조회는 테스트가 publishOnce() 를 직접 불러 검증한다.
+    publish-enabled: false

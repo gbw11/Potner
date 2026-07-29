@@ -2,6 +2,8 @@ package com.potner.device.domain;
 
 import com.potner.user.domain.AppUser;
 import jakarta.persistence.Column;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
@@ -11,6 +13,7 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -58,6 +61,20 @@ public class Robot {
     @Column(name = "firmware_version", length = 50)
     private String firmwareVersion;
 
+    /**
+     * 젯슨이 알려 준 현재 행동 상태다.
+     *
+     * <p>{@code insertable = false} 다. 등록 시점에는 상태를 알 수 없고 DB 기본값 'IDLE' 이
+     * 들어가야 한다. 여기서 값을 실어 보내면 새 로봇마다 상태를 정해 주는 코드가 필요해진다.
+     * {@code connection_status} 를 아예 매핑하지 않은 것과 같은 방침이다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "current_state", length = 20, nullable = false, insertable = false)
+    private RobotState currentState;
+
+    @Column(name = "state_changed_at", insertable = false)
+    private LocalDateTime stateChangedAt;
+
     protected Robot() {
     }
 
@@ -81,6 +98,24 @@ public class Robot {
     /** 재발급하면 이전 토큰은 즉시 무효가 된다. 유출 시 회수 수단이 된다. */
     public void replaceUploadTokenHash(String uploadTokenHash) {
         this.uploadTokenHash = uploadTokenHash;
+    }
+
+    /**
+     * 상태를 바꾼다. 같은 상태면 아무것도 하지 않고 {@code false} 를 돌려준다.
+     *
+     * <p>젯슨이 같은 상태를 주기적으로 반복 발행한다. 매번 갱신하면 {@code stateChangedAt} 이
+     * 마지막 수신 시각이 되어 "언제부터 이 상태인지"를 잃는다. 급수 작업이 이동 시작 시점을
+     * 알아야 하므로 그 값이 필요하다.
+     *
+     * @return 상태가 실제로 바뀌었으면 {@code true}
+     */
+    public boolean changeState(RobotState state, LocalDateTime changedAt) {
+        if (currentState == state) {
+            return false;
+        }
+        this.currentState = state;
+        this.stateChangedAt = changedAt;
+        return true;
     }
 
     public String getId() {
@@ -109,5 +144,13 @@ public class Robot {
 
     public String getFirmwareVersion() {
         return firmwareVersion;
+    }
+
+    public RobotState getCurrentState() {
+        return currentState;
+    }
+
+    public LocalDateTime getStateChangedAt() {
+        return stateChangedAt;
     }
 }

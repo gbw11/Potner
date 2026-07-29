@@ -9,10 +9,16 @@ BACKEND_SERVICE="backend"
 MYSQL_SERVICE="mysql"
 MOSQUITTO_SERVICE="mosquitto"
 NGINX_SERVICE="nginx"
+YOLO_SERVICE="yolo"
 
 ROLLBACK_IMAGE="${ROLLBACK_IMAGE:-potner-backend:rollback}"
+YOLO_ROLLBACK_IMAGE="${YOLO_ROLLBACK_IMAGE:-potner-yolo:rollback}"
 HEALTH_MAX_ATTEMPTS="${HEALTH_MAX_ATTEMPTS:-30}"
 HEALTH_INTERVAL_SECONDS="${HEALTH_INTERVAL_SECONDS:-5}"
+
+# 추론 서비스는 모델 적재에 시간이 걸리고, 그동안 /ready 가 503 을 낸다.
+YOLO_READY_MAX_ATTEMPTS="${YOLO_READY_MAX_ATTEMPTS:-24}"
+YOLO_READY_INTERVAL_SECONDS="${YOLO_READY_INTERVAL_SECONDS:-5}"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
@@ -111,6 +117,7 @@ compose_backend_up() {
     image_name="$1"
 
     BACKEND_IMAGE="$image_name" \
+    YOLO_IMAGE="$YOLO_IMAGE" \
         docker compose \
         --project-name "$PROJECT_NAME" \
         --env-file "$DEPLOY_ENV_FILE" \
@@ -121,6 +128,144 @@ compose_backend_up() {
         --force-recreate \
         --no-build \
         "$BACKEND_SERVICE"
+}
+
+# 추론 서비스를 올린다. --force-recreate 를 쓰지 않는다. 태그가 tree 해시라서 디렉터리가
+# 바뀌지 않았으면 compose 가 아무 일도 하지 않아야 하고, 그래야 배포마다 모델을 다시
+# 적재하지 않는다.
+compose_yolo_up() {
+    image_name="$1"
+
+    BACKEND_IMAGE="$BACKEND_IMAGE_FOR_PARSING" \
+    YOLO_IMAGE="$image_name" \
+        docker compose \
+        --project-name "$PROJECT_NAME" \
+        --env-file "$DEPLOY_ENV_FILE" \
+        -f "$COMPOSE_FILE" \
+        -f "$DEPLOY_COMPOSE_FILE" \
+        up -d \
+        --no-deps \
+        --no-build \
+        "$YOLO_SERVICE"
+}
+
+# /health 로는 부족하다. 모델 적재가 실패해도 앱은 살아 있고 /health 는 up 을 낸다.
+# 컨테이너 healthcheck 도 /health 를 보므로 healthy 로 표시된다. /ready 만이 모델이 실제로
+# 올라왔는지 알려주며, classes 까지 확인하면 엉뚱한 가중치가 들어간 것도 잡힌다.
+wait_for_yolo_ready() {
+    attempt=1
+
+    while [ "$attempt" -le "$YOLO_READY_MAX_ATTEMPTS" ]; do
+        yolo_container="$(find_container "$YOLO_SERVICE")"
+
+        if [ -z "$yolo_container" ]; then
+            echo "추론 컨테이너를 찾지 못했습니다."
+            return 1
+        fi
+
+        container_status="$(
+            docker inspect \
+                --format '{{.State.Status}}' \
+                "$yolo_container" 2>/dev/null || true
+        )"
+
+        if [ "$container_status" = "exited" ] ||
+           [ "$container_status" = "dead" ]; then
+            echo "추론 컨테이너가 비정상 상태입니다: $container_status"
+            docker logs --tail 200 "$yolo_container" || true
+            return 1
+        fi
+
+        if docker exec "$yolo_container" python -c '
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen("http://127.0.0.1:8000/ready", timeout=5) as response:
+    body = json.load(response)
+
+expected_classes = {"0": "germination", "1": "vegetative", "2": "flowering"}
+
+if body.get("ready") is not True:
+    sys.exit("ready is not true")
+if body.get("device") != "cpu":
+    sys.exit("device is not cpu: %s" % body.get("device"))
+if body.get("classes") != expected_classes:
+    sys.exit("classes mismatch: %s" % body.get("classes"))
+' >/dev/null 2>&1; then
+            echo "추론 서비스 준비 확인 성공"
+            return 0
+        fi
+
+        echo "추론 서비스 준비 대기 중: ${attempt}/${YOLO_READY_MAX_ATTEMPTS}"
+        attempt=$((attempt + 1))
+        sleep "$YOLO_READY_INTERVAL_SECONDS"
+    done
+
+    yolo_container="$(find_container "$YOLO_SERVICE")"
+
+    echo "추론 서비스 준비 확인에 실패했습니다."
+    if [ -n "$yolo_container" ]; then
+        # 실패 이유를 남긴다. 위 검사는 조용히 돌리므로 여기서 한 번 그대로 보여준다.
+        docker exec "$yolo_container" python -c '
+import json
+import urllib.request
+
+with urllib.request.urlopen("http://127.0.0.1:8000/ready", timeout=5) as response:
+    print(json.load(response))
+' || true
+        docker logs --tail 200 "$yolo_container" || true
+    fi
+    return 1
+}
+
+# 추론 서비스를 backend 보다 먼저 올린다. 여기서 실패하면 backend 는 건드리지 않으므로
+# 되돌릴 것이 추론 서비스뿐이다.
+deploy_yolo() {
+    current_yolo_container="$(find_container "$YOLO_SERVICE")"
+    yolo_rollback_ready=0
+
+    if [ -n "$current_yolo_container" ]; then
+        current_yolo_image_id="$(
+            docker inspect --format '{{.Image}}' "$current_yolo_container"
+        )"
+        docker tag "$current_yolo_image_id" "$YOLO_ROLLBACK_IMAGE"
+        yolo_rollback_ready=1
+        echo "추론 롤백 이미지 준비 완료: $YOLO_ROLLBACK_IMAGE"
+    else
+        echo "실행 중인 추론 컨테이너가 없습니다. 첫 배포로 처리합니다."
+    fi
+
+    if compose_yolo_up "$YOLO_IMAGE" && wait_for_yolo_ready; then
+        echo "추론 서비스 배포가 완료되었습니다: $YOLO_IMAGE"
+        return 0
+    fi
+
+    echo "추론 서비스 배포에 실패했습니다."
+
+    if [ "$yolo_rollback_ready" -ne 1 ]; then
+        echo "되돌릴 이전 추론 이미지가 없습니다."
+        return 1
+    fi
+
+    echo "이전 추론 이미지로 롤백을 시작합니다."
+
+    # 롤백은 태그가 같아도 컨테이너를 반드시 바꿔야 하므로 강제로 재생성한다.
+    if BACKEND_IMAGE="$BACKEND_IMAGE_FOR_PARSING" \
+       YOLO_IMAGE="$YOLO_ROLLBACK_IMAGE" \
+        docker compose \
+        --project-name "$PROJECT_NAME" \
+        --env-file "$DEPLOY_ENV_FILE" \
+        -f "$COMPOSE_FILE" \
+        -f "$DEPLOY_COMPOSE_FILE" \
+        up -d --no-deps --force-recreate --no-build "$YOLO_SERVICE" &&
+        wait_for_yolo_ready; then
+        echo "이전 추론 이미지로 롤백했습니다."
+    else
+        echo "추론 서비스 롤백도 실패했습니다. 추론이 중단된 상태입니다."
+    fi
+
+    return 1
 }
 
 wait_for_backend_health() {
@@ -186,6 +331,7 @@ compose_nginx_up() {
     image_name="$1"
 
     BACKEND_IMAGE="$image_name" \
+    YOLO_IMAGE="$YOLO_IMAGE" \
         docker compose \
         --project-name "$PROJECT_NAME" \
         --env-file "$DEPLOY_ENV_FILE" \
@@ -278,6 +424,18 @@ main() {
         exit 1
     fi
 
+    # compose.deploy.yml 이 yolo.image 에 이 값을 요구한다. 비어 있으면 backend 만 올리려
+    # 해도 compose 가 파일 전체를 해석하다 실패한다.
+    if [ -z "${YOLO_IMAGE:-}" ]; then
+        echo "YOLO_IMAGE environment variable is required."
+        exit 1
+    fi
+
+    if ! docker image inspect "$YOLO_IMAGE" >/dev/null 2>&1; then
+        echo "추론 Docker 이미지를 찾지 못했습니다: $YOLO_IMAGE"
+        exit 1
+    fi
+
     current_backend_container="$(find_container "$BACKEND_SERVICE")"
 
     if [ -z "$current_backend_container" ]; then
@@ -297,7 +455,18 @@ main() {
     docker tag "$current_image_id" "$ROLLBACK_IMAGE"
     echo "롤백 이미지 준비 완료: $ROLLBACK_IMAGE"
 
+    # 추론 서비스만 올릴 때도 compose 는 backend.image 를 요구한다. 지금 돌고 있는 이미지를
+    # 넘겨야 backend 서비스 정의가 실행 중인 컨테이너와 어긋나지 않는다.
+    BACKEND_IMAGE_FOR_PARSING="$ROLLBACK_IMAGE"
+
     prepare_compose_environment
+
+    # 추론 서비스를 먼저 올린다. 여기서 실패하면 backend 를 건드리지 않은 상태라 되돌릴
+    # 것이 추론 서비스뿐이고, 운영 백엔드는 그대로 살아 있다.
+    if ! deploy_yolo; then
+        echo "추론 서비스 배포가 실패해 백엔드 배포를 진행하지 않습니다."
+        exit 1
+    fi
 
     deployment_failed=0
 

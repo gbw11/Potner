@@ -18,16 +18,20 @@ public class MqttMessageSubscriber {
     private static final int MAX_LOG_PAYLOAD_LENGTH = 500;
     private static final String SENSOR_TOPIC_SUFFIX = "/sensor/telemetry";
     private static final String HEARTBEAT_TOPIC_SUFFIX = "/status/heartbeat";
+    private static final String ROBOT_STATE_TOPIC_SUFFIX = "/status/state";
 
     private final SensorTelemetryMessageProcessor sensorProcessor;
     private final HeartbeatMessageProcessor heartbeatProcessor;
+    private final RobotStateMessageProcessor robotStateProcessor;
 
     public MqttMessageSubscriber(
             SensorTelemetryMessageProcessor sensorProcessor,
-            HeartbeatMessageProcessor heartbeatProcessor
+            HeartbeatMessageProcessor heartbeatProcessor,
+            RobotStateMessageProcessor robotStateProcessor
     ) {
         this.sensorProcessor = sensorProcessor;
         this.heartbeatProcessor = heartbeatProcessor;
+        this.robotStateProcessor = robotStateProcessor;
     }
 
     @ServiceActivator(inputChannel = "mqttInputChannel")
@@ -54,6 +58,8 @@ public class MqttMessageSubscriber {
                 sensorProcessor.process(topic, rawPayload);
             } else if (topic.endsWith(HEARTBEAT_TOPIC_SUFFIX)) {
                 heartbeatProcessor.process(topic, rawPayload);
+            } else if (topic.endsWith(ROBOT_STATE_TOPIC_SUFFIX)) {
+                robotStateProcessor.process(topic, rawPayload);
             } else {
                 log.warn("MQTT message ignored because the topic is unsupported: topic={}", topic);
             }
