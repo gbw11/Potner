@@ -81,6 +81,9 @@ potner:
     # 하고, 상태가 바뀔 때만 저장한다.
     robot-state:
       topic: ${MQTT_ROBOT_STATE_TOPIC:potner/device/+/status/state}
+    # 배터리 잔량 구독이다. 어느 장치를 신뢰하는지는 potner.device.battery-reporter-type 이 정한다.
+    battery:
+      topic: ${MQTT_BATTERY_TOPIC:potner/device/+/status/battery}
     # 서버 → 로봇 명령이다. 수신 토픽과 접두사를 맞추고 command/ 아래로 모은다.
     # {deviceUid} 와 {command} 는 발행할 때 치환한다.
     command:
@@ -89,6 +92,13 @@ potner:
       # 재접속에 빠져 센서 수집까지 멈추므로 접미사로 갈라 둔다.
       client-id-suffix: ${MQTT_COMMAND_CLIENT_ID_SUFFIX:-command}
       qos: ${MQTT_COMMAND_QOS:1}
+  device:
+    # 배터리 잔량을 보고하도록 정한 장치다. robot.battery_percent 가 컬럼 하나라 두 장치가
+    # 보내면 서로 덮어쓴다. 배터리 센서가 라즈베리로 옮겨가면 RASPBERRY_PI 로 바꾼다.
+    #
+    # potner.mqtt.* 에 두지 않는다. 그쪽은 브로커를 켠 환경에서만 로드되어, 브로커를 끈
+    # 환경에서도 떠야 하는 도메인 서비스가 주입받으면 컨텍스트가 뜨지 않는다.
+    battery-reporter-type: ${DEVICE_BATTERY_REPORTER_TYPE:JETSON_ORIN}
   daily-light:
     enabled: ${DAILY_LIGHT_ENABLED:true}
     cron: "${DAILY_LIGHT_CRON:0 0 2 * * *}"

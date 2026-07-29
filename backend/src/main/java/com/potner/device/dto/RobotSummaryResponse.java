@@ -18,6 +18,9 @@ public record RobotSummaryResponse(
         IotDeviceConnectionStatus connectionStatus,
         LocalDateTime lastSeenAt,
         Integer batteryPercent,
+
+        /** 잔량을 받은 시각(UTC). 한 번도 받지 못했으면 null 이다. 오래된 값을 가려낼 때 쓴다. */
+        LocalDateTime batteryMeasuredAt,
         String firmwareVersion,
 
         /**
