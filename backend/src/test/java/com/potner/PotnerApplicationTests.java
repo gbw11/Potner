@@ -16,6 +16,7 @@ import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
 import com.potner.mqtt.dto.SensorTelemetryMessage;
 import com.potner.push.application.AlertPushListener;
+import com.potner.push.application.BloomPushListener;
 import com.potner.push.application.FcmTokenService;
 import com.potner.push.application.LoggingPushSender;
 import com.potner.push.application.PushSender;
@@ -171,6 +172,10 @@ class PotnerApplicationTests {
     @Autowired
     private AlertPushListener alertPushListener;
 
+    /** 같은 이유다. 개화를 기록해도 리스너가 없으면 푸시가 나가지 않는다. */
+    @Autowired
+    private BloomPushListener bloomPushListener;
+
     @Autowired
     private Clock clock;
 
@@ -187,6 +192,7 @@ class PotnerApplicationTests {
         jdbcTemplate.update("DELETE FROM user_notification_setting");
         jdbcTemplate.update("DELETE FROM alert");
         jdbcTemplate.update("DELETE FROM plant_daily_light");
+        jdbcTemplate.update("DELETE FROM plant_bloom");
         jdbcTemplate.update("DELETE FROM plant_diary");
         jdbcTemplate.update("DELETE FROM plant_photo");
         jdbcTemplate.update("DELETE FROM sensor_reading");
@@ -2214,6 +2220,192 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + other.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void bloomRecordingIsScopedToOwnerAndValidatesTheDate() throws Exception {
+        Tokens tokens = signupAndLogin("bloom-record@example.com");
+        String plantId = createPlant(tokens, "칼란디바");
+        LocalDate today = serviceToday();
+
+        // 기본 사용은 본문 없이 누르는 것이다. 서버가 서비스 타임존 기준 오늘로 채운다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plantId").value(plantId))
+                .andExpect(jsonPath("$.plantName").value("칼란디바"))
+                .andExpect(jsonPath("$.bloomDate").value(today.toString()))
+                .andExpect(jsonPath("$.source").value("USER"))
+                .andExpect(jsonPath("$.read").value(false))
+                .andExpect(jsonPath("$.note").value(nullValue()))
+                // 저장 직후 그대로 응답한다. DB 기본값에 맡기면 여기가 null 로 나간다.
+                .andExpect(jsonPath("$.createdAt").isNotEmpty());
+
+        // 며칠 지나서 기록하는 경우다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bloomDate\":\"%s\",\"note\":\"  분홍 꽃  \"}"
+                                .formatted(today.minusDays(3))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.bloomDate").value(today.minusDays(3).toString()))
+                .andExpect(jsonPath("$.note").value("분홍 꽃"));
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bloomDate\":\"%s\"}".formatted(today.plusDays(1))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"%s\"}".formatted("가".repeat(201))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        // 남의 식물은 존재 여부를 숨긴다.
+        Tokens stranger = signupAndLogin("bloom-stranger@example.com");
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", plantId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+
+        // 목록은 개화한 날 기준 최신순이고 다른 사용자에게는 보이지 않는다.
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blooms.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.unreadCount").value(2))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.blooms[0].bloomDate").value(today.toString()))
+                .andExpect(jsonPath("$.blooms[1].bloomDate").value(today.minusDays(3).toString()));
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blooms.length()").value(0))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "500"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(100));
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/v1/blooms"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void bloomReadProcessingIsIdempotentAndOwnershipChecked() throws Exception {
+        Tokens tokens = signupAndLogin("bloom-read@example.com");
+        String plantId = createPlant(tokens, "읽음 처리 식물");
+        String bloomId = recordBloom(tokens, plantId, null);
+
+        mockMvc.perform(patch("/api/v1/blooms/{bloomId}/read", bloomId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        LocalDateTime firstReadAt = jdbcTemplate.queryForObject(
+                "SELECT read_at FROM plant_bloom WHERE bloom_id = ?", LocalDateTime.class, bloomId);
+        assertThat(firstReadAt).isNotNull();
+
+        mockMvc.perform(patch("/api/v1/blooms/{bloomId}/read", bloomId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT read_at FROM plant_bloom WHERE bloom_id = ?", LocalDateTime.class, bloomId))
+                .isEqualTo(firstReadAt);
+
+        mockMvc.perform(get("/api/v1/blooms")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("unreadOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blooms.length()").value(0))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+
+        Tokens stranger = signupAndLogin("bloom-read-stranger@example.com");
+        mockMvc.perform(patch("/api/v1/blooms/{bloomId}/read", bloomId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BLOOM_NOT_FOUND"));
+    }
+
+    @Test
+    void plantBloomStoresWhatTheAlertTableCannotAndDeletesPhysically() throws Exception {
+        Tokens tokens = signupAndLogin("bloom-delete@example.com");
+        String plantId = createPlant(tokens, "두 송이 식물");
+        LocalDate today = serviceToday();
+
+        // alert 는 active_key 가 (plant_id, metric_type) 라 같은 식물의 두 번째를 UNIQUE 로 막는다.
+        // 개화는 하루에 두 송이가 필 수 있어 같은 날짜로도 두 건이 남아야 한다.
+        String first = recordBloom(tokens, plantId, today);
+        String second = recordBloom(tokens, plantId, today);
+        assertThat(first).isNotEqualTo(second);
+        assertThat(bloomCount(plantId)).isEqualTo(2);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/blooms/{bloomId}", plantId, first)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        // 물리 삭제다. 잘못 누른 것을 되돌리는 용도라 흔적을 남기지 않는다.
+        assertThat(bloomCount(plantId)).isEqualTo(1);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/blooms/{bloomId}", plantId, first)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BLOOM_NOT_FOUND"));
+
+        Tokens stranger = signupAndLogin("bloom-delete-stranger@example.com");
+        mockMvc.perform(delete("/api/v1/plants/{plantId}/blooms/{bloomId}", plantId, second)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+        assertThat(bloomCount(plantId)).isEqualTo(1);
+
+        mockMvc.perform(delete("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        // 식물 삭제 API 는 소프트 삭제라 개화 기록이 남는다.
+        assertThat(bloomCount(plantId)).isEqualTo(1);
+
+        // 물리 삭제하면 함께 사라진다. plant_id 가 생성 컬럼의 기반이 아니어서 CASCADE 를 쓸 수
+        // 있고, 같은 자리에서 alert 는 RESTRICT 라 이 삭제 자체가 막힌다.
+        //
+        // 사용자를 지워서 확인할 수는 없다. plant.user_id 가 RESTRICT 라 식물이 남아 있으면
+        // app_user 삭제가 먼저 막힌다.
+        jdbcTemplate.update("DELETE FROM plant WHERE plant_id = ?", plantId);
+        assertThat(bloomCount(plantId)).isZero();
+    }
+
+    /** 서비스 타임존 기준 오늘이다. {@code potner.sensor.zone-offset} 과 같아야 한다. */
+    private LocalDate serviceToday() {
+        return clock.instant().atOffset(ZoneOffset.of("+09:00")).toLocalDate();
+    }
+
+    private String recordBloom(Tokens tokens, String plantId, LocalDate bloomDate) throws Exception {
+        var request = post("/api/v1/plants/{plantId}/blooms", plantId)
+                .header("Authorization", "Bearer " + tokens.accessToken());
+        if (bloomDate != null) {
+            request = request
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"bloomDate\":\"%s\"}".formatted(bloomDate));
+        }
+        return JsonPath.read(
+                mockMvc.perform(request)
+                        .andExpect(status().isCreated())
+                        .andReturn().getResponse().getContentAsString(),
+                "$.bloomId");
+    }
+
+    private int bloomCount(String plantId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM plant_bloom WHERE plant_id = ?", Integer.class, plantId);
     }
 
     @Test
