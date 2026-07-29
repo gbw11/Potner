@@ -65,6 +65,8 @@ public class DeviceQueryService {
                 connection.lastSeenAt(),
                 robot.getBatteryPercent(),
                 robot.getFirmwareVersion(),
+                robot.getCurrentState(),
+                robot.getStateChangedAt(),
                 assignment.getAssignedAt()
         );
         return new PlantDeviceListResponse(

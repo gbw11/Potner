@@ -3,6 +3,10 @@ package com.potner.happiness.application;
 import com.potner.bloom.domain.PlantBloomRepository;
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
+import com.potner.device.domain.PlantDeviceAssignmentRepository;
+import com.potner.device.domain.Robot;
+import com.potner.device.domain.RobotRepository;
+import com.potner.device.domain.RobotState;
 import com.potner.happiness.config.HappinessProperties;
 import com.potner.happiness.domain.ExpressionReason;
 import com.potner.happiness.domain.PlantExpression;
@@ -53,6 +57,8 @@ public class HappinessService {
     private final PlantGrowthProfileRepository profileRepository;
     private final SensorReadingRepository sensorReadingRepository;
     private final PlantBloomRepository bloomRepository;
+    private final PlantDeviceAssignmentRepository assignmentRepository;
+    private final RobotRepository robotRepository;
     private final HappinessProperties properties;
     private final SensorQueryProperties sensorQueryProperties;
     private final Clock clock;
@@ -62,6 +68,8 @@ public class HappinessService {
             PlantGrowthProfileRepository profileRepository,
             SensorReadingRepository sensorReadingRepository,
             PlantBloomRepository bloomRepository,
+            PlantDeviceAssignmentRepository assignmentRepository,
+            RobotRepository robotRepository,
             HappinessProperties properties,
             SensorQueryProperties sensorQueryProperties,
             Clock clock
@@ -70,6 +78,8 @@ public class HappinessService {
         this.profileRepository = profileRepository;
         this.sensorReadingRepository = sensorReadingRepository;
         this.bloomRepository = bloomRepository;
+        this.assignmentRepository = assignmentRepository;
+        this.robotRepository = robotRepository;
         this.properties = properties;
         this.sensorQueryProperties = sensorQueryProperties;
         this.clock = clock;
@@ -103,7 +113,14 @@ public class HappinessService {
         PlantExpressionState baseline = judgeBaseline(plantId, values);
 
         // 부스트가 바탕을 이긴다. 환경이 나빠도 물을 마시는 순간은 기뻐야 사용자가 자기
-        // 행동의 결과를 읽을 수 있다.
+        // 행동의 결과를 읽을 수 있다. 지금 하고 있는 일이 가장 강하다.
+        Optional<RobotState> robotState = findRobotState(plantId);
+        if (robotState.filter(state -> state == RobotState.SERVICING).isPresent()) {
+            return baseline.boostedTo(PlantExpression.VERY_HAPPY, ExpressionReason.WATERING);
+        }
+        if (robotState.filter(state -> state == RobotState.GREETING).isPresent()) {
+            return baseline.boostedTo(PlantExpression.VERY_HAPPY, ExpressionReason.GREETING);
+        }
         if (bloomRepository.existsByPlantIdAndBloomDate(plantId, serviceToday())) {
             return baseline.boostedTo(PlantExpression.HAPPY, ExpressionReason.BLOOMED);
         }
@@ -111,6 +128,19 @@ public class HappinessService {
             return baseline.boostedTo(PlantExpression.HAPPY, ExpressionReason.SUNLIGHT);
         }
         return baseline;
+    }
+
+    /**
+     * 이 식물을 담당하는 로봇의 현재 상태다.
+     *
+     * <p>배정이 없으면 비어 있다. {@code SERVICING} 이 급수와 송풍을 함께 가리키는데 표정은 둘
+     * 다 같으므로 구별할 필요가 없다. 이유는 {@code WATERING} 하나로 보낸다.
+     */
+    private Optional<RobotState> findRobotState(String plantId) {
+        return assignmentRepository
+                .findFirstByPlantIdAndUnassignedAtIsNullOrderByAssignedAtDesc(plantId)
+                .flatMap(assignment -> robotRepository.findById(assignment.getRobotId()))
+                .map(Robot::getCurrentState);
     }
 
     /**

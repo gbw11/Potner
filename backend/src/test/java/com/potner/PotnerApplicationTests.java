@@ -14,6 +14,7 @@ import com.potner.diary.application.DiaryWriteResult;
 import com.potner.happiness.application.ExpressionPublishScheduler;
 import com.potner.mqtt.application.LoggingRobotCommandPublisher;
 import com.potner.mqtt.application.RobotCommandPublisher;
+import com.potner.mqtt.application.RobotStateMessageProcessor;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
@@ -130,6 +131,9 @@ class PotnerApplicationTests {
 
     @Autowired
     private SensorTelemetryMessageProcessor telemetryProcessor;
+
+    @Autowired
+    private RobotStateMessageProcessor robotStateProcessor;
 
     @Autowired
     private AlertRepository alertRepository;
@@ -2241,6 +2245,123 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + other.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void robotStateFromMqttIsStoredAndExposed() throws Exception {
+        SensorFixture fixture = createSensorFixture("robot-state@example.com");
+        Tokens tokens = login("robot-state@example.com");
+
+        // 상태를 한 번도 받지 못한 로봇은 IDLE 이다. 마이그레이션 기본값이 그렇다.
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "NAVIGATING"));
+
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("NAVIGATING");
+        LocalDateTime firstChangedAt = robotStateChangedAt(fixture.robotId());
+        assertThat(firstChangedAt).isNotNull();
+
+        // 젯슨이 이동하는 동안 같은 상태를 계속 보낸다. 그때마다 시각을 갱신하면 '언제부터
+        // 이 상태인지' 를 잃는다. 급수 작업이 이동 시작 시점을 알아야 한다.
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "NAVIGATING"));
+        assertThat(robotStateChangedAt(fixture.robotId())).isEqualTo(firstChangedAt);
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "SERVICING"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("SERVICING");
+
+        // 앱이 "지금 물 받는 중" 을 보여줄 수 있어야 한다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot.currentState").value("SERVICING"))
+                .andExpect(jsonPath("$.robot.stateChangedAt").isNotEmpty());
+
+        // 상태 보고도 장치가 살아 있다는 증거다. 하드웨어가 heartbeat 를 상태 보고로
+        // 대체하더라도 OFFLINE 으로 오판되지 않아야 한다.
+        assertDeviceState(fixture.jetsonUid(), "ONLINE", true);
+    }
+
+    @Test
+    void robotStateRejectsForgedAndUnknownReports() throws Exception {
+        SensorFixture fixture = createSensorFixture("robot-state-reject@example.com");
+
+        // 페이로드가 다른 장치를 주장한다. ACL 은 토픽만 제한하고 페이로드는 검사하지 못하므로
+        // 이 대조가 없으면 한 로봇이 다른 로봇을 '스테이션 도착' 으로 속일 수 있다.
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson("jetson-somebody-else", "SERVICING"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+
+        // 서버가 모르는 상태다. 임의로 떨어뜨리지 않고 버린다.
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "CHARGING"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+
+        // 등록되지 않은 장치다. 예외로 번지면 MQTT 수집 스레드가 깨진다.
+        robotStateProcessor.process(
+                statusStateTopic("jetson-unregistered"),
+                robotStateJson("jetson-unregistered", "IDLE"));
+        assertThat(robotCurrentState(fixture.robotId())).isEqualTo("IDLE");
+    }
+
+    @Test
+    void servicingRobotGetsTheHappiestFace() throws Exception {
+        SensorFixture fixture = createSensorFixture("robot-state-face@example.com");
+        Tokens tokens = login("robot-state-face@example.com");
+        // 온도를 기준 밖으로 두어도 급수 중에는 매우행복이어야 한다.
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS,
+                nowUtc().minusMinutes(1));
+        assertExpression(tokens, fixture.plantId(), "SAD", "TEMPERATURE");
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "SERVICING"));
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.expression").value("VERY_HAPPY"))
+                .andExpect(jsonPath("$.reason").value("WATERING"))
+                // 다 마시고 나면 우울로 돌아간다는 사실이 남아 있어야 한다.
+                .andExpect(jsonPath("$.baseline").value("SAD"));
+
+        robotStateProcessor.process(
+                statusStateTopic(fixture.jetsonUid()),
+                robotStateJson(fixture.jetsonUid(), "GREETING"));
+        assertExpression(tokens, fixture.plantId(), "VERY_HAPPY", "GREETING");
+    }
+
+    private String statusStateTopic(String deviceUid) {
+        return "potner/device/" + deviceUid + "/status/state";
+    }
+
+    private String robotStateJson(String deviceUid, String state) {
+        return """
+                {"messageId":"%s","deviceId":"%s","state":"%s","changedAt":"%s"}
+                """.formatted(
+                UUID.randomUUID(),
+                deviceUid,
+                state,
+                nowUtc().minusSeconds(5).format(UTC_ISO));
+    }
+
+    private String robotCurrentState(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT current_state FROM robot WHERE robot_id = ?", String.class, robotId);
+    }
+
+    private LocalDateTime robotStateChangedAt(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT state_changed_at FROM robot WHERE robot_id = ?",
+                LocalDateTime.class,
+                robotId);
     }
 
     @Test

@@ -4,6 +4,11 @@ import com.potner.bloom.domain.PlantBloomRepository;
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
 import com.potner.device.domain.IotDeviceType;
+import com.potner.device.domain.PlantDeviceAssignment;
+import com.potner.device.domain.PlantDeviceAssignmentRepository;
+import com.potner.device.domain.Robot;
+import com.potner.device.domain.RobotRepository;
+import com.potner.device.domain.RobotState;
 import com.potner.happiness.config.HappinessProperties;
 import com.potner.happiness.domain.ExpressionReason;
 import com.potner.happiness.domain.PlantExpression;
@@ -61,6 +66,12 @@ class HappinessServiceTest {
     @Mock
     private PlantBloomRepository bloomRepository;
 
+    @Mock
+    private PlantDeviceAssignmentRepository assignmentRepository;
+
+    @Mock
+    private RobotRepository robotRepository;
+
     private HappinessService happinessService;
 
     @BeforeEach
@@ -70,6 +81,8 @@ class HappinessServiceTest {
                 profileRepository,
                 sensorReadingRepository,
                 bloomRepository,
+                assignmentRepository,
+                robotRepository,
                 new HappinessProperties(
                         true,
                         new BigDecimal("0.5"),
@@ -181,6 +194,77 @@ class HappinessServiceTest {
     }
 
     @Test
+    void drinkingWaterWinsEvenWhenTheTemperatureIsBad() {
+        // 물이 부족해서 물을 마시는 것이므로 마시는 동안은 기뻐야 한다. 온도가 나빠도 그렇다.
+        givenProfile();
+        givenReading(SensorType.TEMPERATURE, "35", FRESH);
+        givenRobotState(RobotState.SERVICING);
+
+        PlantExpressionState state = happinessService.judge(PLANT_ID);
+
+        assertThat(state.expression()).isEqualTo(PlantExpression.VERY_HAPPY);
+        assertThat(state.reason()).isEqualTo(ExpressionReason.WATERING);
+        // 다 마시고 나면 우울로 돌아간다는 사실은 남는다.
+        assertThat(state.baseline()).isEqualTo(PlantExpression.SAD);
+    }
+
+    @Test
+    void greetingTheUserIsAlsoTheHappiestFace() {
+        givenProfile();
+        givenReading(SensorType.TEMPERATURE, "24", FRESH);
+        givenReading(SensorType.HUMIDITY, "70", FRESH);
+        givenRobotState(RobotState.GREETING);
+
+        PlantExpressionState state = happinessService.judge(PLANT_ID);
+
+        assertThat(state.expression()).isEqualTo(PlantExpression.VERY_HAPPY);
+        assertThat(state.reason()).isEqualTo(ExpressionReason.GREETING);
+    }
+
+    @Test
+    void servicingBeatsBloomingAndSunlight() {
+        // 지금 하고 있는 일이 가장 강하다. 개화나 햇볕은 하루 또는 몇 시간 단위 사실이다.
+        givenProfile();
+        givenReading(SensorType.TEMPERATURE, "24", FRESH);
+        givenReading(SensorType.HUMIDITY, "70", FRESH);
+        givenReading(SensorType.ILLUMINANCE, "9000", FRESH);
+        givenRobotState(RobotState.SERVICING);
+        lenient().when(bloomRepository.existsByPlantIdAndBloomDate(PLANT_ID, SERVICE_TODAY))
+                .thenReturn(true);
+
+        assertThat(happinessService.judge(PLANT_ID).reason())
+                .isEqualTo(ExpressionReason.WATERING);
+    }
+
+    @Test
+    void idleAndNavigatingDoNotChangeTheFace() {
+        // 이동 중은 특별한 일이 아니다. 대기와 같은 표정으로 둔다.
+        givenProfile();
+        givenReading(SensorType.TEMPERATURE, "24", FRESH);
+        givenReading(SensorType.HUMIDITY, "70", FRESH);
+        givenNoReading(SensorType.ILLUMINANCE);
+        givenNoBloomToday();
+
+        for (RobotState state : new RobotState[]{RobotState.IDLE, RobotState.NAVIGATING,
+                RobotState.DOCKING}) {
+            givenRobotState(state);
+            assertThat(happinessService.judge(PLANT_ID).expression())
+                    .isEqualTo(PlantExpression.NEUTRAL);
+        }
+    }
+
+    @Test
+    void plantWithoutAnAssignedRobotStillGetsAFace() {
+        // 배정이 없으면 로봇 상태를 물어볼 대상이 없다. 온·습도만으로 판정해야 한다.
+        givenProfile();
+        givenReading(SensorType.TEMPERATURE, "35", FRESH);
+        givenNoReading(SensorType.ILLUMINANCE);
+        givenNoBloomToday();
+
+        assertThat(happinessService.judge(PLANT_ID).expression()).isEqualTo(PlantExpression.SAD);
+    }
+
+    @Test
     void staleReadingsDoNotDecideTheFace() {
         // 로봇이 꺼져 있던 동안의 값으로 우울을 표시하면 이미 지난 문제를 계속 보여준다.
         givenProfile();
@@ -261,6 +345,17 @@ class HappinessServiceTest {
                         .findFirstByPlantIdAndSensorTypeAndQualityOrderByMeasuredAtDesc(
                                 PLANT_ID, sensorType, SensorQuality.GOOD))
                 .thenReturn(Optional.empty());
+    }
+
+    private void givenRobotState(RobotState state) {
+        PlantDeviceAssignment assignment = mock(PlantDeviceAssignment.class);
+        Robot robot = mock(Robot.class);
+        lenient().when(assignment.getRobotId()).thenReturn("robot-id");
+        lenient().when(robot.getCurrentState()).thenReturn(state);
+        lenient().when(assignmentRepository
+                        .findFirstByPlantIdAndUnassignedAtIsNullOrderByAssignedAtDesc(PLANT_ID))
+                .thenReturn(Optional.of(assignment));
+        lenient().when(robotRepository.findById("robot-id")).thenReturn(Optional.of(robot));
     }
 
     private void givenNoBloomToday() {

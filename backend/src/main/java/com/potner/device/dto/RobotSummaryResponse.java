@@ -1,6 +1,7 @@
 package com.potner.device.dto;
 
 import com.potner.device.domain.IotDeviceConnectionStatus;
+import com.potner.device.domain.RobotState;
 
 import java.time.LocalDateTime;
 
@@ -18,6 +19,21 @@ public record RobotSummaryResponse(
         LocalDateTime lastSeenAt,
         Integer batteryPercent,
         String firmwareVersion,
+
+        /**
+         * 젯슨이 알려 준 현재 행동 상태다. 상태를 한 번도 받지 못했으면 {@code IDLE} 이다.
+         *
+         * <p>{@code SERVICING} 이 급수와 송풍을 함께 가리킨다. 서버는 둘을 구별할 수 없으므로
+         * 앱이 문구를 만들 때도 하나로 묶어야 한다.
+         *
+         * <p>{@code IDLE} 은 어디에서 대기하는지 말해 주지 않는다. 대기 장소인지 급수
+         * 스테이션인지는 이 값으로 알 수 없다.
+         */
+        RobotState currentState,
+
+        /** 현재 상태로 바뀐 시각(UTC). 같은 상태가 반복 수신되는 동안에는 갱신되지 않는다. */
+        LocalDateTime stateChangedAt,
+
         LocalDateTime assignedAt
 ) {
 }
