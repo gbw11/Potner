@@ -9,7 +9,7 @@ from pathlib import Path
 from src.collector import Collector
 from src.config import load_config
 from src.device import resolve_device_id
-from src.mqtt import build_mqtt_publisher
+from src.mqtt import build_mqtt_publisher, build_water_listener
 from src.transport import build_spring_publisher
 
 
@@ -40,6 +40,7 @@ def main() -> int:
     collector = Collector(config)
     publisher = build_spring_publisher(config)
     mqtt_publisher = build_mqtt_publisher(config)
+    water_listener = None if args.once else build_water_listener(config)
     running = True
 
     def _stop(_signum, _frame) -> None:
@@ -55,11 +56,20 @@ def main() -> int:
         if mqtt_publisher.enabled
         else "off"
     )
+    water_note = "off"
+    if water_listener is not None:
+        try:
+            water_listener.start()
+            water_note = f"on {water_listener.command_topic}"
+        except Exception as exc:  # noqa: BLE001 — 급수 실패해도 수집은 계속
+            print(f"warn: water listener unavailable: {exc}")
+            water_listener = None
+
     print(
         f"platform={config.get('platform')} device_id={device_id} interval={interval}s "
         f"storage={config.get('storage', {}).get('path')} "
         f"backend={'on ' + publisher.url if publisher.enabled else 'off'} "
-        f"mqtt={mqtt_note}"
+        f"mqtt={mqtt_note} water={water_note}"
     )
 
     try:
@@ -86,6 +96,9 @@ def main() -> int:
             while running and time.time() < end:
                 time.sleep(0.2)
     finally:
+        if water_listener is not None:
+            water_listener.close()
+            water_listener.pump.close()
         mqtt_publisher.close()
         collector.close()
 

@@ -83,6 +83,22 @@ camera:
   capture_with_read: false
   capture_every_n: 1
 
+# 급수용 다이어프램 펌프 — L298N 모터 드라이버 경유
+# 배선(BCM): GPIO17→IN1, GPIO18→IN2, 펌프→OUT1/OUT2, +12V 외부전원, GND 는 Pi 와 공통
+# 스테이션 도착 시: python -m cli.water --config config/raspberry_pi.yaml dispense --ml 100
+# flow_ml_per_sec 는 반드시 calibrate 로 실측 후 갱신할 것
+pump:
+  enabled: true
+  driver: l298n          # l298n (IN1/IN2 2핀) | relay (1핀) | mock
+  in1_pin: 17
+  in2_pin: 18
+  ena_pin: null          # ENA 점퍼 장착 시 null. 점퍼 빼고 GPIO 연결 시 핀 번호 지정
+  speed: 1.0             # ena_pin 지정 시 PWM 세기 (0.0~1.0). 바꾸면 재보정 필요
+  flow_ml_per_sec: 25.0  # 펌프 유량 보정값: cli.water calibrate 로 측정
+  startup_sec: 0.0       # 시동 손실 보정 (calibrate 가 함께 계산)
+  max_run_sec: 30        # 1회 최대 가동 시간 (과급수 방지)
+  default_ml: 100        # dispense --ml 생략 시 기본 급수량
+
 # Spring 백엔드로 온습도 JSON POST
 spring:
   enabled: false
@@ -101,4 +117,7 @@ mqtt:
   username: raspberry-01
   password: ""  # set via MQTT_PASSWORD env
   telemetry_topic: potner/device/raspberry-01/sensor/telemetry
+  # 서버 → Pi 급수 명령 ({"ml": 150, "requestId": "..."}), Pi → 서버 결과 회신
+  water_command_topic: potner/device/raspberry-01/command/water
+  water_result_topic: potner/device/raspberry-01/command/water/result
 

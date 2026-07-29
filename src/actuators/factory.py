@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from .base import WaterPump
+from .mock import MockWaterPump
+from .pump import L298NWaterPump, RelayWaterPump
+
+
+def build_pump(config: dict[str, Any]) -> Optional[WaterPump]:
+    pump_cfg = config.get("pump", {})
+    if not pump_cfg.get("enabled", False):
+        return None
+
+    platform = str(config.get("platform", "mock")).lower()
+    driver = str(pump_cfg.get("driver", "l298n")).lower()
+    if platform == "mock":
+        driver = "mock"
+
+    flow = float(pump_cfg.get("flow_ml_per_sec", 25.0))
+    max_run = float(pump_cfg.get("max_run_sec", 30.0))
+    startup = float(pump_cfg.get("startup_sec", 0.0))
+
+    try:
+        if driver in {"l298n", "hbridge"}:
+            ena_pin = pump_cfg.get("ena_pin")
+            return L298NWaterPump(
+                in1_pin=int(pump_cfg.get("in1_pin", 17)),
+                in2_pin=int(pump_cfg.get("in2_pin", 18)),
+                ena_pin=None if ena_pin is None else int(ena_pin),
+                speed=float(pump_cfg.get("speed", 1.0)),
+                flow_ml_per_sec=flow,
+                max_run_sec=max_run,
+                startup_sec=startup,
+            )
+        if driver == "relay":
+            return RelayWaterPump(
+                pin=int(pump_cfg.get("in1_pin", 17)),
+                active_high=bool(pump_cfg.get("active_high", True)),
+                flow_ml_per_sec=flow,
+                max_run_sec=max_run,
+                startup_sec=startup,
+            )
+        if driver == "mock":
+            return MockWaterPump(
+                flow_ml_per_sec=flow, max_run_sec=max_run, startup_sec=startup
+            )
+        raise ValueError(f"Unknown pump driver: {driver}")
+    except Exception as exc:  # noqa: BLE001 — 펌프 실패해도 다른 기능 유지
+        print(f"warn: pump unavailable ({driver}): {exc}")
+        return None

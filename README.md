@@ -42,7 +42,7 @@ POST 페이로드 예시 (`backend.soil_path`):
 현재 PC에서는 하드웨어 없이 파이프라인을 검증할 수 있습니다.
 
 ```bash
-cd C:\Users\SSAFY\Projects\sensor-collector
+cd C:\Users\SSAFY\Desktop\S15P11E104
 python -m venv .venv
 # Git Bash:
 source .venv/Scripts/activate
@@ -139,7 +139,7 @@ python capture_photo.py
 PowerShell에서 (Pi 비밀번호 1회 입력). 실행 정책 때문에 막히면 `-ExecutionPolicy Bypass`를 붙입니다:
 
 ```powershell
-cd C:\Users\SSAFY\Projects\sensor-collector
+cd C:\Users\SSAFY\Desktop\S15P11E104
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-pi-ssh.ps1
 ```
 

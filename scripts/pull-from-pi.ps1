@@ -1,6 +1,6 @@
 # Pull sensor-collector from Raspberry Pi into this PC project folder (overwrite).
 param(
-    [string]$RemoteDir = "~/S15P11E104/sensor-collector"
+    [string]$RemoteDir = "~/sensor-collector"
 )
 
 $ErrorActionPreference = "Stop"

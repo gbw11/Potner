@@ -93,6 +93,19 @@ camera:
   capture_with_read: false
   capture_every_n: 1
 
+# 급수용 다이어프램 펌프 — L298N 경유 (PC mock 모드에선 가동 로그만 출력)
+pump:
+  enabled: true
+  driver: mock           # l298n | relay | mock (platform: mock 이면 항상 mock)
+  in1_pin: 17
+  in2_pin: 18
+  ena_pin: null          # ENA 점퍼 장착 시 null
+  speed: 1.0
+  flow_ml_per_sec: 25.0
+  startup_sec: 0.0
+  max_run_sec: 30
+  default_ml: 100
+
 # potner MQTT (Pi에서 사용, mock에선 보통 비활성)
 # main.py 가 interval_sec 마다 센서값만 송신 (상태 문구/heartbeat 없음)
 mqtt:
