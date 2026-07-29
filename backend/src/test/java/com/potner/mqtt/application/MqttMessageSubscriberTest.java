@@ -25,13 +25,19 @@ class MqttMessageSubscriberTest {
 
     private SensorTelemetryMessageProcessor sensorProcessor;
     private HeartbeatMessageProcessor heartbeatProcessor;
+    private RobotStateMessageProcessor robotStateProcessor;
     private MqttMessageSubscriber subscriber;
 
     @BeforeEach
     void setUp() {
         sensorProcessor = mock(SensorTelemetryMessageProcessor.class);
         heartbeatProcessor = mock(HeartbeatMessageProcessor.class);
-        subscriber = new MqttMessageSubscriber(sensorProcessor, heartbeatProcessor);
+        robotStateProcessor = mock(RobotStateMessageProcessor.class);
+        subscriber = new MqttMessageSubscriber(
+                sensorProcessor,
+                heartbeatProcessor,
+                robotStateProcessor
+        );
     }
 
     @Test
