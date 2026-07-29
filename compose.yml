@@ -54,6 +54,43 @@ services:
         max-size: 10m
         max-file: "3"
 
+  # 사진으로 생장 단계(germination / vegetative / flowering)를 판정하는 CPU 추론 서비스다.
+  #
+  # 포트를 공개하지 않는다. 인수인계 패키지의 docker-compose.yml 은 8000 을 호스트로 열지만
+  # 이 엔드포인트에는 인증이 없어서 그대로 올리면 누구나 EC2 의 CPU 를 태울 수 있다.
+  # backend 가 potner-network 안에서 http://yolo:8000 으로 부른다.
+  #
+  # healthcheck 를 두지 않는다. 이미지 Dockerfile 에 이미 있어 상속된다. 다만 그 검사는
+  # /health 라서 모델이 깨져도 통과한다. 모델 적재 실패는 앱을 죽이지 않고 /ready 에서만
+  # 드러나므로, 배포 스크립트가 /ready 를 따로 확인한다.
+  yolo:
+    build:
+      context: ./yolo_cpu_handoff
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # 가중치는 이미지에 구워져 있다. 경로를 바꿀 일은 없지만 값을 비우면 뜨지 않으므로 둔다.
+      YOLO_WEIGHTS_PATH: ${YOLO_WEIGHTS_PATH:-/app/models/best.pt}
+      # 기본값 0.10 은 매우 낮다. 오탐을 줄이려면 판정 로직이 붙을 때 함께 조정한다.
+      YOLO_CONFIDENCE: ${YOLO_CONFIDENCE:-0.10}
+      YOLO_IMAGE_SIZE: ${YOLO_IMAGE_SIZE:-640}
+      # backend 의 사진 업로드 상한과 같아야 한다. 어긋나면 한쪽만 받고 다른 쪽이 거부한다.
+      YOLO_MAX_UPLOAD_MIB: ${YOLO_MAX_UPLOAD_MIB:-10}
+      # CPU 추론이라 동시 실행을 늘리면 서로 느려진다.
+      YOLO_MAX_CONCURRENCY: ${YOLO_MAX_CONCURRENCY:-1}
+      YOLO_LOG_LEVEL: ${YOLO_LOG_LEVEL:-INFO}
+    expose:
+      - "8000"
+    networks:
+      - potner-network
+    # 컨테이너가 죽을 때 좀비 프로세스가 남지 않게 한다. 인수인계 패키지의 설정을 따른다.
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
   backend:
     build:
       context: ./backend
