@@ -11,6 +11,9 @@ import com.potner.diary.application.DiaryGenerationService;
 import com.potner.diary.application.DiaryScheduler;
 import com.potner.diary.application.DiaryService;
 import com.potner.diary.application.DiaryWriteResult;
+import com.potner.happiness.application.ExpressionPublishScheduler;
+import com.potner.mqtt.application.LoggingRobotCommandPublisher;
+import com.potner.mqtt.application.RobotCommandPublisher;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
@@ -165,6 +168,16 @@ class PotnerApplicationTests {
 
     @Autowired
     private PushSender pushSender;
+
+    @Autowired
+    private RobotCommandPublisher robotCommandPublisher;
+
+    /**
+     * 주입 자체가 검증이다. 빈이 만들어지지 않으면 @Scheduled 의 주기 설정이 검증되지 않은 채
+     * 배포로 넘어간다. 광량·일기 스케줄러와 같은 이유다.
+     */
+    @Autowired
+    private ExpressionPublishScheduler expressionPublishScheduler;
 
     /**
      * 주입 자체가 검증이다. 리스너 빈이 없으면 알림이 저장돼도 발송 경로가 아예 돌지 않는다.
@@ -1821,6 +1834,14 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void robotCommandPublisherFallsBackToNoOpWithoutABroker() {
+        // 테스트 컨텍스트에는 MQTT 브로커가 없다. 임시 CI 컨테이너와 같은 상태이며, 여기서
+        // 발행기 빈이 만들어지지 않으면 주입받는 쪽이 전부 뜨지 못한다. Firebase 키가 없을
+        // 때와 같은 이유로 구현만 갈아끼워야 한다.
+        assertThat(robotCommandPublisher).isInstanceOf(LoggingRobotCommandPublisher.class);
+    }
+
+    @Test
     void pushSenderFallsBackToNoOpWithoutFirebaseCredentials() {
         // 임시 CI 컨테이너에는 Firebase 키가 없다. 여기서 초기화가 예외를 던지면
         // Health Check 가 실패해 배포가 막히므로, 자격증명이 없으면 구현만 갈아끼워야 한다.
@@ -2220,6 +2241,85 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + other.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void expressionFollowsSensorsAndBloom() throws Exception {
+        SensorFixture fixture = createSensorFixture("expression@example.com");
+        Tokens tokens = login("expression@example.com");
+
+        // 측정값이 없으면 판정할 근거가 없다. 표정이 비면 로봇 화면이 빈다.
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+
+        // 바질 발아기 기준은 온도 21~29, 습도 60~80, 목표 조도 10,000 lux 다.
+        LocalDateTime base = nowUtc().minusMinutes(3);
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS, base);
+        assertExpression(tokens, fixture.plantId(), "SAD", "TEMPERATURE");
+
+        insertReading(fixture, SensorType.TEMPERATURE, "24.00", SensorUnit.CELSIUS, base.plusMinutes(1));
+        insertReading(fixture, SensorType.HUMIDITY, "70.00", SensorUnit.PERCENT, base.plusMinutes(1));
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+
+        // 목표의 절반(5,000 lux)을 넘으면 햇볕으로 본다. 형광등 300~500 lux 는 못 넘는다.
+        insertReading(fixture, SensorType.ILLUMINANCE, "400", SensorUnit.LUX, base.plusMinutes(1));
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+        insertReading(fixture, SensorType.ILLUMINANCE, "6000", SensorUnit.LUX, base.plusMinutes(2));
+        assertExpression(tokens, fixture.plantId(), "HAPPY", "SUNLIGHT");
+
+        // 꽃이 핀 날은 하루 내내 그 사실이 표정을 정한다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isCreated());
+        assertExpression(tokens, fixture.plantId(), "HAPPY", "BLOOMED");
+
+        Tokens stranger = signupAndLogin("expression-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void staleReadingsFallBackToTheNeutralFace() throws Exception {
+        SensorFixture fixture = createSensorFixture("expression-stale@example.com");
+        Tokens tokens = login("expression-stale@example.com");
+
+        // 신선도 기준이 15분이다. 로봇이 꺼져 있던 동안의 값으로 우울을 표시하면 이미 지난
+        // 문제를 계속 보여준다.
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS,
+                nowUtc().minusMinutes(30));
+
+        assertExpression(tokens, fixture.plantId(), "NEUTRAL", "NONE");
+    }
+
+    @Test
+    void expressionTargetsOnlyAssignedRobotsOfLivingPlants() throws Exception {
+        SensorFixture fixture = createSensorFixture("expression-publish@example.com");
+        Tokens tokens = login("expression-publish@example.com");
+
+        // 엔티티 세 개를 식별자로 조인하는 쿼리다. 여기서만 실제로 검증된다.
+        assertThat(expressionPublishScheduler.publishOnce()).isEqualTo(1);
+
+        // 식물 삭제는 소프트 삭제인데 plant_device_assignment 참조가 RESTRICT 라 배정이 남는다.
+        // 걸러내지 않으면 지워진 식물의 로봇에 표정이 계속 나간다.
+        mockMvc.perform(delete("/api/v1/plants/{plantId}", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        assertThat(expressionPublishScheduler.publishOnce()).isZero();
+    }
+
+    private void assertExpression(
+            Tokens tokens,
+            String plantId,
+            String expression,
+            String reason
+    ) throws Exception {
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(plantId))
+                .andExpect(jsonPath("$.expression").value(expression))
+                .andExpect(jsonPath("$.reason").value(reason));
     }
 
     @Test

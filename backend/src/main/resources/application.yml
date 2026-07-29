@@ -77,6 +77,14 @@ potner:
       topic: ${MQTT_HEARTBEAT_TOPIC:potner/device/+/status/heartbeat}
       offline-timeout-seconds: ${MQTT_HEARTBEAT_OFFLINE_TIMEOUT_SECONDS:90}
       offline-check-interval-seconds: ${MQTT_HEARTBEAT_OFFLINE_CHECK_INTERVAL_SECONDS:30}
+    # 서버 → 로봇 명령이다. 수신 토픽과 접두사를 맞추고 command/ 아래로 모은다.
+    # {deviceUid} 와 {command} 는 발행할 때 치환한다.
+    command:
+      topic-template: ${MQTT_COMMAND_TOPIC_TEMPLATE:potner/device/{deviceUid}/command/{command}}
+      # 구독 클라이언트와 ID 가 같으면 브로커가 앞선 세션을 끊는다. 둘이 서로를 끊으며 무한
+      # 재접속에 빠져 센서 수집까지 멈추므로 접미사로 갈라 둔다.
+      client-id-suffix: ${MQTT_COMMAND_CLIENT_ID_SUFFIX:-command}
+      qos: ${MQTT_COMMAND_QOS:1}
   daily-light:
     enabled: ${DAILY_LIGHT_ENABLED:true}
     cron: "${DAILY_LIGHT_CRON:0 0 2 * * *}"
@@ -89,6 +97,18 @@ potner:
     min-coverage-pct: ${DAILY_LIGHT_MIN_COVERAGE_PCT:80}
     photoperiod-tolerance-ratio: ${DAILY_LIGHT_PHOTOPERIOD_TOLERANCE_RATIO:0.2}
     max-history-days: ${DAILY_LIGHT_MAX_HISTORY_DAYS:90}
+  happiness:
+    # 로봇 디스플레이 표정 발행. 브로커가 꺼져 있으면 발행기가 no-op 으로 떨어지므로 이 값을
+    # 끄지 않아도 되지만, 판정 로그까지 끄고 싶을 때 쓴다.
+    publish-enabled: ${HAPPINESS_PUBLISH_ENABLED:true}
+    publish-interval-seconds: ${HAPPINESS_PUBLISH_INTERVAL_SECONDS:30}
+    # 목표 조도(illuminance_target_lux)의 이 비율을 넘으면 '충분한 광량'으로 본다.
+    # 목표값을 그대로 쓰면 안 된다. 시드가 야외 기준(바질 발아기 10,000 lux)이라 실내에서는
+    # 창가라도 못 넘어 표정이 영영 나오지 않는다. 형광등은 300~500 lux 라 절반 기준으로도
+    # 넘지 못하므로 실내등을 햇볕으로 오인하지 않는다. 시연 장소 밝기에 맞춰 조절한다.
+    sunlight-lux-ratio: ${HAPPINESS_SUNLIGHT_LUX_RATIO:0.5}
+    # 디스플레이가 달린 장치다. 하드웨어 구성이 바뀌면 RASPBERRY_PI 로 돌릴 수 있다.
+    display-device-type: ${HAPPINESS_DISPLAY_DEVICE_TYPE:JETSON_ORIN}
   alert:
     sample-size: ${ALERT_SAMPLE_SIZE:3}
     hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}

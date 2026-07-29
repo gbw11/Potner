@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.Optional;
 
 public interface PlantBloomRepository extends JpaRepository<PlantBloom, String> {
@@ -18,6 +19,9 @@ public interface PlantBloomRepository extends JpaRepository<PlantBloom, String> 
 
     /** 첫 개화인지 판정한다. 첫 꽃과 그 뒤의 꽃은 푸시 문구가 다르다. */
     boolean existsByPlantId(String plantId);
+
+    /** 오늘 꽃이 폈는지 본다. 표정 판정이 쓰며 그날 하루 내내 유지된다. */
+    boolean existsByPlantIdAndBloomDate(String plantId, LocalDate bloomDate);
 
     /**
      * 사용자 개화 기록 목록이다. 개화한 날 기준 최신순이며, 같은 날 두 송이가 피었을 때

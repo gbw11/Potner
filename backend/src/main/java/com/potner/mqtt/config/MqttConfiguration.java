@@ -7,16 +7,23 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.mqtt.core.DefaultMqttPahoClientFactory;
 import org.springframework.integration.mqtt.core.MqttPahoClientFactory;
 import org.springframework.integration.mqtt.inbound.MqttPahoMessageDrivenChannelAdapter;
+import org.springframework.integration.mqtt.outbound.MqttPahoMessageHandler;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessageHandler;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "potner.mqtt", name = "enabled", havingValue = "true")
-@EnableConfigurationProperties({MqttProperties.class, MqttHeartbeatProperties.class})
+@EnableConfigurationProperties({
+        MqttProperties.class,
+        MqttHeartbeatProperties.class,
+        MqttCommandProperties.class
+})
 @EnableScheduling
 public class MqttConfiguration {
 
@@ -42,6 +49,47 @@ public class MqttConfiguration {
     @Bean
     public MessageChannel mqttInputChannel() {
         return new DirectChannel();
+    }
+
+    @Bean
+    public MessageChannel mqttOutboundChannel() {
+        return new DirectChannel();
+    }
+
+    /**
+     * 서버가 로봇에 명령을 발행하는 핸들러다.
+     *
+     * <p>{@code @ServiceActivator} 로 선언해야 Spring Integration 이 이 핸들러를 소비자로 감싸
+     * 컨텍스트 시작 시점에 브로커에 연결한다. {@code MqttPahoMessageHandler} 를 그냥 빈으로만
+     * 두면 {@code Lifecycle} 이 시작되지 않아 첫 발행에서 실패한다.
+     *
+     * <p>기본 토픽을 두지 않는다. 토픽은 매 메시지의 {@code MqttHeaders.TOPIC} 헤더로 온다.
+     * 기본값이 있으면 헤더를 빠뜨렸을 때 엉뚱한 토픽으로 조용히 나간다.
+     *
+     * <p>{@code setAsync(true)} 라서 발행이 브로커 응답을 기다리지 않는다. 호출자가 주기
+     * 스케줄러라 응답을 기다리면 표정 갱신이 브로커 지연만큼 밀린다.
+     */
+    @Bean
+    @ServiceActivator(inputChannel = "mqttOutboundChannel")
+    public MessageHandler mqttOutboundHandler(
+            MqttProperties properties,
+            MqttCommandProperties commandProperties,
+            MqttPahoClientFactory mqttClientFactory
+    ) {
+        MqttPahoMessageHandler handler = new MqttPahoMessageHandler(
+                commandProperties.publisherClientId(properties.clientId()),
+                mqttClientFactory
+        );
+        handler.setAsync(true);
+        handler.setDefaultQos(commandProperties.qos());
+
+        log.info(
+                "MQTT publisher configured: clientId={}, topicTemplate={}, qos={}",
+                commandProperties.publisherClientId(properties.clientId()),
+                commandProperties.topicTemplate(),
+                commandProperties.qos()
+        );
+        return handler;
     }
 
     @Bean
