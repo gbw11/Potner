@@ -77,6 +77,14 @@ potner:
       topic: ${MQTT_HEARTBEAT_TOPIC:potner/device/+/status/heartbeat}
       offline-timeout-seconds: ${MQTT_HEARTBEAT_OFFLINE_TIMEOUT_SECONDS:90}
       offline-check-interval-seconds: ${MQTT_HEARTBEAT_OFFLINE_CHECK_INTERVAL_SECONDS:30}
+    # 서버 → 로봇 명령이다. 수신 토픽과 접두사를 맞추고 command/ 아래로 모은다.
+    # {deviceUid} 와 {command} 는 발행할 때 치환한다.
+    command:
+      topic-template: ${MQTT_COMMAND_TOPIC_TEMPLATE:potner/device/{deviceUid}/command/{command}}
+      # 구독 클라이언트와 ID 가 같으면 브로커가 앞선 세션을 끊는다. 둘이 서로를 끊으며 무한
+      # 재접속에 빠져 센서 수집까지 멈추므로 접미사로 갈라 둔다.
+      client-id-suffix: ${MQTT_COMMAND_CLIENT_ID_SUFFIX:-command}
+      qos: ${MQTT_COMMAND_QOS:1}
   daily-light:
     enabled: ${DAILY_LIGHT_ENABLED:true}
     cron: "${DAILY_LIGHT_CRON:0 0 2 * * *}"

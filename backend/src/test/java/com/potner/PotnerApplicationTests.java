@@ -11,6 +11,8 @@ import com.potner.diary.application.DiaryGenerationService;
 import com.potner.diary.application.DiaryScheduler;
 import com.potner.diary.application.DiaryService;
 import com.potner.diary.application.DiaryWriteResult;
+import com.potner.mqtt.application.LoggingRobotCommandPublisher;
+import com.potner.mqtt.application.RobotCommandPublisher;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
 import com.potner.device.application.IotDeviceHeartbeatService;
@@ -165,6 +167,9 @@ class PotnerApplicationTests {
 
     @Autowired
     private PushSender pushSender;
+
+    @Autowired
+    private RobotCommandPublisher robotCommandPublisher;
 
     /**
      * 주입 자체가 검증이다. 리스너 빈이 없으면 알림이 저장돼도 발송 경로가 아예 돌지 않는다.
@@ -1818,6 +1823,14 @@ class PotnerApplicationTests {
         // 빈 목록으로 부르면 쿼리를 만들지 않는다. MySQL 에서 IN () 은 문법 오류다.
         assertThat(fcmTokenService.deactivate(List.of())).isZero();
         assertThat(pushTargetResolver.resolve(userId, NotificationCategory.PLANT_CARE)).hasSize(1);
+    }
+
+    @Test
+    void robotCommandPublisherFallsBackToNoOpWithoutABroker() {
+        // 테스트 컨텍스트에는 MQTT 브로커가 없다. 임시 CI 컨테이너와 같은 상태이며, 여기서
+        // 발행기 빈이 만들어지지 않으면 주입받는 쪽이 전부 뜨지 못한다. Firebase 키가 없을
+        // 때와 같은 이유로 구현만 갈아끼워야 한다.
+        assertThat(robotCommandPublisher).isInstanceOf(LoggingRobotCommandPublisher.class);
     }
 
     @Test

@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.integration.mqtt.core.MqttPahoClientFactory;
 import org.springframework.integration.mqtt.inbound.MqttPahoMessageDrivenChannelAdapter;
+import org.springframework.integration.mqtt.outbound.MqttPahoMessageHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,6 +24,9 @@ class MqttConfigurationTest {
                     assertThat(context).doesNotHaveBean(MqttPahoClientFactory.class);
                     assertThat(context).doesNotHaveBean(MqttPahoMessageDrivenChannelAdapter.class);
                     assertThat(context).doesNotHaveBean(MqttMessageSubscriber.class);
+                    // 발행 쪽도 함께 빠져야 한다. 남으면 브로커 없이 연결을 시도한다.
+                    assertThat(context).doesNotHaveBean(MqttCommandProperties.class);
+                    assertThat(context).doesNotHaveBean(MqttPahoMessageHandler.class);
                 });
     }
 
