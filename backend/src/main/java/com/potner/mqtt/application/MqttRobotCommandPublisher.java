@@ -34,6 +34,18 @@ public class MqttRobotCommandPublisher implements RobotCommandPublisher {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>성공을 {@code info} 로 남긴다. 명령이 나갔는지 확인할 다른 수단이 없기 때문이다.
+     * 표정은 DB 에 저장되지 않으므로 이 로그가 유일한 흔적이고, 로봇 하나당 30초에 한 줄이라
+     * 양도 감당된다.
+     *
+     * <p><strong>이 로그는 "서버가 보냈다" 까지만 증명한다.</strong> 브로커가 받았는지도, 로봇이
+     * 받았는지도 말해 주지 않는다. MQTT 3.1.1 에는 거부 이유 코드가 없어서, ACL 에 write 권한이
+     * 없으면 브로커가 조용히 버리고 PUBACK 은 그대로 보낸다. 즉 권한 문제는 클라이언트 쪽에서
+     * 감지할 수 없다. ACL 이 맞는지는 mosquitto 쪽에서 따로 확인해야 한다.
+     */
     @Override
     public void publish(String deviceUid, RobotCommand command) {
         String topic = properties.topicFor(deviceUid, command.name());
@@ -43,7 +55,10 @@ public class MqttRobotCommandPublisher implements RobotCommandPublisher {
                     .setHeader(MqttHeaders.TOPIC, topic)
                     .setHeader(MqttHeaders.QOS, properties.qos())
                     .build());
-            log.debug("Robot command published: topic={}", topic);
+            // 페이로드를 함께 남긴다. 표정이 실제로 바뀌고 있는지는 값을 봐야 알 수 있고,
+            // 지금 나가는 것은 표정뿐이라 한 줄에 들어간다. 큰 페이로드를 보내는 명령이
+            // 생기면 그때 줄여야 한다.
+            log.info("Robot command published: topic={}, payload={}", topic, command.payload());
         } catch (RuntimeException exception) {
             // 브로커가 끊겼거나 직렬화가 실패했다. 주기 발행이라 다음 회차에 다시 나간다.
             log.warn("Robot command publish failed: topic={}", topic, exception);

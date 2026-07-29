@@ -64,6 +64,17 @@ public class ExpressionPublishScheduler {
                 properties.displayDeviceType(),
                 PlantStatus.DELETED
         );
+        if (targets.isEmpty()) {
+            // 보낼 대상이 없으면 조용히 도는데, 그러면 "잘 돌고 있다" 와 "아무것도 안 나간다" 를
+            // 로그로 구별할 수 없다. 배정된 장치가 없는 것은 정상 상태라 warn 은 과하지만,
+            // 표정이 안 보이는 원인이 여기임을 알 수 있어야 한다. 장치를 배정하면 사라진다.
+            log.info(
+                    "Expression publish has no target: no active plant with a {} device",
+                    properties.displayDeviceType()
+            );
+            return 0;
+        }
+
         int published = 0;
         for (AssignedDeviceView target : targets) {
             try {
@@ -87,9 +98,8 @@ public class ExpressionPublishScheduler {
                 );
             }
         }
-        if (published > 0) {
-            log.debug("Expressions published: targets={}, published={}", targets.size(), published);
-        }
+        // 요약을 따로 남기지 않는다. 발행기가 건마다 info 로 남기므로 겹친다. 대상 수가 필요한
+        // 경우는 위 '대상 없음' 뿐이고 그때는 이미 남겼다.
         return published;
     }
 }
