@@ -14,6 +14,7 @@ import com.potner.diary.application.DiaryWriteResult;
 import com.potner.happiness.application.ExpressionPublishScheduler;
 import com.potner.mqtt.application.LoggingRobotCommandPublisher;
 import com.potner.mqtt.application.RobotCommandPublisher;
+import com.potner.mqtt.application.BatteryMessageProcessor;
 import com.potner.mqtt.application.RobotStateMessageProcessor;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
@@ -134,6 +135,9 @@ class PotnerApplicationTests {
 
     @Autowired
     private RobotStateMessageProcessor robotStateProcessor;
+
+    @Autowired
+    private BatteryMessageProcessor batteryProcessor;
 
     @Autowired
     private AlertRepository alertRepository;
@@ -2245,6 +2249,99 @@ class PotnerApplicationTests {
                         .header("Authorization", "Bearer " + other.accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void batteryFromTheJetsonIsStoredAndExposed() throws Exception {
+        SensorFixture fixture = createSensorFixture("battery@example.com");
+        Tokens tokens = login("battery@example.com");
+
+        // 한 번도 받지 못한 로봇은 비어 있다. 화면이 '측정 없음' 을 구분할 수 있어야 한다.
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "78"));
+
+        assertThat(robotBatteryPercent(fixture.robotId())).isEqualTo(78);
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot.batteryPercent").value(78))
+                // 시각이 없으면 사흘 전 값이 현재값처럼 보인다.
+                .andExpect(jsonPath("$.robot.batteryMeasuredAt").isNotEmpty());
+
+        // 잔량 보고도 장치가 살아 있다는 증거다.
+        assertDeviceState(fixture.jetsonUid(), "ONLINE", true);
+
+        // 같은 값이 다시 와도 시각을 갱신한다. 상태(state)와 다른 점이다. 배터리는 '언제부터
+        // 이 값인지' 가 아니라 '이 값이 얼마나 최근인지' 가 필요하다.
+        LocalDateTime firstMeasuredAt = robotBatteryMeasuredAt(fixture.robotId());
+        jdbcTemplate.update(
+                "UPDATE robot SET battery_measured_at = ? WHERE robot_id = ?",
+                firstMeasuredAt.minusMinutes(10),
+                fixture.robotId());
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "78"));
+        assertThat(robotBatteryMeasuredAt(fixture.robotId())).isAfter(firstMeasuredAt.minusMinutes(10));
+    }
+
+    @Test
+    void batteryIsRejectedFromTheRaspberryAndFromOutOfRangeValues() throws Exception {
+        SensorFixture fixture = createSensorFixture("battery-reject@example.com");
+
+        // robot.battery_percent 가 컬럼 하나라 두 장치가 보내면 서로 덮어써 값이 흔들린다.
+        // 규격상 젯슨만 보내며 서버가 그 규칙을 강제한다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.raspberryUid()),
+                batteryJson(fixture.raspberryUid(), "42"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        // CHECK 제약과 같은 범위다. 여기서 막지 않으면 저장 단계에서 예외가 난다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "101"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        // 페이로드가 다른 장치를 주장한다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson("jetson-somebody-else", "55"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        // 경계값은 통과해야 한다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "0"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isZero();
+    }
+
+    private String statusBatteryTopic(String deviceUid) {
+        return "potner/device/" + deviceUid + "/status/battery";
+    }
+
+    private String batteryJson(String deviceUid, String batteryPercent) {
+        return """
+                {"messageId":"%s","deviceId":"%s","batteryPercent":%s,"measuredAt":"%s"}
+                """.formatted(
+                UUID.randomUUID(),
+                deviceUid,
+                batteryPercent,
+                nowUtc().minusSeconds(5).format(UTC_ISO));
+    }
+
+    private Integer robotBatteryPercent(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT battery_percent FROM robot WHERE robot_id = ?", Integer.class, robotId);
+    }
+
+    private LocalDateTime robotBatteryMeasuredAt(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT battery_measured_at FROM robot WHERE robot_id = ?",
+                LocalDateTime.class,
+                robotId);
     }
 
     @Test

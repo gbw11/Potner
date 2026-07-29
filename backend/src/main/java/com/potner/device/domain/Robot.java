@@ -54,9 +54,13 @@ public class Robot {
     @Column(name = "name", length = 50, nullable = false)
     private String name;
 
-    /** 로봇 고유 데이터라 하위 장치에서 파생할 수 없다. 수집 연동 전까지는 비어 있다. */
+    /** 로봇 고유 데이터라 하위 장치에서 파생할 수 없다. 젯슨이 보고한다. */
     @Column(name = "battery_percent", columnDefinition = "tinyint unsigned")
     private Integer batteryPercent;
+
+    /** 잔량을 받은 시각. 값만 있으면 사흘 전 값이 현재값처럼 보인다. */
+    @Column(name = "battery_measured_at")
+    private LocalDateTime batteryMeasuredAt;
 
     @Column(name = "firmware_version", length = 50)
     private String firmwareVersion;
@@ -109,6 +113,18 @@ public class Robot {
      *
      * @return 상태가 실제로 바뀌었으면 {@code true}
      */
+    /**
+     * 배터리 잔량을 기록한다. 같은 값이 다시 와도 시각을 갱신한다.
+     *
+     * <p>{@link #changeState} 와 다르다. 상태는 "언제부터 이 상태인지"가 필요해서 값이 바뀔
+     * 때만 시각을 옮기지만, 배터리는 "이 값이 얼마나 최근 것인지"가 필요하다. 78% 가 계속
+     * 보고되는 동안 시각이 멈춰 있으면 살아 있는 로봇의 값을 오래된 것으로 오해한다.
+     */
+    public void recordBattery(int batteryPercent, LocalDateTime measuredAt) {
+        this.batteryPercent = batteryPercent;
+        this.batteryMeasuredAt = measuredAt;
+    }
+
     public boolean changeState(RobotState state, LocalDateTime changedAt) {
         if (currentState == state) {
             return false;
@@ -140,6 +156,10 @@ public class Robot {
 
     public Integer getBatteryPercent() {
         return batteryPercent;
+    }
+
+    public LocalDateTime getBatteryMeasuredAt() {
+        return batteryMeasuredAt;
     }
 
     public String getFirmwareVersion() {

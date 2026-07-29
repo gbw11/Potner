@@ -64,6 +64,7 @@ public class DeviceQueryService {
                 connection.status(),
                 connection.lastSeenAt(),
                 robot.getBatteryPercent(),
+                robot.getBatteryMeasuredAt(),
                 robot.getFirmwareVersion(),
                 robot.getCurrentState(),
                 robot.getStateChangedAt(),
