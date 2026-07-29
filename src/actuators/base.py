@@ -79,3 +79,43 @@ class WaterPump(ABC):
 
     def close(self) -> None:  # noqa: B027 — GPIO 구현체만 자원 해제 필요
         pass
+
+
+class Fan(ABC):
+    """송풍 팬 공통 인터페이스. 속도는 PWM duty 0~100%.
+
+    소프트웨어 PWM 은 프로세스가 살아 있는 동안만 유지되므로,
+    CLI 등에서 켠 팬은 프로세스 종료 시 함께 멈춘다.
+    """
+
+    def set_speed(self, speed_pct: float) -> float:
+        """속도 설정 (0=정지, 100=최대). 클램프된 실제 적용값 반환."""
+        clamped = min(max(float(speed_pct), 0.0), 100.0)
+        self._apply_speed(clamped)
+        return clamped
+
+    def on(self, speed_pct: float = 100.0) -> float:
+        return self.set_speed(speed_pct)
+
+    def off(self) -> None:
+        self.set_speed(0.0)
+
+    def run_for(self, seconds: float, speed_pct: float = 100.0) -> None:
+        """seconds 동안 speed_pct 로 가동 후 정지 (blocking, 테스트용)."""
+        if seconds <= 0:
+            raise ValueError(f"가동 시간은 0보다 커야 합니다: {seconds}")
+        import time
+
+        try:
+            self.set_speed(speed_pct)
+            time.sleep(float(seconds))
+        finally:
+            self.off()
+
+    @abstractmethod
+    def _apply_speed(self, speed_pct: float) -> None:
+        """클램프된 0~100 값을 하드웨어에 반영."""
+        raise NotImplementedError
+
+    def close(self) -> None:  # noqa: B027 — GPIO 구현체만 자원 해제 필요
+        pass

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .base import WaterPump
+from .base import Fan, WaterPump
+from .fan import MockFan, MosfetFan
 from .mock import MockWaterPump
 from .pump import L298NWaterPump, RelayWaterPump
 
@@ -48,4 +49,28 @@ def build_pump(config: dict[str, Any]) -> Optional[WaterPump]:
         raise ValueError(f"Unknown pump driver: {driver}")
     except Exception as exc:  # noqa: BLE001 — 펌프 실패해도 다른 기능 유지
         print(f"warn: pump unavailable ({driver}): {exc}")
+        return None
+
+
+def build_fan(config: dict[str, Any]) -> Optional[Fan]:
+    fan_cfg = config.get("fan", {})
+    if not fan_cfg.get("enabled", False):
+        return None
+
+    platform = str(config.get("platform", "mock")).lower()
+    driver = str(fan_cfg.get("driver", "mosfet")).lower()
+    if platform == "mock":
+        driver = "mock"
+
+    try:
+        if driver == "mosfet":
+            return MosfetFan(
+                pin=int(fan_cfg.get("pin", 23)),
+                pwm_hz=float(fan_cfg.get("pwm_hz", 100.0)),
+            )
+        if driver == "mock":
+            return MockFan()
+        raise ValueError(f"Unknown fan driver: {driver}")
+    except Exception as exc:  # noqa: BLE001 — 팬 실패해도 다른 기능 유지
+        print(f"warn: fan unavailable ({driver}): {exc}")
         return None

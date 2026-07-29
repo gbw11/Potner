@@ -99,6 +99,17 @@ pump:
   max_run_sec: 30        # 1회 최대 가동 시간 (과급수 방지)
   default_ml: 100        # dispense --ml 생략 시 기본 급수량
 
+# 송풍용 시로코 팬 — IRF520 MOSFET 모듈 경유 (L298N 무관)
+# 배선(BCM): GPIO23(물리 16번) → SIG, Pi GND → 모듈 GND,
+#            팬 → V+/V-, 12V 외부전원 → VIN/GND (GND 는 Pi 와 공통)
+# 테스트: python -m cli.fan --config config/raspberry_pi.yaml run --sec 10 --speed 100
+fan:
+  enabled: true
+  driver: mosfet         # mosfet | mock
+  pin: 23
+  pwm_hz: 100            # PWM 주파수 (소프트웨어 PWM)
+  default_speed_pct: 100 # --speed 생략 시 풍량
+
 # Spring 백엔드로 온습도 JSON POST
 spring:
   enabled: false

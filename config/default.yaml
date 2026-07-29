@@ -106,6 +106,14 @@ pump:
   max_run_sec: 30
   default_ml: 100
 
+# 송풍용 시로코 팬 — MOSFET 모듈 경유 (PC mock 모드에선 속도 로그만 출력)
+fan:
+  enabled: true
+  driver: mock           # mosfet | mock (platform: mock 이면 항상 mock)
+  pin: 23
+  pwm_hz: 100
+  default_speed_pct: 100
+
 # potner MQTT (Pi에서 사용, mock에선 보통 비활성)
 # main.py 가 interval_sec 마다 센서값만 송신 (상태 문구/heartbeat 없음)
 mqtt:
