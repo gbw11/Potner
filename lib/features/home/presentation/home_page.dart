@@ -63,7 +63,7 @@ class HomePage extends ConsumerWidget {
             onRegisterPlant: () => context.go('/plants/register'),
             onRegisterDevice: () => context.go('/devices/register'),
             onPlantDetail: () => _showComingSoon(context, '나의 식물 상세'),
-            onPhotoLog: () => _showComingSoon(context, '포토 로그'),
+            onPhotoLog: () => context.go('/growth/photos'),
             onCareSettings: () => _showComingSoon(context, '케어 설정'),
           ),
         },

@@ -61,11 +61,13 @@ class MenuPage extends ConsumerWidget {
           id: 'photo_log',
           label: '포토 로그',
           icon: Icons.photo_library_outlined,
+          action: _MenuAction.photoLog,
         ),
         _MenuEntry(
           id: 'growth_comparison',
           label: '성장 비교',
           icon: Icons.compare_arrows_rounded,
+          action: _MenuAction.growthComparison,
         ),
       ],
     ),
@@ -204,6 +206,10 @@ class MenuPage extends ConsumerWidget {
         context.go('/devices');
       case _MenuAction.plantDiary:
         context.go('/growth/diary');
+      case _MenuAction.photoLog:
+        context.go('/growth/photos');
+      case _MenuAction.growthComparison:
+        context.go('/growth/compare');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -353,6 +359,8 @@ enum _MenuAction {
   deviceRegistration,
   deviceManagement,
   plantDiary,
+  photoLog,
+  growthComparison,
   my,
   logout,
   comingSoon,
