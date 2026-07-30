@@ -81,6 +81,66 @@ class FakeDeviceRepository implements DeviceRepository {
     return 'reissued-token-5678';
   }
 
+  final Map<String, List<RobotLocationInfo>> locations = {};
+  final List<({String robotId, RobotLocationType type, String? stationCode})>
+  registerLocationCalls = [];
+  final List<({RobotLocationType type, double x, double y, double yaw})>
+  poseUpdates = [];
+
+  @override
+  Future<List<RobotLocationInfo>> getRobotLocations(String robotId) async {
+    return List.of(locations[robotId] ?? const []);
+  }
+
+  @override
+  Future<RobotLocationInfo> registerRobotLocation({
+    required String robotId,
+    required RobotLocationType type,
+    String? stationCode,
+  }) async {
+    registerLocationCalls.add(
+      (robotId: robotId, type: type, stationCode: stationCode),
+    );
+    final info = RobotLocationInfo(
+      locationId: 'loc-${type.name}',
+      type: type,
+      stationCode: stationCode,
+      poseConfigured: false,
+      waterLow: false,
+    );
+    locations.putIfAbsent(robotId, () => []).add(info);
+    return info;
+  }
+
+  @override
+  Future<RobotLocationInfo> updateLocationPose({
+    required String robotId,
+    required RobotLocationType type,
+    required double x,
+    required double y,
+    required double yaw,
+  }) async {
+    poseUpdates.add((type: type, x: x, y: y, yaw: yaw));
+    final list = locations.putIfAbsent(robotId, () => []);
+    final index = list.indexWhere((location) => location.type == type);
+    final updated = RobotLocationInfo(
+      locationId: 'loc-${type.name}',
+      type: type,
+      stationCode: index >= 0 ? list[index].stationCode : null,
+      poseX: x,
+      poseY: y,
+      poseYaw: yaw,
+      poseConfigured: true,
+      waterLow: index >= 0 && list[index].waterLow,
+    );
+    if (index >= 0) {
+      list[index] = updated;
+    } else {
+      list.add(updated);
+    }
+    return updated;
+  }
+
   @override
   Future<void> unassignPlant(String plantId) async {
     unassignedPlantIds.add(plantId);

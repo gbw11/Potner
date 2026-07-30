@@ -134,6 +134,97 @@ class DeviceApi {
     }
   }
 
+  Future<List<RobotLocationInfo>> getRobotLocations(String robotId) async {
+    try {
+      final response = await _dio.get<Object?>('robots/$robotId/locations');
+      final data = _asMap(response.data);
+      return _asList(data['locations'])
+          .map(_parseLocation)
+          .toList(growable: false);
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    } on FormatException catch (exception) {
+      throw ApiException.invalidResponse(exception);
+    }
+  }
+
+  Future<RobotLocationInfo> registerRobotLocation({
+    required String robotId,
+    required RobotLocationType type,
+    String? stationCode,
+  }) async {
+    try {
+      final response = await _dio.post<Object?>(
+        'robots/$robotId/locations',
+        data: {'type': type.wireName, 'stationCode': ?stationCode},
+      );
+      return _parseLocation(response.data);
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    } on FormatException catch (exception) {
+      throw ApiException.invalidResponse(exception);
+    }
+  }
+
+  Future<RobotLocationInfo> updateLocationPose({
+    required String robotId,
+    required RobotLocationType type,
+    required double x,
+    required double y,
+    required double yaw,
+  }) async {
+    try {
+      final response = await _dio.put<Object?>(
+        'robots/$robotId/locations/${type.wireName}/pose',
+        data: {'x': x, 'y': y, 'yaw': yaw},
+      );
+      return _parseLocation(response.data);
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    } on FormatException catch (exception) {
+      throw ApiException.invalidResponse(exception);
+    }
+  }
+
+  RobotLocationInfo _parseLocation(Object? value) {
+    final location = _asMap(value);
+    return RobotLocationInfo(
+      locationId: _requiredString(location['locationId']),
+      type: _locationType(location['type']),
+      stationCode: _optionalString(location['stationCode']),
+      poseX: _optionalDouble(location['poseX']),
+      poseY: _optionalDouble(location['poseY']),
+      poseYaw: _optionalDouble(location['poseYaw']),
+      poseConfigured: location['poseConfigured'] == true,
+      waterLow: location['waterLow'] == true,
+      waterLowAt: _optionalDateTime(location['waterLowAt']),
+    );
+  }
+
+  RobotLocationType _locationType(Object? value) {
+    return switch (value) {
+      'WATER_STATION' => RobotLocationType.waterStation,
+      'HOME' => RobotLocationType.home,
+      'SUNLIGHT' => RobotLocationType.sunlight,
+      'GREETING' => RobotLocationType.greeting,
+      _ => throw FormatException('Unknown location type: $value'),
+    };
+  }
+
+  double? _optionalDouble(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is num) {
+      return value.toDouble();
+    }
+    final parsed = double.tryParse(value.toString());
+    if (parsed == null) {
+      throw const FormatException('Expected a number.');
+    }
+    return parsed;
+  }
+
   ManagedIotDevice _parseIotDevice(Object? value) {
     final device = _asMap(value);
     return ManagedIotDevice(

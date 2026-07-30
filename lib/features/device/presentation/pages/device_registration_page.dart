@@ -90,7 +90,8 @@ class _DeviceRegistrationPageState
                         decoration: const InputDecoration(
                           hintText: 'Potner 코드를 입력해 주세요',
                           counterText: '',
-                          suffixIcon: Icon(Icons.qr_code_2_rounded),
+                          // 기기 스티커의 고유번호를 손으로 입력한다. QR 스캔이 아니다.
+                          suffixIcon: Icon(Icons.tag_rounded),
                         ),
                         validator: _validateDeviceUid,
                         onChanged: (_) => _clearFormError(),

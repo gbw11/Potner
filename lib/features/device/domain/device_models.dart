@@ -75,6 +75,62 @@ class RobotLiveStatus {
   final DateTime? batteryMeasuredAt;
 }
 
+/// 로봇이 오가는 위치의 종류다. 종류별로 하나만 등록할 수 있다.
+enum RobotLocationType { waterStation, home, sunlight, greeting }
+
+extension RobotLocationTypeSpec on RobotLocationType {
+  String get wireName => switch (this) {
+    RobotLocationType.waterStation => 'WATER_STATION',
+    RobotLocationType.home => 'HOME',
+    RobotLocationType.sunlight => 'SUNLIGHT',
+    RobotLocationType.greeting => 'GREETING',
+  };
+
+  String get label => switch (this) {
+    RobotLocationType.waterStation => '급수 스테이션',
+    RobotLocationType.home => '대기 장소',
+    RobotLocationType.sunlight => '햇빛 자리',
+    RobotLocationType.greeting => '마중 지점',
+  };
+
+  String get description => switch (this) {
+    RobotLocationType.waterStation => '물을 보충하는 곳이에요. 스테이션 코드가 필요해요.',
+    RobotLocationType.home => '할 일이 없을 때 돌아가 쉬는 곳이에요.',
+    RobotLocationType.sunlight => '광량이 모자라면 여기로 데려가요.',
+    RobotLocationType.greeting => '사용자를 맞으러 나가는 자리예요.',
+  };
+
+  /// 물리 장치가 있는 위치인지. 스테이션 코드 필수 여부가 여기서 갈린다.
+  bool get needsStationCode => this == RobotLocationType.waterStation;
+}
+
+/// 등록된 위치 한 곳의 현재 상태다.
+class RobotLocationInfo {
+  const RobotLocationInfo({
+    required this.locationId,
+    required this.type,
+    required this.poseConfigured,
+    required this.waterLow,
+    this.stationCode,
+    this.poseX,
+    this.poseY,
+    this.poseYaw,
+    this.waterLowAt,
+  });
+
+  final String locationId;
+  final RobotLocationType type;
+  final String? stationCode;
+  final double? poseX;
+  final double? poseY;
+  final double? poseYaw;
+
+  /// false 면 좌표 입력 전이라 로봇을 이 위치로 보낼 수 없다.
+  final bool poseConfigured;
+  final bool waterLow;
+  final DateTime? waterLowAt;
+}
+
 /// 로봇 등록 결과다.
 ///
 /// [uploadToken] 원문은 등록 응답에서만 볼 수 있다. 서버는 해시만 저장하므로
