@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_shell.dart';
 import 'package:potner_app/core/navigation/app_section_page.dart';
 import 'package:potner_app/core/router/splash_page.dart';
+import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
@@ -52,9 +53,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) => const HomePage(),
                 routes: [
                   GoRoute(
-                    path: 'devices/register',
-                    builder: (context, state) =>
-                        const DeviceRegistrationPage(),
+                    path: 'devices',
+                    builder: (context, state) => const DeviceManagementPage(),
+                    routes: [
+                      GoRoute(
+                        path: 'register',
+                        builder: (context, state) =>
+                            const DeviceRegistrationPage(),
+                      ),
+                    ],
                   ),
                   GoRoute(
                     path: 'plants',

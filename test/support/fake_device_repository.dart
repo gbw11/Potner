@@ -2,9 +2,21 @@ import 'package:potner_app/features/device/domain/device_models.dart';
 import 'package:potner_app/features/device/domain/device_repository.dart';
 
 class FakeDeviceRepository implements DeviceRepository {
+  FakeDeviceRepository({List<ManagedRobot>? robots})
+    : robots = List.of(robots ?? sampleManagedRobots);
+
+  final List<ManagedRobot> robots;
+  final Map<String, RobotLiveStatus> liveStatuses = {
+    'plant-rose': const RobotLiveStatus(
+      currentState: RobotActivityState.servicing,
+      batteryPercent: 85,
+    ),
+  };
   final List<RegisterRobotCall> registerRobotCalls = [];
   final List<RegisterIotDeviceCall> registerIotDeviceCalls = [];
   final List<AssignCall> assignCalls = [];
+  final List<String> reissuedRobotIds = [];
+  final List<String> unassignedPlantIds = [];
   Object? registerIotDeviceError;
   Object? assignError;
 
@@ -54,7 +66,68 @@ class FakeDeviceRepository implements DeviceRepository {
     }
     assignCalls.add(AssignCall(plantId: plantId, robotId: robotId));
   }
+
+  @override
+  Future<List<ManagedRobot>> getRobots() async => List.of(robots);
+
+  @override
+  Future<RobotLiveStatus?> getPlantRobotStatus(String plantId) async {
+    return liveStatuses[plantId];
+  }
+
+  @override
+  Future<String> reissueUploadToken(String robotId) async {
+    reissuedRobotIds.add(robotId);
+    return 'reissued-token-5678';
+  }
+
+  @override
+  Future<void> unassignPlant(String plantId) async {
+    unassignedPlantIds.add(plantId);
+    for (var i = 0; i < robots.length; i++) {
+      if (robots[i].assignedPlantId == plantId) {
+        robots[i] = ManagedRobot(
+          robotId: robots[i].robotId,
+          deviceUid: robots[i].deviceUid,
+          name: robots[i].name,
+          connectionStatus: robots[i].connectionStatus,
+          devices: robots[i].devices,
+          lastSeenAt: robots[i].lastSeenAt,
+          batteryPercent: robots[i].batteryPercent,
+          firmwareVersion: robots[i].firmwareVersion,
+        );
+      }
+    }
+  }
 }
+
+final sampleManagedRobots = [
+  ManagedRobot(
+    robotId: 'robot-1',
+    deviceUid: 'potner-robot-01',
+    name: '포트니',
+    connectionStatus: DeviceConnectionStatus.online,
+    batteryPercent: 85,
+    firmwareVersion: '1.2.0',
+    assignedPlantId: 'plant-rose',
+    assignedPlantName: '로지',
+    lastSeenAt: DateTime.utc(2026, 7, 30, 8),
+    devices: const [
+      ManagedIotDevice(
+        deviceUid: 'station-01',
+        deviceType: 'RASPBERRY_PI',
+        connectionStatus: DeviceConnectionStatus.online,
+      ),
+    ],
+  ),
+  const ManagedRobot(
+    robotId: 'robot-2',
+    deviceUid: 'potner-robot-02',
+    name: '새싹이',
+    connectionStatus: DeviceConnectionStatus.offline,
+    devices: [],
+  ),
+];
 
 class RegisterRobotCall {
   const RegisterRobotCall({required this.deviceUid, required this.name});

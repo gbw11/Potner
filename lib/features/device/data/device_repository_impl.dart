@@ -41,4 +41,24 @@ class DeviceRepositoryImpl implements DeviceRepository {
   }) {
     return _api.assignRobotToPlant(plantId: plantId, robotId: robotId);
   }
+
+  @override
+  Future<List<ManagedRobot>> getRobots() {
+    return _api.getRobots();
+  }
+
+  @override
+  Future<RobotLiveStatus?> getPlantRobotStatus(String plantId) {
+    return _api.getPlantRobotStatus(plantId);
+  }
+
+  @override
+  Future<String> reissueUploadToken(String robotId) {
+    return _api.reissueUploadToken(robotId);
+  }
+
+  @override
+  Future<void> unassignPlant(String plantId) {
+    return _api.unassignPlant(plantId);
+  }
 }
