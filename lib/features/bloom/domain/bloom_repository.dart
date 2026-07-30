@@ -12,4 +12,7 @@ abstract class BloomRepository {
   });
 
   Future<void> deleteBloom({required String plantId, required String bloomId});
+
+  /// 개화 알림을 읽음 처리한다. 이미 읽은 기록은 처음 확인 시각이 유지된다.
+  Future<void> markRead(String bloomId);
 }

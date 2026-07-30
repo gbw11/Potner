@@ -34,4 +34,9 @@ class BloomRepositoryImpl implements BloomRepository {
   }) {
     return _api.deleteBloom(plantId: plantId, bloomId: bloomId);
   }
+
+  @override
+  Future<void> markRead(String bloomId) {
+    return _api.markRead(bloomId);
+  }
 }
