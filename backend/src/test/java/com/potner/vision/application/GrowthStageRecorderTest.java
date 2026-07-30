@@ -132,6 +132,24 @@ class GrowthStageRecorderTest {
     }
 
     @Test
+    void notifiesOnlyOnceWhileTheStageStaysTheSame() {
+        // 알림은 단계가 바뀔 때 한 번씩만 나간다. 같은 단계가 매일 판정되어도 두 번째부터는
+        // 이벤트가 없다. 이 동작을 이력 기준으로 바꾸면 손으로 되돌린 사용자가 단계가 다시
+        // 올라간 것을 영영 알 수 없게 되므로, 현재 단계로만 막는다는 결정을 여기서 잠근다.
+        Plant plant = givenPlantAtStage(VEGETATIVE_ORDER);
+        givenTargetStage(DetectedGrowthStage.VEGETATIVE, VEGETATIVE_ORDER);
+
+        GrowthStageDetectionResult result = recorder(true)
+                .record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.VEGETATIVE, "0.93"));
+
+        assertThat(result).isEqualTo(GrowthStageDetectionResult.NOT_PROGRESSED);
+        verify(plant, never()).changeLifeStage(any(), any());
+        verify(eventPublisher, never()).publishEvent(any(GrowthStageAdvancedEvent.class));
+        // 알림은 안 가지만 판정 이력은 남는다. 모델이 매일 무엇을 보고 있었는지가 필요하다.
+        assertThat(captureSaved().getDetectedStage()).isEqualTo(DetectedGrowthStage.VEGETATIVE);
+    }
+
+    @Test
     void recordsThatItWouldHaveAdvancedWhenAutoAdvanceIsOff() {
         // 기본 상태다. 이 결과가 쌓인 것을 보고 판정이 맞는지 확인한 뒤 플래그를 켠다.
         Plant plant = givenPlantAtStage(GERMINATION_ORDER);

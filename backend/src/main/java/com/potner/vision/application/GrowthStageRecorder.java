@@ -32,6 +32,17 @@ import java.time.ZoneOffset;
  * <p>단계는 <strong>앞으로만</strong> 간다. {@code plant_life_stage.sort_order} 로 비교해 현재보다
  * 앞선 단계만 올린다. 잎이 무성한 식물의 아래쪽만 찍힌 사진이 발아기로 판정되는 일이 있는데,
  * 그대로 되돌리면 사용자가 쌓아 온 기록이 뒤로 간다.
+ *
+ * <p>그래서 알림은 <strong>단계가 바뀔 때 한 번씩만</strong> 나간다. 같은 단계가 매일 판정되어도
+ * 두 번째부터는 {@code NOT_PROGRESSED} 라 이벤트가 발행되지 않는다. 모델이 아는 단계가 3종이므로
+ * 식물 한 마리가 받는 알림은 일생 동안 최대 세 번이다.
+ *
+ * <p>중복 판정은 <strong>현재 단계로만</strong> 막고 승급 이력을 보지 않는다. 의도된 선택이다.
+ * 사용자가 앱에서 단계를 손으로 되돌리면({@code PATCH /plants/{plantId}/growth-stage} 에 순서
+ * 검증이 없다) 다음 사진에서 같은 알림이 다시 갈 수 있다. 그건 사용자가 되돌린 결과이므로 다시
+ * 알리는 편이 맞다고 보았다. 일생 한 번을 엄격히 보장하려면 {@code photo_growth_analysis} 에서
+ * {@code life_stage_advanced = 1} 인 이력을 함께 봐야 하는데, 그러면 실수로 되돌린 사용자가 단계가
+ * 다시 올라간 것을 영영 알 수 없다.
  */
 @Service
 public class GrowthStageRecorder {
