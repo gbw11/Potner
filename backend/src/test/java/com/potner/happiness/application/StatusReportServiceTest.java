@@ -4,6 +4,7 @@ import com.potner.alert.domain.Alert;
 import com.potner.alert.domain.AlertMetricType;
 import com.potner.alert.domain.AlertRepository;
 import com.potner.bloom.domain.PlantBloomRepository;
+import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
 import com.potner.device.domain.IotDeviceType;
@@ -64,6 +65,9 @@ class StatusReportServiceTest {
     @Mock
     private SensorReadingRepository sensorReadingRepository;
 
+    @Mock
+    private DeviceCommandRepository deviceCommandRepository;
+
     private StatusReportService statusReportService;
 
     @BeforeEach
@@ -74,6 +78,7 @@ class StatusReportServiceTest {
                 bloomRepository,
                 dailyLightRepository,
                 sensorReadingRepository,
+                deviceCommandRepository,
                 new HappinessProperties(
                         true,
                         new BigDecimal("0.5"),

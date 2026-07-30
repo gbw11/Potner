@@ -3,6 +3,7 @@ package com.potner.happiness.application;
 import com.potner.alert.domain.Alert;
 import com.potner.alert.domain.AlertRepository;
 import com.potner.bloom.domain.PlantBloomRepository;
+import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
 import com.potner.happiness.config.HappinessProperties;
@@ -17,7 +18,6 @@ import com.potner.sensor.domain.SensorReadingRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -48,6 +48,7 @@ public class StatusReportService {
     private final PlantBloomRepository bloomRepository;
     private final PlantDailyLightRepository dailyLightRepository;
     private final SensorReadingRepository sensorReadingRepository;
+    private final DeviceCommandRepository deviceCommandRepository;
     private final HappinessProperties properties;
     private final SensorQueryProperties sensorQueryProperties;
 
@@ -57,6 +58,7 @@ public class StatusReportService {
             PlantBloomRepository bloomRepository,
             PlantDailyLightRepository dailyLightRepository,
             SensorReadingRepository sensorReadingRepository,
+            DeviceCommandRepository deviceCommandRepository,
             HappinessProperties properties,
             SensorQueryProperties sensorQueryProperties
     ) {
@@ -65,6 +67,7 @@ public class StatusReportService {
         this.bloomRepository = bloomRepository;
         this.dailyLightRepository = dailyLightRepository;
         this.sensorReadingRepository = sensorReadingRepository;
+        this.deviceCommandRepository = deviceCommandRepository;
         this.properties = properties;
         this.sensorQueryProperties = sensorQueryProperties;
     }
@@ -89,7 +92,8 @@ public class StatusReportService {
                     null,
                     List.of(),
                     dailyLight.map(PlantDailyLight::getLightHours).orElse(null),
-                    null
+                    // 급수는 측정과 별개 경로라 센서가 조용했던 날에도 있을 수 있다.
+                    deviceCommandRepository.sumDispensedMlBetween(plantId, fromUtc, toUtc)
             );
         }
 
@@ -119,8 +123,8 @@ public class StatusReportService {
                 Math.clamp(score, 0, FULL_SCORE),
                 adjustments,
                 dailyLight.map(PlantDailyLight::getLightHours).orElse(null),
-                // 급수 기록이 아직 없다. 급수 작업이 붙으면 그날 급수량 합계가 들어온다.
-                (BigDecimal) null
+                // 그날 실제 급수량의 합이다. 급수 기록이 없으면 null 로, 0 과 구분된다.
+                deviceCommandRepository.sumDispensedMlBetween(plantId, fromUtc, toUtc)
         );
     }
 
