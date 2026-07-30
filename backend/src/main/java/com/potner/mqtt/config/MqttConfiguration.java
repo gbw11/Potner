@@ -24,7 +24,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         MqttHeartbeatProperties.class,
         MqttRobotStateProperties.class,
         MqttBatteryProperties.class,
-        MqttCommandProperties.class
+        MqttCommandProperties.class,
+        MqttCommandResultProperties.class
 })
 @EnableScheduling
 public class MqttConfiguration {
@@ -100,6 +101,7 @@ public class MqttConfiguration {
             MqttHeartbeatProperties heartbeatProperties,
             MqttRobotStateProperties robotStateProperties,
             MqttBatteryProperties batteryProperties,
+            MqttCommandResultProperties commandResultProperties,
             MqttPahoClientFactory mqttClientFactory,
             MessageChannel mqttInputChannel
     ) {
@@ -109,7 +111,8 @@ public class MqttConfiguration {
                 properties.topic(),
                 heartbeatProperties.topic(),
                 robotStateProperties.topic(),
-                batteryProperties.topic()
+                batteryProperties.topic(),
+                commandResultProperties.topic()
         );
         // 값을 하나만 준다. 토픽 수만큼 넘기는 형태였는데, 토픽을 추가할 때마다 인자를 늘려야
         // 하고 빠뜨리면 개수 불일치로 기동이 실패한다. 하나면 모든 토픽에 같은 QoS 가 걸린다.
@@ -118,13 +121,15 @@ public class MqttConfiguration {
 
         log.info(
                 "MQTT subscriber configured: broker={}, clientId={}, sensorTopic={}, "
-                        + "heartbeatTopic={}, robotStateTopic={}, batteryTopic={}, qos={}",
+                        + "heartbeatTopic={}, robotStateTopic={}, batteryTopic={}, "
+                        + "commandResultTopic={}, qos={}",
                 properties.brokerUrl(),
                 properties.clientId(),
                 properties.topic(),
                 heartbeatProperties.topic(),
                 robotStateProperties.topic(),
                 batteryProperties.topic(),
+                commandResultProperties.topic(),
                 properties.qos()
         );
         return adapter;
