@@ -1,9 +1,10 @@
-"""Periodic potner MQTT publisher (sensor telemetry only)."""
+"""Periodic potner MQTT publisher (sensor telemetry + heartbeat)."""
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -12,7 +13,7 @@ import paho.mqtt.client as mqtt
 
 from ..device import resolve_device_id
 from .client import _make_client
-from .payloads import telemetry_payload
+from .payloads import heartbeat_payload, telemetry_payload
 
 
 @dataclass(frozen=True)
@@ -28,13 +29,16 @@ def _utc_now_z() -> str:
 
 class MqttTelemetryPublisher:
     """
-    Collector reading → potner MQTT sensor messages only.
+    Collector reading → potner MQTT sensor messages + heartbeat.
 
-    Sends available metrics (no status text, no heartbeat):
+    Sends available metrics (no status text):
       - TEMPERATURE / CELSIUS
       - HUMIDITY / PERCENT
       - ILLUMINANCE / LUX
       - SOIL_MOISTURE / PERCENT
+
+    heartbeat 는 connect() 이후 백그라운드 스레드가 주기 발행한다.
+    서버는 90초간 heartbeat 가 없으면 OFFLINE 으로 표시한다.
     """
 
     def __init__(
@@ -47,6 +51,8 @@ class MqttTelemetryPublisher:
         username: str | None = None,
         password: str | None = None,
         telemetry_topic: str | None = None,
+        heartbeat_topic: str | None = None,
+        heartbeat_interval_sec: float = 30.0,
         enabled: bool = True,
         timeout: float = 5.0,
     ) -> None:
@@ -58,8 +64,12 @@ class MqttTelemetryPublisher:
         self.username = username
         self.password = password or ""
         self.telemetry_topic = telemetry_topic or f"potner/device/{device_id}/sensor/telemetry"
+        self.heartbeat_topic = heartbeat_topic or f"potner/device/{device_id}/status/heartbeat"
+        self.heartbeat_interval_sec = heartbeat_interval_sec
         self.timeout = timeout
         self._client: Optional[mqtt.Client] = None
+        self._hb_thread: Optional[threading.Thread] = None
+        self._hb_stop = threading.Event()
 
     def connect(self) -> None:
         if not self.enabled or self._client is not None:
@@ -69,12 +79,18 @@ class MqttTelemetryPublisher:
                 "MQTT username/password 가 없습니다. "
                 "mqtt.username / MQTT_PASSWORD 를 설정하세요."
             )
-        client = _make_client(username=self.username, password=self.password)
+        client = _make_client(
+            username=self.username,
+            password=self.password,
+            client_id=f"{self.device_id}-collector",
+        )
         client.connect(self.host, self.port, keepalive=60)
         client.loop_start()
         self._client = client
+        self._start_heartbeat()
 
     def close(self) -> None:
+        self._stop_heartbeat()
         client = self._client
         self._client = None
         if client is None:
@@ -83,6 +99,47 @@ class MqttTelemetryPublisher:
             client.loop_stop()
         finally:
             client.disconnect()
+
+    # --- heartbeat ---
+
+    def _start_heartbeat(self) -> None:
+        if self.heartbeat_interval_sec <= 0 or self._hb_thread is not None:
+            return
+        self._hb_stop = threading.Event()
+        thread = threading.Thread(
+            target=self._heartbeat_loop, name="mqtt-heartbeat", daemon=True
+        )
+        thread.start()
+        self._hb_thread = thread
+
+    def _stop_heartbeat(self) -> None:
+        thread = self._hb_thread
+        self._hb_thread = None
+        if thread is None:
+            return
+        self._hb_stop.set()
+        thread.join(timeout=2.0)
+
+    def _heartbeat_loop(self) -> None:
+        stop = self._hb_stop
+        while not stop.is_set():
+            self._publish_heartbeat()
+            stop.wait(self.heartbeat_interval_sec)
+
+    def _publish_heartbeat(self) -> None:
+        client = self._client
+        if client is None:
+            return
+        payload = heartbeat_payload(device_id=self.device_id, sent_at=_utc_now_z())
+        try:
+            client.publish(
+                self.heartbeat_topic,
+                json.dumps(payload, ensure_ascii=False),
+                qos=self.qos,
+                retain=False,
+            )
+        except Exception as exc:  # noqa: BLE001 — heartbeat 실패해도 수집은 계속
+            print(f"[mqtt] heartbeat publish failed: {exc}")
 
     def build_messages(self, reading: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         measured_at = _utc_now_z()
@@ -151,6 +208,9 @@ def build_mqtt_publisher(config: dict[str, Any]) -> MqttTelemetryPublisher:
     topic = cfg.get("telemetry_topic")
     if not topic:
         topic = f"potner/device/{device_id}/sensor/telemetry"
+    hb_topic = cfg.get("heartbeat_topic")
+    if not hb_topic:
+        hb_topic = f"potner/device/{device_id}/status/heartbeat"
     return MqttTelemetryPublisher(
         host=str(cfg.get("host", "127.0.0.1")),
         port=int(cfg.get("port", 1883)),
@@ -159,5 +219,7 @@ def build_mqtt_publisher(config: dict[str, Any]) -> MqttTelemetryPublisher:
         username=str(username) if username else None,
         password=str(password) if password else None,
         telemetry_topic=str(topic),
+        heartbeat_topic=str(hb_topic),
+        heartbeat_interval_sec=float(cfg.get("heartbeat_interval_sec", 30)),
         enabled=bool(cfg.get("enabled", False)),
     )

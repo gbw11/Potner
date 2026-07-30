@@ -13,8 +13,11 @@ def _make_client(
     *,
     username: str | None = None,
     password: str | None = None,
+    client_id: str | None = None,
 ) -> mqtt.Client:
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    # client_id 는 브로커 전체에서 유일해야 한다. 서버(potner-backend-prod)와
+    # 겹치면 브로커가 기존 세션을 끊어 서로를 계속 밀어낸다.
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id or "")
     if username:
         client.username_pw_set(username, password or "")
     return client

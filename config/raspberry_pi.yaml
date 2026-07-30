@@ -116,18 +116,22 @@ spring:
   url: http://127.0.0.1:18080/api/sensors/climate
 
 # potner MQTT (SSAFY 브로커)
-# main.py 가 interval_sec(5초) 마다 센서값만 송신 (상태 문구/heartbeat 없음)
-# device_id: auto → Pi 보드 시리얼. 브로커 ACL용 토픽은 아래 telemetry_topic 유지.
+# main.py 가 interval_sec(5초) 마다 센서값 송신 + 30초 주기 heartbeat 발행
+# device_id 는 토픽 세그먼트·페이로드 deviceId·서버 등록 deviceUid·mosquitto 계정이
+# 전부 같은 문자열이어야 한다 (서버가 대소문자까지 String.equals 로 대조).
+# auto(보드 시리얼)로 두면 토픽의 raspberry-01 과 불일치해 서버가 전부 버린다.
 # password 는 가능하면 환경변수 MQTT_PASSWORD 로 두고, yaml 에는 넣지 마세요.
 mqtt:
   enabled: true
   host: i15e104.p.ssafy.io
   port: 1884
   qos: 1
-  device_id: auto
+  device_id: raspberry-01
   username: raspberry-01
   password: ""  # set via MQTT_PASSWORD env
+  heartbeat_interval_sec: 30  # 서버는 90초 무소식이면 OFFLINE 처리
   telemetry_topic: potner/device/raspberry-01/sensor/telemetry
+  heartbeat_topic: potner/device/raspberry-01/status/heartbeat
   # 서버 → Pi 급수 명령 ({"ml": 150, "requestId": "..."}), Pi → 서버 결과 회신
   water_command_topic: potner/device/raspberry-01/command/water
   water_result_topic: potner/device/raspberry-01/command/water/result

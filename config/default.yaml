@@ -115,13 +115,16 @@ fan:
   default_speed_pct: 100
 
 # potner MQTT (Pi에서 사용, mock에선 보통 비활성)
-# main.py 가 interval_sec 마다 센서값만 송신 (상태 문구/heartbeat 없음)
+# main.py 가 interval_sec 마다 센서값 송신 + 30초 주기 heartbeat 발행
+# device_id 는 토픽·페이로드·서버 등록 deviceUid 와 같은 문자열이어야 한다 (대소문자 구분)
 mqtt:
   enabled: false
   host: i15e104.p.ssafy.io
   port: 1884
   qos: 1
-  device_id: auto
+  device_id: raspberry-01
   username: raspberry-01
   password: ""
+  heartbeat_interval_sec: 30
   telemetry_topic: potner/device/raspberry-01/sensor/telemetry
+  heartbeat_topic: potner/device/raspberry-01/status/heartbeat

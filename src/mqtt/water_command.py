@@ -80,7 +80,11 @@ class WaterCommandListener:
                 "MQTT username/password 가 없습니다. "
                 "mqtt.username / MQTT_PASSWORD 를 설정하세요."
             )
-        client = _make_client(username=self.username, password=self.password)
+        client = _make_client(
+            username=self.username,
+            password=self.password,
+            client_id=f"{self.device_id}-water",
+        )
         client.on_message = self._on_message
 
         def _on_connect(c, _userdata, _flags, reason_code, _props=None) -> None:

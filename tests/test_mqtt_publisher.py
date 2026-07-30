@@ -85,3 +85,74 @@ def test_build_mqtt_publisher_from_config(monkeypatch):
     assert publisher.username == "raspberry-01"
     assert publisher.password == "secret"
     assert publisher.device_id == "raspberry-01"
+    assert publisher.telemetry_topic == "potner/device/raspberry-01/sensor/telemetry"
+    assert publisher.heartbeat_topic == "potner/device/raspberry-01/status/heartbeat"
+    assert publisher.heartbeat_interval_sec == 30.0
+
+
+class _FakeInfo:
+    def wait_for_publish(self, timeout=None):
+        pass
+
+    def is_published(self):
+        return True
+
+
+class _FakeClient:
+    def __init__(self):
+        self.published: list[tuple[str, str]] = []
+
+    def publish(self, topic, payload, qos=0, retain=False):
+        self.published.append((topic, payload))
+        return _FakeInfo()
+
+    def loop_stop(self):
+        pass
+
+    def disconnect(self):
+        pass
+
+
+def test_heartbeat_publishes_on_interval():
+    import json
+    import time
+
+    publisher = MqttTelemetryPublisher(
+        host="127.0.0.1",
+        device_id="raspberry-01",
+        heartbeat_interval_sec=0.05,
+        enabled=True,
+    )
+    fake = _FakeClient()
+    publisher._client = fake  # 실제 브로커 없이 발행 경로만 검증
+    publisher._start_heartbeat()
+    time.sleep(0.2)
+    publisher.close()
+
+    assert len(fake.published) >= 2
+    topic, raw = fake.published[0]
+    assert topic == "potner/device/raspberry-01/status/heartbeat"
+    payload = json.loads(raw)
+    assert payload["deviceId"] == "raspberry-01"
+    assert set(payload) == {"messageId", "deviceId", "sentAt"}
+    ids = {json.loads(raw)["messageId"] for _, raw in fake.published}
+    assert len(ids) == len(fake.published)
+
+
+def test_heartbeat_stops_after_close():
+    import time
+
+    publisher = MqttTelemetryPublisher(
+        host="127.0.0.1",
+        device_id="raspberry-01",
+        heartbeat_interval_sec=0.05,
+        enabled=True,
+    )
+    fake = _FakeClient()
+    publisher._client = fake
+    publisher._start_heartbeat()
+    time.sleep(0.1)
+    publisher.close()
+    count = len(fake.published)
+    time.sleep(0.15)
+    assert len(fake.published) == count

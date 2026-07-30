@@ -51,11 +51,19 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
 
     interval = float(config.get("interval_sec", 5))
-    mqtt_note = (
-        f"on {mqtt_publisher.host}:{mqtt_publisher.port}"
-        if mqtt_publisher.enabled
-        else "off"
-    )
+    mqtt_note = "off"
+    if mqtt_publisher.enabled:
+        # 하트비트는 connect 시점부터 백그라운드로 발행된다. 여기서 실패해도
+        # publish 루프가 매 주기 재접속을 시도하므로 수집은 계속한다.
+        try:
+            mqtt_publisher.connect()
+            mqtt_note = (
+                f"on {mqtt_publisher.host}:{mqtt_publisher.port} "
+                f"hb={mqtt_publisher.heartbeat_interval_sec:.0f}s"
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"warn: mqtt connect failed (will retry): {exc}")
+            mqtt_note = f"retrying {mqtt_publisher.host}:{mqtt_publisher.port}"
     water_note = "off"
     if water_listener is not None:
         try:
