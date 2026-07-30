@@ -1,0 +1,192 @@
+package com.potner.command.domain;
+
+import com.potner.location.domain.RobotLocationType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/**
+ * 서버가 장치에 보낸 명령 한 건이다.
+ *
+ * <p>{@code requestId} 가 PK 이자 매칭 열쇠다. 서버가 발급해 페이로드에 싣고, 장치는 회신에
+ * 그대로 되돌린다. 라즈베리 수신기가 이 반향을 이미 구현했다.
+ *
+ * <p>{@code deviceUid} 를 비정규화해 둔다. 회신 토픽의 세그먼트와 대조해야 하는데, iot_device
+ * 를 조인하면 회신 처리가 매번 두 테이블을 탄다. 명령을 받은 장치는 바뀌지 않으므로 안전하다.
+ */
+@Entity
+@Table(name = "device_command")
+public class DeviceCommand {
+
+    @Id
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "request_id", length = 36, nullable = false, columnDefinition = "char(36)")
+    private String requestId;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "plant_id", length = 36, nullable = false, columnDefinition = "char(36)")
+    private String plantId;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "robot_id", length = 36, nullable = false, columnDefinition = "char(36)")
+    private String robotId;
+
+    @Column(name = "device_uid", length = 100, nullable = false)
+    private String deviceUid;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "command_type", length = 10, nullable = false)
+    private DeviceCommandType commandType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 10, nullable = false)
+    private DeviceCommandStatus status;
+
+    @Column(name = "requested_ml", precision = 10, scale = 2)
+    private BigDecimal requestedMl;
+
+    /** NAVIGATE 만. 목적지 위치 종류다. 좌표는 발행 시점의 robot_location 에서 꺼내 실었다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "destination", length = 20)
+    private RobotLocationType destination;
+
+    /** FAN 만. 1회 가동 시간(초)이다. */
+    @Column(name = "run_seconds")
+    private Integer runSeconds;
+
+    @Column(name = "dispensed_ml", precision = 10, scale = 2)
+    private BigDecimal dispensedMl;
+
+    @Column(name = "error_message", length = 200)
+    private String errorMessage;
+
+    @Column(name = "result_message_id", length = 100)
+    private String resultMessageId;
+
+    @Column(name = "issued_at", nullable = false)
+    private LocalDateTime issuedAt;
+
+    @Column(name = "reported_at")
+    private LocalDateTime reportedAt;
+
+    protected DeviceCommand() {
+    }
+
+    public static DeviceCommand issue(
+            String plantId,
+            String robotId,
+            String deviceUid,
+            DeviceCommandType commandType,
+            BigDecimal requestedMl,
+            RobotLocationType destination,
+            Integer runSeconds,
+            LocalDateTime issuedAt
+    ) {
+        DeviceCommand command = new DeviceCommand();
+        command.requestId = UUID.randomUUID().toString();
+        command.plantId = plantId;
+        command.robotId = robotId;
+        command.deviceUid = deviceUid;
+        command.commandType = commandType;
+        command.status = DeviceCommandStatus.ISSUED;
+        command.requestedMl = requestedMl;
+        command.destination = destination;
+        command.runSeconds = runSeconds;
+        command.issuedAt = issuedAt;
+        return command;
+    }
+
+    /**
+     * 장치 회신을 반영한다.
+     *
+     * <p>{@code TIMED_OUT} 위에도 덮어쓴다. 타임아웃은 서버의 추정이고 회신은 물리적 사실이라
+     * 늦게 온 회신이 이긴다 — 특히 실제 급수량은 일기에 실리므로 버리면 기록이 틀어진다.
+     * 중복 회신 여부는 서비스가 {@code resultMessageId} 로 먼저 거른다.
+     */
+    public void applyResult(
+            DeviceCommandStatus reported,
+            BigDecimal dispensedMl,
+            String errorMessage,
+            String resultMessageId,
+            LocalDateTime reportedAt
+    ) {
+        this.status = reported;
+        this.dispensedMl = dispensedMl;
+        this.errorMessage = truncate(errorMessage);
+        this.resultMessageId = resultMessageId;
+        this.reportedAt = reportedAt;
+    }
+
+    /** 장치 회신 문구는 길이를 통제할 수 없다. 컬럼 상한에 맞춰 자른다. */
+    private static String truncate(String message) {
+        if (message == null || message.length() <= 200) {
+            return message;
+        }
+        return message.substring(0, 200);
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public String getPlantId() {
+        return plantId;
+    }
+
+    public String getRobotId() {
+        return robotId;
+    }
+
+    public String getDeviceUid() {
+        return deviceUid;
+    }
+
+    public DeviceCommandType getCommandType() {
+        return commandType;
+    }
+
+    public DeviceCommandStatus getStatus() {
+        return status;
+    }
+
+    public BigDecimal getRequestedMl() {
+        return requestedMl;
+    }
+
+    public RobotLocationType getDestination() {
+        return destination;
+    }
+
+    public Integer getRunSeconds() {
+        return runSeconds;
+    }
+
+    public BigDecimal getDispensedMl() {
+        return dispensedMl;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public String getResultMessageId() {
+        return resultMessageId;
+    }
+
+    public LocalDateTime getIssuedAt() {
+        return issuedAt;
+    }
+
+    public LocalDateTime getReportedAt() {
+        return reportedAt;
+    }
+}

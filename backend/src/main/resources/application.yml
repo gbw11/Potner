@@ -84,6 +84,10 @@ potner:
     # 배터리 잔량 구독이다. 어느 장치를 신뢰하는지는 potner.device.battery-reporter-type 이 정한다.
     battery:
       topic: ${MQTT_BATTERY_TOPIC:potner/device/+/status/battery}
+    # 급수 스테이션 물 부족 보고 구독이다. 스테이션 수위 센서를 읽는 라즈베리가 보낸다.
+    # 부족으로 바뀔 때만 사용자에게 푸시가 나가고, 보충(false) 보고가 플래그를 내린다.
+    water-low:
+      topic: ${MQTT_WATER_LOW_TOPIC:potner/device/+/status/water-low}
     # 서버 → 로봇 명령이다. 수신 토픽과 접두사를 맞추고 command/ 아래로 모은다.
     # {deviceUid} 와 {command} 는 발행할 때 치환한다.
     command:
@@ -92,6 +96,20 @@ potner:
       # 재접속에 빠져 센서 수집까지 멈추므로 접미사로 갈라 둔다.
       client-id-suffix: ${MQTT_COMMAND_CLIENT_ID_SUFFIX:-command}
       qos: ${MQTT_COMMAND_QOS:1}
+    # 장치가 명령 수행 결과를 회신하는 토픽이다. 와일드카드로 받는 이유는 명령 종류가 늘 때마다
+    # 구독을 추가하면 브로커 재접속이 필요하기 때문이다. 어떤 결과인지는 토픽 파서가 가린다.
+    # 브로커 ACL 의 장치 쓰기 권한(pattern write .../result/#)과 서버 읽기 권한이 이미 이 경로다.
+    command-result:
+      topic: ${MQTT_COMMAND_RESULT_TOPIC:potner/device/+/result/#}
+  # 장치 명령의 타임아웃이다. potner.mqtt.* 아래가 아닌 이유는 battery-reporter-type 과 같다 —
+  # 브로커를 끈 환경에서도 명령 이력 조회 서비스는 떠야 한다.
+  device-command:
+    # 급수는 펌프 1회 최대 30초 + 무선 왕복 여유다. 너무 짧으면 정상 급수가 타임아웃으로
+    # 기록되고, 너무 길면 죽은 장치가 다음 명령을 그 시간만큼 막는다.
+    timeout-seconds: ${DEVICE_COMMAND_TIMEOUT_SECONDS:120}
+    timeout-check-interval-seconds: ${DEVICE_COMMAND_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
+    # 송풍 1회 기본 가동 시간(초). 말리기는 짧은 가동과 수분 재측정의 반복이라 짧게 잡는다.
+    fan-run-seconds: ${DEVICE_COMMAND_FAN_RUN_SECONDS:30}
   device:
     # 배터리 잔량을 보고하도록 정한 장치다. robot.battery_percent 가 컬럼 하나라 두 장치가
     # 보내면 서로 덮어쓴다. 배터리 센서가 라즈베리로 옮겨가면 RASPBERRY_PI 로 바꾼다.

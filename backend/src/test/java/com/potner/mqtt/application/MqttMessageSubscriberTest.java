@@ -1,5 +1,6 @@
 package com.potner.mqtt.application;
 
+import com.potner.command.application.CommandResultMessageProcessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.integration.mqtt.support.MqttHeaders;
@@ -27,6 +28,8 @@ class MqttMessageSubscriberTest {
     private HeartbeatMessageProcessor heartbeatProcessor;
     private RobotStateMessageProcessor robotStateProcessor;
     private BatteryMessageProcessor batteryProcessor;
+    private CommandResultMessageProcessor commandResultProcessor;
+    private WaterLowMessageProcessor waterLowProcessor;
     private MqttMessageSubscriber subscriber;
 
     @BeforeEach
@@ -35,12 +38,47 @@ class MqttMessageSubscriberTest {
         heartbeatProcessor = mock(HeartbeatMessageProcessor.class);
         robotStateProcessor = mock(RobotStateMessageProcessor.class);
         batteryProcessor = mock(BatteryMessageProcessor.class);
+        commandResultProcessor = mock(CommandResultMessageProcessor.class);
+        waterLowProcessor = mock(WaterLowMessageProcessor.class);
         subscriber = new MqttMessageSubscriber(
                 sensorProcessor,
                 heartbeatProcessor,
                 robotStateProcessor,
-                batteryProcessor
+                batteryProcessor,
+                commandResultProcessor,
+                waterLowProcessor
         );
+    }
+
+    @Test
+    void delegatesWaterLowTopicToItsProcessor() {
+        Message<String> message = new GenericMessage<>(
+                "{\"waterLow\":true}",
+                Map.of(MqttHeaders.RECEIVED_TOPIC, "potner/device/raspberry-01/status/water-low")
+        );
+
+        subscriber.receive(message);
+
+        verify(waterLowProcessor)
+                .process("potner/device/raspberry-01/status/water-low", "{\"waterLow\":true}");
+        verify(batteryProcessor, never()).process(
+                "potner/device/raspberry-01/status/water-low", "{\"waterLow\":true}");
+    }
+
+    @Test
+    void delegatesCommandResultTopics() {
+        // 결과 회신은 마지막 조각이 명령 이름이라 접미사가 고정이 아니다. /result/ 구간으로 가른다.
+        Message<String> message = new GenericMessage<>(
+                "{\"status\":\"OK\"}",
+                Map.of(MqttHeaders.RECEIVED_TOPIC, "potner/device/raspberry-01/result/water")
+        );
+
+        subscriber.receive(message);
+
+        verify(commandResultProcessor)
+                .process("potner/device/raspberry-01/result/water", "{\"status\":\"OK\"}");
+        verify(sensorProcessor, never()).process(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

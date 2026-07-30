@@ -1,5 +1,6 @@
 package com.potner.mqtt.application;
 
+import com.potner.command.application.CommandResultMessageProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -20,22 +21,35 @@ public class MqttMessageSubscriber {
     private static final String HEARTBEAT_TOPIC_SUFFIX = "/status/heartbeat";
     private static final String ROBOT_STATE_TOPIC_SUFFIX = "/status/state";
     private static final String BATTERY_TOPIC_SUFFIX = "/status/battery";
+    private static final String WATER_LOW_TOPIC_SUFFIX = "/status/water-low";
+
+    /**
+     * 결과 회신은 마지막 조각이 명령 이름이라 접미사가 고정이 아니다. {@code /result/} 구간의
+     * 존재로 가르고, 어떤 명령의 결과인지는 처리기의 토픽 파서가 다시 본다.
+     */
+    private static final String COMMAND_RESULT_TOPIC_MARKER = "/result/";
 
     private final SensorTelemetryMessageProcessor sensorProcessor;
     private final HeartbeatMessageProcessor heartbeatProcessor;
     private final RobotStateMessageProcessor robotStateProcessor;
     private final BatteryMessageProcessor batteryProcessor;
+    private final CommandResultMessageProcessor commandResultProcessor;
+    private final WaterLowMessageProcessor waterLowProcessor;
 
     public MqttMessageSubscriber(
             SensorTelemetryMessageProcessor sensorProcessor,
             HeartbeatMessageProcessor heartbeatProcessor,
             RobotStateMessageProcessor robotStateProcessor,
-            BatteryMessageProcessor batteryProcessor
+            BatteryMessageProcessor batteryProcessor,
+            CommandResultMessageProcessor commandResultProcessor,
+            WaterLowMessageProcessor waterLowProcessor
     ) {
         this.sensorProcessor = sensorProcessor;
         this.heartbeatProcessor = heartbeatProcessor;
         this.robotStateProcessor = robotStateProcessor;
         this.batteryProcessor = batteryProcessor;
+        this.commandResultProcessor = commandResultProcessor;
+        this.waterLowProcessor = waterLowProcessor;
     }
 
     @ServiceActivator(inputChannel = "mqttInputChannel")
@@ -66,6 +80,10 @@ public class MqttMessageSubscriber {
                 robotStateProcessor.process(topic, rawPayload);
             } else if (topic.endsWith(BATTERY_TOPIC_SUFFIX)) {
                 batteryProcessor.process(topic, rawPayload);
+            } else if (topic.endsWith(WATER_LOW_TOPIC_SUFFIX)) {
+                waterLowProcessor.process(topic, rawPayload);
+            } else if (topic.contains(COMMAND_RESULT_TOPIC_MARKER)) {
+                commandResultProcessor.process(topic, rawPayload);
             } else {
                 log.warn("MQTT message ignored because the topic is unsupported: topic={}", topic);
             }
