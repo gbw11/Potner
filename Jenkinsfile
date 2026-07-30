@@ -117,6 +117,10 @@ pipeline {
 
         stage('Android Debug Build') {
             steps {
+                // Gradle 캐시 볼륨은 프로세스 간 동시 사용이 안 된다. 브랜치 빌드가
+                // 병렬로 돌면 journal-1.lock 경합으로 60초 대기 후 죽으므로, 공유
+                // 볼륨의 잠금 파일에 flock 을 걸어 Gradle 단계만 직렬화한다.
+                // 대기 상한(-w)은 파이프라인 타임아웃(40분)보다 짧게 둔다.
                 sh '''
                     set -eux
 
@@ -128,6 +132,7 @@ pipeline {
                       -w "$WORKSPACE" \
                       -e PUB_CACHE=/pub-cache \
                       "$FLUTTER_IMAGE" \
+                      flock -w 1500 /var/jenkins_home/potner-gradle-ci.lock \
                       flutter build apk --debug
 
                     ls -la build/app/outputs/flutter-apk/
@@ -152,6 +157,7 @@ pipeline {
                       -w "$WORKSPACE" \
                       -e PUB_CACHE=/pub-cache \
                       "$FLUTTER_IMAGE" \
+                      flock -w 1500 /var/jenkins_home/potner-gradle-ci.lock \
                       flutter build appbundle --release
 
                     ls -la build/app/outputs/bundle/release/
