@@ -11,6 +11,7 @@ import 'package:potner_app/features/auth/presentation/pages/signup_complete_page
 import 'package:potner_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:potner_app/features/home/presentation/home_page.dart';
 import 'package:potner_app/features/menu/presentation/pages/menu_page.dart';
+import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 
@@ -41,7 +42,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         branches: [
           StatefulShellBranch(
             routes: [
-              GoRoute(path: '/', builder: (context, state) => const HomePage()),
+              GoRoute(
+                path: '/',
+                builder: (context, state) => const HomePage(),
+                routes: [
+                  GoRoute(
+                    path: 'plants/register',
+                    builder: (context, state) => const PlantRegistrationPage(),
+                  ),
+                ],
+              ),
             ],
           ),
           StatefulShellBranch(
