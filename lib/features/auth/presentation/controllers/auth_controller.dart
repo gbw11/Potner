@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:potner_app/core/api/session_invalidation_notifier.dart';
+import 'package:potner_app/core/notifications/push_notification_controller.dart';
 import 'package:potner_app/features/auth/data/auth_repository_impl.dart';
 import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
@@ -21,7 +22,14 @@ class AuthController extends Notifier<AuthState> {
     final subscription = ref
         .read(sessionInvalidationNotifierProvider)
         .events
-        .listen((_) => state = const AuthState.unauthenticated());
+        .listen((_) {
+          unawaited(
+            ref
+                .read(pushNotificationControllerProvider.notifier)
+                .deactivate(unregister: false),
+          );
+          state = const AuthState.unauthenticated();
+        });
     ref.onDispose(subscription.cancel);
     Future.microtask(restoreSession);
     return const AuthState.initializing();
@@ -50,6 +58,11 @@ class AuthController extends Notifier<AuthState> {
       state = user == null
           ? const AuthState.unauthenticated()
           : AuthState(status: AuthStatus.authenticated, user: user);
+      if (user != null) {
+        unawaited(
+          ref.read(pushNotificationControllerProvider.notifier).activate(),
+        );
+      }
     } catch (error) {
       final failure = AuthFailure.from(error);
       if (failure.isConnectionFailure) {
@@ -109,6 +122,9 @@ class AuthController extends Notifier<AuthState> {
         password: password,
       );
       state = AuthState(status: AuthStatus.authenticated, user: user);
+      unawaited(
+        ref.read(pushNotificationControllerProvider.notifier).activate(),
+      );
       return AuthCommandResult.success(user);
     } catch (error) {
       final failure = AuthFailure.from(error);
@@ -127,6 +143,9 @@ class AuthController extends Notifier<AuthState> {
     state = AuthState(status: AuthStatus.authenticating, user: state.user);
     AuthFailure? failure;
     try {
+      await ref
+          .read(pushNotificationControllerProvider.notifier)
+          .deactivate(unregister: true);
       await _repository.logout();
     } catch (error) {
       failure = AuthFailure.from(error);
@@ -137,6 +156,13 @@ class AuthController extends Notifier<AuthState> {
     return failure == null
         ? AuthCommandResult.success(null)
         : AuthCommandResult.failure(failure);
+  }
+
+  /// 서버에서 갱신된 사용자 정보를 상태에 반영한다. 닉네임 변경 등에 쓴다.
+  void updateUser(User user) {
+    if (state.status == AuthStatus.authenticated) {
+      state = AuthState(status: AuthStatus.authenticated, user: user);
+    }
   }
 
   Future<void> continueWithoutSession() async {
