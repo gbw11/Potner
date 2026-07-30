@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:potner_app/core/api/api_exception.dart';
+import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/domain/plant_reference.dart';
 
 class PlantApi {
@@ -58,6 +59,42 @@ class PlantApi {
     }
   }
 
+  Future<List<MyPlant>> getMyPlants() async {
+    try {
+      final response = await _dio.get<Object?>('plants');
+      final data = _asMap(response.data);
+      return _asList(data['plants'])
+          .map((item) {
+            final plant = _asMap(item);
+            final photo = _nullableMap(plant['representativePhoto']);
+            return MyPlant(
+              plantId: _requiredString(plant['plantId']),
+              name: _requiredString(plant['name']),
+              speciesName: _requiredString(plant['speciesName']),
+              categoryName: _requiredString(plant['categoryName']),
+              lifeStageName: _requiredString(plant['lifeStageName']),
+              adoptedDate: _optionalDate(plant['adoptedDate']),
+              thumbnailUrl:
+                  _optionalString(photo?['thumbnailUrl']) ??
+                  _optionalString(photo?['originalUrl']),
+            );
+          })
+          .toList(growable: false);
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    } on FormatException catch (exception) {
+      throw ApiException.invalidResponse(exception);
+    }
+  }
+
+  Future<void> deletePlant(String plantId) async {
+    try {
+      await _dio.delete<Object?>('plants/$plantId');
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   PlantSpeciesOption _parseSpecies(Object? value) {
     final species = _asMap(value);
     return PlantSpeciesOption(
@@ -87,6 +124,25 @@ class PlantApi {
       return Map<Object?, Object?>.from(value);
     }
     throw const FormatException('Expected a JSON object.');
+  }
+
+  Map<Object?, Object?>? _nullableMap(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    return _asMap(value);
+  }
+
+  DateTime? _optionalDate(Object? value) {
+    final text = _optionalString(value);
+    if (text == null) {
+      return null;
+    }
+    final parsed = DateTime.tryParse(text);
+    if (parsed == null) {
+      throw const FormatException('Expected an ISO date.');
+    }
+    return parsed;
   }
 
   List<Object?> _asList(Object? value) {

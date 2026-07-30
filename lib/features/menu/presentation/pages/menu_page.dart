@@ -16,6 +16,13 @@ class MenuPage extends ConsumerWidget {
           id: 'plants',
           label: '나의 식물',
           icon: Icons.local_florist_outlined,
+          action: _MenuAction.myPlants,
+        ),
+        _MenuEntry(
+          id: 'registered_plants',
+          label: '등록 식물',
+          icon: Icons.format_list_bulleted_rounded,
+          action: _MenuAction.registeredPlants,
         ),
         _MenuEntry(
           id: 'plant_registration',
@@ -180,6 +187,10 @@ class MenuPage extends ConsumerWidget {
         context.go('/alerts');
       case _MenuAction.plantRegistration:
         context.go('/plants/register');
+      case _MenuAction.myPlants:
+        context.go('/plants');
+      case _MenuAction.registeredPlants:
+        context.go('/my/plants');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -320,4 +331,13 @@ class _MenuEntry {
   final bool destructive;
 }
 
-enum _MenuAction { home, alerts, plantRegistration, my, logout, comingSoon }
+enum _MenuAction {
+  home,
+  alerts,
+  plantRegistration,
+  myPlants,
+  registeredPlants,
+  my,
+  logout,
+  comingSoon,
+}
