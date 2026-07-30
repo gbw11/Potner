@@ -23,6 +23,11 @@ class MenuPage extends ConsumerWidget {
           icon: Icons.add_circle_outline_rounded,
         ),
         _MenuEntry(
+          id: 'device_registration',
+          label: '디바이스 등록하기',
+          icon: Icons.devices_outlined,
+        ),
+        _MenuEntry(
           id: 'care_settings',
           label: '케어 설정',
           icon: Icons.tune_rounded,
