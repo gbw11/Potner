@@ -130,8 +130,8 @@ mqtt:
   heartbeat_topic: potner/device/raspberry-01/status/heartbeat
   # 서버 → Pi 급수 명령 ({"ml": 150, "requestId": "..."}), Pi → 서버 결과 회신
   water_command_topic: potner/device/raspberry-01/command/water
-  water_result_topic: potner/device/raspberry-01/command/water/result
+  water_result_topic: potner/device/raspberry-01/result/water
   # 서버 → Pi 촬영 명령 ({"requestId": "..."}), Pi → 서버 성공/실패 회신
   capture_command_topic: potner/device/raspberry-01/command/capture
-  capture_result_topic: potner/device/raspberry-01/command/capture/result
+  capture_result_topic: potner/device/raspberry-01/result/capture
 
