@@ -88,15 +88,7 @@ class MyPage extends ConsumerWidget {
                         key: const Key('my_notification_settings'),
                         icon: Icons.notifications_active_outlined,
                         label: '알림 설정',
-                        onTap: () {
-                          ScaffoldMessenger.of(context)
-                            ..hideCurrentSnackBar()
-                            ..showSnackBar(
-                              const SnackBar(
-                                content: Text('알림 설정 기능은 다음 작업에서 연결합니다.'),
-                              ),
-                            );
-                        },
+                        onTap: () => context.go('/my/notifications'),
                       ),
                     ],
                   ),

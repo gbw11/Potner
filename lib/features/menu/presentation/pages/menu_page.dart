@@ -85,6 +85,7 @@ class MenuPage extends ConsumerWidget {
           id: 'notification_settings',
           label: '알림 설정',
           icon: Icons.notifications_active_outlined,
+          action: _MenuAction.notificationSettings,
         ),
       ],
     ),
@@ -216,6 +217,8 @@ class MenuPage extends ConsumerWidget {
         context.go('/growth/blooms');
       case _MenuAction.withdrawal:
         context.go('/my/withdraw');
+      case _MenuAction.notificationSettings:
+        context.go('/my/notifications');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -369,6 +372,7 @@ enum _MenuAction {
   growthComparison,
   flowering,
   withdrawal,
+  notificationSettings,
   my,
   logout,
   comingSoon,

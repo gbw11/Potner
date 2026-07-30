@@ -33,4 +33,37 @@ class FakeUserRepository implements UserRepository {
   Future<void> withdraw() async {
     withdrawCalls += 1;
   }
+
+  NotificationSettings settings = const NotificationSettings(
+    allEnabled: true,
+    pushEnabled: true,
+    plantCareEnabled: true,
+    marketingEnabled: false,
+  );
+  final List<Map<String, bool?>> settingUpdates = [];
+
+  @override
+  Future<NotificationSettings> getNotificationSettings() async => settings;
+
+  @override
+  Future<NotificationSettings> updateNotificationSettings({
+    bool? allEnabled,
+    bool? pushEnabled,
+    bool? plantCareEnabled,
+    bool? marketingEnabled,
+  }) async {
+    settingUpdates.add({
+      'allEnabled': allEnabled,
+      'pushEnabled': pushEnabled,
+      'plantCareEnabled': plantCareEnabled,
+      'marketingEnabled': marketingEnabled,
+    });
+    settings = NotificationSettings(
+      allEnabled: allEnabled ?? settings.allEnabled,
+      pushEnabled: pushEnabled ?? settings.pushEnabled,
+      plantCareEnabled: plantCareEnabled ?? settings.plantCareEnabled,
+      marketingEnabled: marketingEnabled ?? settings.marketingEnabled,
+    );
+    return settings;
+  }
 }
