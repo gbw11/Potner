@@ -40,6 +40,17 @@ public record HappinessProperties(
          * 바로 드러난다. 문자열로 받아 {@code valueOf} 를 부르면 주기 작업이 매번 예외를 내며
          * 로그만 쌓인다.
          */
-        @NotNull IotDeviceType displayDeviceType
+        @NotNull IotDeviceType displayDeviceType,
+
+        /**
+         * 일별 점수에서 이상 알림 한 지표당 깎는 점수다.
+         *
+         * <p>기본 5다. 지표 5종이 전부 이상이면 75점이 되고, 알림 하나면 95점이다. 프로퍼티로
+         * 뺀 이유는 감점 폭이 기획 감각의 문제라서 코드를 고치지 않고 조절해야 하기 때문이다.
+         */
+        @Positive int alertPenalty,
+
+        /** 그날 꽃이 폈을 때의 가점이다. 유일한 가점이다. */
+        @Positive int bloomBonus
 ) {
 }

@@ -2462,6 +2462,127 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void homeGradeAndKoreanMessageFollowTheSensors() throws Exception {
+        SensorFixture fixture = createSensorFixture("happiness-grade@example.com");
+        Tokens tokens = login("happiness-grade@example.com");
+        LocalDateTime base = nowUtc().minusMinutes(5);
+
+        // 측정값이 없으면 판정 근거가 없다. GOOD 으로 처리하면 기기가 꺼져 있는 동안
+        // "아주 좋아요" 를 보여주게 된다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("UNKNOWN"))
+                .andExpect(jsonPath("$.headline").value("상태를 확인할 수 없어요"))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(0));
+
+        // 바질 발아기 기준은 토양 40~55, 온도 21~29, 습도 60~80 이다.
+        insertReading(fixture, SensorType.SOIL_MOISTURE, "45.00", SensorUnit.PERCENT, base);
+        insertReading(fixture, SensorType.TEMPERATURE, "24.00", SensorUnit.CELSIUS, base);
+        insertReading(fixture, SensorType.HUMIDITY, "70.00", SensorUnit.PERCENT, base);
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("GOOD"))
+                .andExpect(jsonPath("$.headline").value("아주 좋아요!"))
+                .andExpect(jsonPath("$.detail").value("온도와 습도가 편안해요 :)"))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(0));
+
+        insertReading(fixture, SensorType.SOIL_MOISTURE, "20.00", SensorUnit.PERCENT,
+                base.plusMinutes(1));
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("FAIR"))
+                .andExpect(jsonPath("$.headline").value("조금 신경 써주세요"))
+                .andExpect(jsonPath("$.detail").value("흙이 말랐어요."))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(1))
+                .andExpect(jsonPath("$.abnormalMetrics[0].sensorType").value("SOIL_MOISTURE"))
+                .andExpect(jsonPath("$.abnormalMetrics[0].status").value("LOW"));
+
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS,
+                base.plusMinutes(2));
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("POOR"))
+                .andExpect(jsonPath("$.headline").value("도움이 필요해요"))
+                // 목적격 조사가 마지막 낱말의 종성에 따라 갈린다. '온도를', '수분을'.
+                .andExpect(jsonPath("$.detail").value("토양 수분, 온도를 확인해주세요."))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(2));
+
+        Tokens stranger = signupAndLogin("happiness-grade-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void dailyStatusReportScoresThatDaysAlerts() throws Exception {
+        SensorFixture fixture = createSensorFixture("status-report@example.com");
+        Tokens tokens = login("status-report@example.com");
+        String userId = userIdOf("status-report@example.com");
+        LocalDate today = serviceToday();
+
+        // 측정이 없던 날은 점수를 주지 않는다. 알림도 없으니 100 점이 되는데, 그러면 기기가
+        // 꺼져 있던 하루가 완벽한 하루로 보인다.
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(nullValue()))
+                .andExpect(jsonPath("$.adjustments.length()").value(0))
+                // 급수 기록 기능이 아직 없다. 필드는 미리 둔다.
+                .andExpect(jsonPath("$.wateredMl").value(nullValue()));
+
+        insertReading(fixture, SensorType.TEMPERATURE, "24.00", SensorUnit.CELSIUS,
+                nowUtc().minusMinutes(1));
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(100))
+                .andExpect(jsonPath("$.adjustments.length()").value(0));
+
+        insertAlert(userId, fixture.plantId(), "SOIL_MOISTURE", nowUtc(), false, false);
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(95))
+                .andExpect(jsonPath("$.adjustments.length()").value(1))
+                .andExpect(jsonPath("$.adjustments[0].reason").value("SOIL_MOISTURE_ALERT"))
+                .andExpect(jsonPath("$.adjustments[0].points").value(-5));
+
+        // 누적 광량 이상도 alert 에 기록되므로 같은 감점 경로를 탄다. 광량 판정을 따로 또
+        // 깎으면 같은 사실로 두 번 감점한다.
+        insertAlert(userId, fixture.plantId(), "DAILY_LIGHT", nowUtc(), false, false);
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(90));
+
+        // 그날 꽃이 폈으면 더한다. 유일한 가점이다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isCreated());
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(95))
+                .andExpect(jsonPath("$.adjustments[*].reason").value(hasItems("BLOOMED")));
+
+        // 알림이 없던 다른 날은 이 식물의 점수에 영향을 주지 않는다.
+        assertStatusReport(tokens, fixture.plantId(), today.minusDays(3))
+                .andExpect(jsonPath("$.happinessScore").value(nullValue()));
+
+        Tokens stranger = signupAndLogin("status-report-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/status-report", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken())
+                        .param("date", today.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    private ResultActions assertStatusReport(Tokens tokens, String plantId, LocalDate date)
+            throws Exception {
+        return mockMvc.perform(get("/api/v1/plants/{plantId}/status-report", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("date", date.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(plantId))
+                .andExpect(jsonPath("$.date").value(date.toString()));
+    }
+
+    @Test
     void expressionFollowsSensorsAndBloom() throws Exception {
         SensorFixture fixture = createSensorFixture("expression@example.com");
         Tokens tokens = login("expression@example.com");

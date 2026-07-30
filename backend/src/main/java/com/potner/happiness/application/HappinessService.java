@@ -9,6 +9,7 @@ import com.potner.device.domain.RobotRepository;
 import com.potner.device.domain.RobotState;
 import com.potner.happiness.config.HappinessProperties;
 import com.potner.happiness.domain.ExpressionReason;
+import com.potner.happiness.domain.HappinessGrade;
 import com.potner.happiness.domain.PlantExpression;
 import com.potner.happiness.dto.HappinessResponse;
 import com.potner.plant.domain.GrowthProfileValues;
@@ -31,6 +32,9 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -59,6 +63,7 @@ public class HappinessService {
     private final PlantBloomRepository bloomRepository;
     private final PlantDeviceAssignmentRepository assignmentRepository;
     private final RobotRepository robotRepository;
+    private final HappinessMessageFactory messageFactory;
     private final HappinessProperties properties;
     private final SensorQueryProperties sensorQueryProperties;
     private final Clock clock;
@@ -70,6 +75,7 @@ public class HappinessService {
             PlantBloomRepository bloomRepository,
             PlantDeviceAssignmentRepository assignmentRepository,
             RobotRepository robotRepository,
+            HappinessMessageFactory messageFactory,
             HappinessProperties properties,
             SensorQueryProperties sensorQueryProperties,
             Clock clock
@@ -80,21 +86,86 @@ public class HappinessService {
         this.bloomRepository = bloomRepository;
         this.assignmentRepository = assignmentRepository;
         this.robotRepository = robotRepository;
+        this.messageFactory = messageFactory;
         this.properties = properties;
         this.sensorQueryProperties = sensorQueryProperties;
         this.clock = clock;
     }
 
-    /** 사용자 조회다. 앱은 표정을 쓰지 않지만 로봇 없이 판정을 확인할 통로가 필요하다. */
+    /**
+     * 홈 화면이 쓰는 현재 상태다. 등급·문구와 표정이 한 판정에서 나온다.
+     *
+     * <p>등급은 기준을 벗어난 지표 수로 정하고 표정은 지금 하는 행동까지 본다. 물을 마시는 중이면
+     * 표정은 매우행복이지만 온도가 나쁘면 등급은 그대로 나쁘다. 표정은 사용자에게 감정을
+     * 전하는 것이고 등급은 무엇을 확인해야 하는지 알리는 것이라 섞으면 둘 다 흐려진다.
+     */
     public HappinessResponse getHappiness(String userId, String plantId) {
         requireOwnedPlant(userId, plantId);
+
+        Optional<PlantGrowthProfile> profile = profileRepository.findByPlantId(plantId);
+        List<AbnormalMetric> abnormalMetrics = profile
+                .map(found -> findAbnormalMetrics(plantId, GrowthProfileValues.from(found)))
+                .orElse(List.of());
+        // 프로필이 없거나 신선한 측정값이 하나도 없으면 판정 근거가 없다. GOOD 으로 처리하면
+        // 기기가 꺼져 있는 동안 "아주 좋아요" 를 보여주게 된다.
+        HappinessGrade grade = profile.isEmpty() || !hasAnyFreshReading(plantId)
+                ? HappinessGrade.UNKNOWN
+                : gradeOf(abnormalMetrics.size());
+
         PlantExpressionState state = judge(plantId);
+        HappinessMessageFactory.HappinessMessage message =
+                messageFactory.create(grade, abnormalMetrics, state.reason());
+
         return new HappinessResponse(
                 plantId,
+                grade,
+                message.headline(),
+                message.detail(),
+                abnormalMetrics.stream()
+                        .map(metric -> new HappinessResponse.AbnormalMetricResponse(
+                                metric.sensorType(), metric.status()))
+                        .toList(),
                 state.expression(),
                 state.reason(),
                 state.baseline()
         );
+    }
+
+    private HappinessGrade gradeOf(int abnormalCount) {
+        return switch (abnormalCount) {
+            case 0 -> HappinessGrade.GOOD;
+            case 1 -> HappinessGrade.FAIR;
+            default -> HappinessGrade.POOR;
+        };
+    }
+
+    /**
+     * 기준을 벗어난 지표를 모은다.
+     *
+     * <p>토양 수분을 포함한다. 표정의 바탕은 온·습도만 보지만 홈 화면은 "수분" 을 카드로
+     * 보여주고 문구도 물을 언급하므로, 흙이 마른 것을 등급에서 빼면 화면과 어긋난다.
+     *
+     * <p>조도는 빠진다. 밤에 0 lux 가 정상이라 순간값으로 판정하지 않는다. 광량은 하루 누적으로
+     * 판정하며 그 결과는 일별 점수에 들어간다.
+     */
+    private List<AbnormalMetric> findAbnormalMetrics(String plantId, GrowthProfileValues values) {
+        List<AbnormalMetric> abnormal = new ArrayList<>();
+        for (SensorType sensorType : List.of(
+                SensorType.SOIL_MOISTURE, SensorType.TEMPERATURE, SensorType.HUMIDITY)) {
+            findFreshReading(plantId, sensorType).ifPresent(reading -> {
+                SensorStatus status = SensorThresholds.of(sensorType, values)
+                        .evaluate(reading.getMeasuredValue());
+                if (status == SensorStatus.LOW || status == SensorStatus.HIGH) {
+                    abnormal.add(new AbnormalMetric(sensorType, status));
+                }
+            });
+        }
+        return abnormal;
+    }
+
+    private boolean hasAnyFreshReading(String plantId) {
+        return Arrays.stream(SensorType.values())
+                .anyMatch(sensorType -> findFreshReading(plantId, sensorType).isPresent());
     }
 
     /**

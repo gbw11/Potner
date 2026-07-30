@@ -49,7 +49,7 @@ class ExpressionPublishSchedulerTest {
                 assignmentRepository,
                 happinessService,
                 commandPublisher,
-                new HappinessProperties(true, new BigDecimal("0.5"), 30, IotDeviceType.JETSON_ORIN)
+                new HappinessProperties(true, new BigDecimal("0.5"), 30, IotDeviceType.JETSON_ORIN, 5, 5)
         );
     }
 
@@ -100,7 +100,7 @@ class ExpressionPublishSchedulerTest {
                 assignmentRepository,
                 happinessService,
                 commandPublisher,
-                new HappinessProperties(false, new BigDecimal("0.5"), 30, IotDeviceType.JETSON_ORIN)
+                new HappinessProperties(false, new BigDecimal("0.5"), 30, IotDeviceType.JETSON_ORIN, 5, 5)
         );
 
         disabled.publishExpressions();

@@ -18,6 +18,18 @@ public interface SensorReadingRepository extends JpaRepository<SensorReading, Lo
 
     List<SensorReading> findAllByDeviceMessageIdOrderBySensorType(String deviceMessageId);
 
+    /**
+     * 그날 측정이 있었는지 본다. 0 이면 상태 리포트가 점수를 주지 않는다.
+     *
+     * <p>품질을 가리지 않는다. SUSPECT 라도 기기가 살아 있었다는 뜻이고, 여기서 알고 싶은 것은
+     * "기록이 있었는가" 다.
+     */
+    long countByPlantIdAndMeasuredAtBetween(
+            String plantId,
+            LocalDateTime fromInclusive,
+            LocalDateTime toInclusive
+    );
+
     Optional<SensorReading> findFirstByPlantIdAndSensorTypeAndQualityOrderByMeasuredAtDesc(
             String plantId,
             SensorType sensorType,
