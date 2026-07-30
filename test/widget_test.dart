@@ -5,6 +5,9 @@ import 'package:potner_app/app.dart';
 import 'package:potner_app/features/auth/data/auth_repository_impl.dart';
 import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/user.dart';
+import 'package:potner_app/features/home/data/home_repository_impl.dart';
+
+import 'support/fake_home_repository.dart';
 
 void main() {
   testWidgets('login restores the authenticated route with the current user', (
@@ -13,7 +16,10 @@ void main() {
     final repository = _FakeAuthRepository();
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [authRepositoryProvider.overrideWithValue(repository)],
+        overrides: [
+          authRepositoryProvider.overrideWithValue(repository),
+          homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
+        ],
         child: const PotnerApp(),
       ),
     );
@@ -33,8 +39,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.loginEmail, 'member@example.com');
-    expect(find.text('포트너님, 반가워요!'), findsOneWidget);
-    expect(find.text('member@example.com'), findsOneWidget);
+    expect(find.text('안녕하세요, 포트너님!'), findsOneWidget);
+    expect(find.text('아주 좋아요!'), findsOneWidget);
   });
 
   testWidgets('signup validates password confirmation before submission', (
@@ -43,7 +49,10 @@ void main() {
     final repository = _FakeAuthRepository();
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [authRepositoryProvider.overrideWithValue(repository)],
+        overrides: [
+          authRepositoryProvider.overrideWithValue(repository),
+          homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
+        ],
         child: const PotnerApp(),
       ),
     );
