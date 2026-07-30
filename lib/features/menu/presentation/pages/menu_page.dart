@@ -50,6 +50,7 @@ class MenuPage extends ConsumerWidget {
           id: 'plant_diary',
           label: '식물 일기',
           icon: Icons.menu_book_outlined,
+          action: _MenuAction.plantDiary,
         ),
         _MenuEntry(
           id: 'flowering',
@@ -201,6 +202,8 @@ class MenuPage extends ConsumerWidget {
         context.go('/devices/register');
       case _MenuAction.deviceManagement:
         context.go('/devices');
+      case _MenuAction.plantDiary:
+        context.go('/growth/diary');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -349,6 +352,7 @@ enum _MenuAction {
   registeredPlants,
   deviceRegistration,
   deviceManagement,
+  plantDiary,
   my,
   logout,
   comingSoon,
