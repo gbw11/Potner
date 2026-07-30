@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -63,6 +64,9 @@ class RepresentativePhotoServiceTest {
     @Mock
     private DeviceUploadToken uploadTokenIssuer;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private PhotoService photoService;
 
     @BeforeEach
@@ -75,6 +79,7 @@ class RepresentativePhotoServiceTest {
                 photoStorage,
                 uploadTokenIssuer,
                 new SensorQueryProperties("+09:00", 15, 14, 365),
+                eventPublisher,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
         lenient().when(photoStorage.toUrl(anyString())).thenAnswer(call -> "/media/" + call.getArgument(0));

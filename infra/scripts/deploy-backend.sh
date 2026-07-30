@@ -101,11 +101,15 @@ prepare_compose_environment() {
         "LLM_API_KEY=${LLM_API_KEY:-}" \
         "LLM_BASE_URL=${LLM_BASE_URL:-https://gms.ssafy.io/gmsapi/api.openai.com/v1}" \
         "LLM_MODEL=${LLM_MODEL:-gpt-4.1-mini}" \
+        "VISION_ENABLED=${VISION_ENABLED:-false}" \
+        "VISION_REQUEST_CONFIDENCE=${VISION_REQUEST_CONFIDENCE:-0.25}" \
+        "VISION_MIN_CONFIDENCE=${VISION_MIN_CONFIDENCE:-0.60}" \
+        "VISION_AUTO_ADVANCE_ENABLED=${VISION_AUTO_ADVANCE_ENABLED:-false}" \
         >> "$DEPLOY_ENV_FILE"
 
     env_count="$(wc -l < "$DEPLOY_ENV_FILE" | tr -d ' ')"
 
-    if [ "$env_count" -lt 23 ]; then
+    if [ "$env_count" -lt 27 ]; then
         echo "Compose 실행에 필요한 환경변수를 모두 가져오지 못했습니다."
         return 1
     fi

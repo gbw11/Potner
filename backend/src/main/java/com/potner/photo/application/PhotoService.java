@@ -16,6 +16,7 @@ import com.potner.plant.domain.Plant;
 import com.potner.plant.domain.PlantRepository;
 import com.potner.plant.domain.PlantStatus;
 import com.potner.sensor.config.SensorQueryProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +56,7 @@ public class PhotoService {
     private final PhotoStorage photoStorage;
     private final DeviceUploadToken uploadTokenIssuer;
     private final SensorQueryProperties sensorQueryProperties;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     public PhotoService(
@@ -65,6 +67,7 @@ public class PhotoService {
             PhotoStorage photoStorage,
             DeviceUploadToken uploadTokenIssuer,
             SensorQueryProperties sensorQueryProperties,
+            ApplicationEventPublisher eventPublisher,
             Clock clock
     ) {
         this.photoRepository = photoRepository;
@@ -74,6 +77,7 @@ public class PhotoService {
         this.photoStorage = photoStorage;
         this.uploadTokenIssuer = uploadTokenIssuer;
         this.sensorQueryProperties = sensorQueryProperties;
+        this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
 
@@ -125,6 +129,10 @@ public class PhotoService {
                 stored.height(),
                 stored.byteSize()
         ));
+
+        // 생장 단계 판정은 커밋 뒤 다른 스레드에서 돈다. 여기서 부르면 장치가 CPU 추론이 끝날
+        // 때까지 업로드 응답을 기다린다. 촬영은 하루 한 번이고 판정이 몇 초 늦어도 무해하다.
+        eventPublisher.publishEvent(new DevicePhotoUploadedEvent(photo.getId(), assignment.getPlantId()));
         return toResponse(photo);
     }
 

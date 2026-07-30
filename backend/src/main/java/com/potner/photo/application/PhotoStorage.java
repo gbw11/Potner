@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * 사진 파일을 EC2 디스크에 쓰고 세 가지 크기를 만든다.
@@ -101,6 +102,31 @@ public class PhotoStorage {
     /** 상대 경로를 앱이 바로 쓸 수 있는 URL 로 만든다. */
     public String toUrl(String relativePath) {
         return properties.baseUrl().replaceAll("/+$", "") + "/" + relativePath;
+    }
+
+    /**
+     * 생장 단계 판정에 넘길 이미지를 읽는다.
+     *
+     * <p>원본이 아니라 <strong>재생용 변형</strong>을 읽는다. 추론은 640px 로 입력을 줄여서 쓰므로
+     * 원본 해상도가 판정을 더 낫게 만들지 않는다. 원본은 최대 10 MiB 라 그대로 실어 보내면
+     * 전송과 힙만 낭비한다.
+     *
+     * <p>업로드 응답을 이미 돌려준 뒤 비동기로 읽는다. 그 사이 사진이 지워질 수 있으므로
+     * 파일이 없는 것은 정상이며 빈 값으로 돌아온다.
+     */
+    public Optional<byte[]> readPlayback(String plantId, String photoId) {
+        Path path = Path.of(properties.root(), plantId, photoId, PLAYBACK_FILE_NAME);
+        try {
+            if (!Files.isRegularFile(path)) {
+                return Optional.empty();
+            }
+            return Optional.of(Files.readAllBytes(path));
+        } catch (IOException exception) {
+            // 경로는 남기지 않는다. 정적 서빙에 인증이 없으므로 로그에 경로가 남으면 추측할 수
+            // 없다는 전제가 약해진다.
+            log.warn("Cannot read the playback photo: plantId={}, photoId={}", plantId, photoId, exception);
+            return Optional.empty();
+        }
     }
 
     /** 이미지로 읽히지 않으면 확장자와 무관하게 거부한다. Content-Type 은 신뢰할 수 없다. */

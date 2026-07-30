@@ -130,6 +130,17 @@ services:
       # 사진은 API 와 같은 origin 의 /media 로 나가므로 기본값이 상대 경로다. 배포마다 주입할
       # 값이 없다. 다른 origin(CDN 등)으로 옮길 때만 .env 에서 덮어쓴다.
       PHOTO_BASE_URL: ${PHOTO_BASE_URL:-/media}
+      # 사진 기반 생장 단계 판정이다. 기본값이 꺼짐이라 이 값을 넘기지 않으면 분류기가 no-op 으로
+      # 떨어진다. 추론 서비스는 같은 네트워크의 http://yolo:8000 이므로 주소는 기본값을 쓴다.
+      #
+      # 접두어가 VISION_ 인 이유는 위 yolo 서비스 자신의 설정이 YOLO_ 를 쓰기 때문이다.
+      # 같은 접두어면 어느 쪽 설정인지 구분되지 않는다.
+      VISION_ENABLED: "${VISION_ENABLED:-false}"
+      VISION_REQUEST_CONFIDENCE: "${VISION_REQUEST_CONFIDENCE:-0.25}"
+      VISION_MIN_CONFIDENCE: "${VISION_MIN_CONFIDENCE:-0.60}"
+      # 켜면 사용자가 손대지 않아도 단계가 바뀌고 푸시가 나간다. 판정 이력으로 오탐률을 확인한
+      # 뒤에 켠다. 꺼져 있어도 판정과 저장은 돌아간다.
+      VISION_AUTO_ADVANCE_ENABLED: "${VISION_AUTO_ADVANCE_ENABLED:-false}"
     expose:
       - "8080"
     volumes:

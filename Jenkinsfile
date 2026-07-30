@@ -56,6 +56,27 @@ pipeline {
         LLM_BASE_URL = 'https://gms.ssafy.io/gmsapi/api.openai.com/v1'
         LLM_MODEL = 'gpt-4.1-mini'
 
+        // 사진 기반 생장 단계 판정. 추론 서비스는 같은 네트워크의 yolo 컨테이너다.
+        // 이 값이 없으면 애플리케이션 기본값이 꺼짐이라 분류기가 no-op 으로 떨어진다.
+        //
+        // 임시 CI 컨테이너에는 넘기지 않는다. .ci-backend.env 목록에 없으므로 자동으로 그렇게
+        // 된다. 추론을 부르지 않고도 기동되는지가 검증 대상이고, CI 가 부르면 CPU 추론이라
+        // 운영 판정과 자원을 다툰다. Firebase 키와 LLM 키를 넘기지 않는 것과 같은 방침이다.
+        //
+        // 임계값을 여기 두는 이유는 모델을 바꾸거나 오탐이 잦을 때 이미지를 다시 만들지 않고
+        // 배포만 다시 돌리면 되게 하려는 것이다. LLM_MODEL 을 여기 둔 것과 같은 이유다.
+        //   request-confidence : 추론 서비스에 넘길 하한. 무엇을 받아올지 정한다
+        //   min-confidence     : 받아온 검출 중 무엇을 믿을지 정한다
+        VISION_ENABLED = 'true'
+        VISION_REQUEST_CONFIDENCE = '0.25'
+        VISION_MIN_CONFIDENCE = '0.60'
+
+        // 자동 승급은 꺼 둔다. 켜면 사용자가 손대지 않아도 생장 단계가 바뀌고 푸시가 나가는데
+        // 되돌릴 수단이 없다. 꺼진 상태에서도 판정과 저장은 그대로 돌아
+        // photo_growth_analysis 에 AUTO_ADVANCE_DISABLED 가 쌓이므로, 그 이력으로 오탐률을
+        // 확인하고 VISION_MIN_CONFIDENCE 를 확정한 뒤 이 값을 true 로 바꾼다.
+        VISION_AUTO_ADVANCE_ENABLED = 'false'
+
         // Multibranch에서는 브랜치마다 빌드 번호가 따로 매겨진다.
         // 서로 다른 브랜치가 동시에 빌드될 때 임시 이미지와 컨테이너 이름이
         // 겹치지 않도록 브랜치 이름을 함께 넣는다.
