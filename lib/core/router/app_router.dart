@@ -5,6 +5,7 @@ import 'package:potner_app/core/navigation/app_navigation_shell.dart';
 import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
+import 'package:potner_app/features/device/presentation/pages/robot_locations_page.dart';
 import 'package:potner_app/features/alert/presentation/pages/alerts_page.dart';
 import 'package:potner_app/features/bloom/presentation/pages/bloom_list_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_calendar_page.dart';
@@ -73,6 +74,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         path: 'register',
                         builder: (context, state) =>
                             const DeviceRegistrationPage(),
+                      ),
+                      GoRoute(
+                        path: ':robotId/locations',
+                        builder: (context, state) => RobotLocationsPage(
+                          robotId: state.pathParameters['robotId']!,
+                        ),
                       ),
                     ],
                   ),

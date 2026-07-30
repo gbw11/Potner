@@ -26,4 +26,22 @@ abstract class DeviceRepository {
   Future<String> reissueUploadToken(String robotId);
 
   Future<void> unassignPlant(String plantId);
+
+  Future<List<RobotLocationInfo>> getRobotLocations(String robotId);
+
+  /// 종류별로 하나만 등록된다. [stationCode] 는 급수 스테이션에만 넣는다.
+  Future<RobotLocationInfo> registerRobotLocation({
+    required String robotId,
+    required RobotLocationType type,
+    String? stationCode,
+  });
+
+  /// RViz 에서 읽은 map 프레임 좌표(x·y m, yaw rad)를 넣는다. 세 값 모두 필수다.
+  Future<RobotLocationInfo> updateLocationPose({
+    required String robotId,
+    required RobotLocationType type,
+    required double x,
+    required double y,
+    required double yaw,
+  });
 }

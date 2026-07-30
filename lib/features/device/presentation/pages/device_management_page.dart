@@ -214,6 +214,12 @@ class _RobotCard extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               TextButton(
+                key: Key('robot_locations_${robot.robotId}'),
+                onPressed: () =>
+                    context.go('/devices/${robot.robotId}/locations'),
+                child: const Text('위치 설정'),
+              ),
+              TextButton(
                 key: Key('reissue_token_${robot.robotId}'),
                 onPressed: () => _confirmAndReissueToken(context, ref),
                 child: const Text('토큰 재발급'),

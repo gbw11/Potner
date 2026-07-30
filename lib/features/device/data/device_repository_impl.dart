@@ -61,4 +61,39 @@ class DeviceRepositoryImpl implements DeviceRepository {
   Future<void> unassignPlant(String plantId) {
     return _api.unassignPlant(plantId);
   }
+
+  @override
+  Future<List<RobotLocationInfo>> getRobotLocations(String robotId) {
+    return _api.getRobotLocations(robotId);
+  }
+
+  @override
+  Future<RobotLocationInfo> registerRobotLocation({
+    required String robotId,
+    required RobotLocationType type,
+    String? stationCode,
+  }) {
+    return _api.registerRobotLocation(
+      robotId: robotId,
+      type: type,
+      stationCode: stationCode,
+    );
+  }
+
+  @override
+  Future<RobotLocationInfo> updateLocationPose({
+    required String robotId,
+    required RobotLocationType type,
+    required double x,
+    required double y,
+    required double yaw,
+  }) {
+    return _api.updateLocationPose(
+      robotId: robotId,
+      type: type,
+      x: x,
+      y: y,
+      yaw: yaw,
+    );
+  }
 }
