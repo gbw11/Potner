@@ -29,4 +29,12 @@ class DiaryRepositoryImpl implements DiaryRepository {
   }) {
     return _api.getDiary(plantId: plantId, diaryId: diaryId);
   }
+
+  @override
+  Future<DailyStatusReport> getStatusReport({
+    required String plantId,
+    required DateTime date,
+  }) {
+    return _api.getStatusReport(plantId: plantId, date: date);
+  }
 }

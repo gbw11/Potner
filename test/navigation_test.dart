@@ -28,7 +28,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('bottom_nav_growth')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('section_page_growth')), findsOneWidget);
+    expect(find.byKey(const Key('growth_hub_page')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('bottom_nav_alerts')));
     await tester.pumpAndSettle();

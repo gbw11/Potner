@@ -57,4 +57,20 @@ class FakeDiaryRepository implements DiaryRepository {
     }
     return detail;
   }
+
+  @override
+  Future<DailyStatusReport> getStatusReport({
+    required String plantId,
+    required DateTime date,
+  }) async {
+    return DailyStatusReport(
+      date: date,
+      happinessScore: 95,
+      lightHours: 6.5,
+      adjustments: const [
+        ScoreAdjustment(reason: 'BLOOMED', points: 5),
+        ScoreAdjustment(reason: 'HUMIDITY_ALERT', points: -10),
+      ],
+    );
+  }
 }

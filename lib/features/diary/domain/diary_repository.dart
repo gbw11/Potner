@@ -12,4 +12,10 @@ abstract class DiaryRepository {
     required String plantId,
     required String diaryId,
   });
+
+  /// 그날 하루의 행복 점수·일조·급수량이다. 일기와 별개로 항상 존재한다.
+  Future<DailyStatusReport> getStatusReport({
+    required String plantId,
+    required DateTime date,
+  });
 }

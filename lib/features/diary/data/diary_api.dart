@@ -65,6 +65,73 @@ class DiaryApi {
     }
   }
 
+  Future<DailyStatusReport> getStatusReport({
+    required String plantId,
+    required DateTime date,
+  }) async {
+    try {
+      final response = await _dio.get<Object?>(
+        'plants/$plantId/status-report',
+        queryParameters: {'date': _dateParameter(date)},
+      );
+      final data = _asMap(response.data);
+      return DailyStatusReport(
+        date: _requiredDate(data['date']),
+        happinessScore: _optionalInt(data['happinessScore']),
+        lightHours: _optionalDouble(data['lightHours']),
+        wateredMl: _optionalDouble(data['wateredMl']),
+        adjustments: _asList(data['adjustments'])
+            .map((item) {
+              final adjustment = _asMap(item);
+              return ScoreAdjustment(
+                reason: _requiredString(adjustment['reason']),
+                points: _requiredInt(adjustment['points']),
+              );
+            })
+            .toList(growable: false),
+      );
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    } on FormatException catch (exception) {
+      throw ApiException.invalidResponse(exception);
+    }
+  }
+
+  int? _optionalInt(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    return _requiredInt(value);
+  }
+
+  int _requiredInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.round();
+    }
+    final parsed = int.tryParse(value?.toString() ?? '');
+    if (parsed == null) {
+      throw const FormatException('Expected an integer.');
+    }
+    return parsed;
+  }
+
+  double? _optionalDouble(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is num) {
+      return value.toDouble();
+    }
+    final parsed = double.tryParse(value.toString());
+    if (parsed == null) {
+      throw const FormatException('Expected a number.');
+    }
+    return parsed;
+  }
+
   Map<Object?, Object?> _asMap(Object? value) {
     if (value is Map<Object?, Object?>) {
       return value;
