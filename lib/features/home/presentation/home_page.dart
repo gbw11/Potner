@@ -61,7 +61,7 @@ class HomePage extends ConsumerWidget {
             onPlantSelected: (plantId) =>
                 ref.read(homeControllerProvider.notifier).selectPlant(plantId),
             onRegisterPlant: () => context.go('/plants/register'),
-            onRegisterDevice: () => _showComingSoon(context, '디바이스 등록하기'),
+            onRegisterDevice: () => context.go('/devices/register'),
             onPlantDetail: () => _showComingSoon(context, '나의 식물 상세'),
             onPhotoLog: () => _showComingSoon(context, '포토 로그'),
             onCareSettings: () => _showComingSoon(context, '케어 설정'),

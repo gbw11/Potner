@@ -6,8 +6,10 @@ import 'package:potner_app/features/auth/data/auth_repository_impl.dart';
 import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/user.dart';
 import 'package:potner_app/features/home/data/home_repository_impl.dart';
+import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 
 import 'support/fake_home_repository.dart';
+import 'support/fake_plant_repository.dart';
 
 void main() {
   testWidgets('authenticated routes share the bottom navigation', (
@@ -70,7 +72,12 @@ void main() {
 
     await tester.tap(deviceRegistration);
     await tester.pumpAndSettle();
-    expect(find.text('디바이스 등록하기 기능은 다음 작업에서 연결합니다.'), findsOneWidget);
+    expect(find.text('디바이스를 연결해 주세요'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('device_registration_back')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open_menu_button')));
+    await tester.pumpAndSettle();
 
     final serviceAlertsTitle = find.text('서비스 알림');
     await tester.scrollUntilVisible(
@@ -122,6 +129,7 @@ Future<void> _pumpAuthenticatedApp(
       overrides: [
         authRepositoryProvider.overrideWithValue(repository),
         homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
+        plantRepositoryProvider.overrideWithValue(FakePlantRepository()),
       ],
       child: const PotnerApp(),
     ),
