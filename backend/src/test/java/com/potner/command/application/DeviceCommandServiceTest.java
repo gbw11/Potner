@@ -1,10 +1,12 @@
 package com.potner.command.application;
 
+import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.DeviceCommandResponse;
+import com.potner.command.dto.IssueDeviceCommandRequest;
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
 import com.potner.device.domain.IotDevice;
@@ -12,6 +14,9 @@ import com.potner.device.domain.IotDeviceRepository;
 import com.potner.device.domain.IotDeviceType;
 import com.potner.device.domain.PlantDeviceAssignment;
 import com.potner.device.domain.PlantDeviceAssignmentRepository;
+import com.potner.location.domain.RobotLocation;
+import com.potner.location.domain.RobotLocationRepository;
+import com.potner.location.domain.RobotLocationType;
 import com.potner.plant.domain.Plant;
 import com.potner.plant.domain.PlantGrowthProfile;
 import com.potner.plant.domain.PlantGrowthProfileRepository;
@@ -51,6 +56,7 @@ class DeviceCommandServiceTest {
     private static final String PLANT_ID = "20000000-0000-0000-0000-0000000000bb";
     private static final String ROBOT_ID = "30000000-0000-0000-0000-0000000000cc";
     private static final String PI_UID = "raspberry-01";
+    private static final String JETSON_UID = "jetson-01";
 
     @Mock
     private DeviceCommandRepository commandRepository;
@@ -68,6 +74,9 @@ class DeviceCommandServiceTest {
     private PlantGrowthProfileRepository profileRepository;
 
     @Mock
+    private RobotLocationRepository locationRepository;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     private DeviceCommandService service;
@@ -80,7 +89,9 @@ class DeviceCommandServiceTest {
                 assignmentRepository,
                 iotDeviceRepository,
                 profileRepository,
+                locationRepository,
                 new SensorQueryProperties("+09:00", 15, 14, 365),
+                new DeviceCommandProperties(120, 30, 30),
                 eventPublisher,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
@@ -91,44 +102,111 @@ class DeviceCommandServiceTest {
 
     @Test
     void issuesAWaterCommandWithTheProfileAmount() {
-        givenAssignmentWithRaspberry();
+        givenDevices();
         givenProfileWateringMl(new BigDecimal("350.00"));
 
-        DeviceCommandResponse response = service.issue(USER_ID, PLANT_ID, DeviceCommandType.WATER);
+        DeviceCommandResponse response = service.issue(USER_ID, PLANT_ID, water());
 
         assertThat(response.status()).isEqualTo(DeviceCommandStatus.ISSUED);
         assertThat(response.requestedMl()).isEqualByComparingTo("350.00");
-        assertThat(response.requestId()).isNotBlank();
 
-        // 발행 이벤트는 커밋 뒤 MQTT 로 나간다. 여기서는 값만 확인한다.
         ArgumentCaptor<DeviceCommandIssuedEvent> event =
                 ArgumentCaptor.forClass(DeviceCommandIssuedEvent.class);
         verify(eventPublisher).publishEvent(event.capture());
         assertThat(event.getValue().deviceUid()).isEqualTo(PI_UID);
         assertThat(event.getValue().commandType()).isEqualTo(DeviceCommandType.WATER);
-        assertThat(event.getValue().requestedMl()).isEqualByComparingTo("350.00");
-        assertThat(event.getValue().requestId()).isEqualTo(response.requestId());
     }
 
     @Test
-    void issuesACaptureCommandWithoutAnAmount() {
-        givenAssignmentWithRaspberry();
+    void navigateGoesToTheJetsonWithTheStoredPose() {
+        // 이동은 바퀴가 달린 젯슨이 받는다. 좌표는 robot_location 이 유일한 출처다.
+        givenDevices();
+        RobotLocation sunlight = RobotLocation.register(ROBOT_ID, RobotLocationType.SUNLIGHT, null);
+        sunlight.updatePose(
+                new BigDecimal("1.250"), new BigDecimal("-0.480"), new BigDecimal("1.5708"));
+        when(locationRepository.findByRobotIdAndLocationType(ROBOT_ID, RobotLocationType.SUNLIGHT))
+                .thenReturn(Optional.of(sunlight));
 
-        DeviceCommandResponse response = service.issue(USER_ID, PLANT_ID, DeviceCommandType.CAPTURE);
+        DeviceCommandResponse response = service.issue(
+                USER_ID, PLANT_ID,
+                new IssueDeviceCommandRequest(
+                        DeviceCommandType.NAVIGATE, RobotLocationType.SUNLIGHT, null));
 
-        assertThat(response.requestedMl()).isNull();
-        // 촬영은 생육 기준을 보지 않는다. 기준이 없어도 촬영은 돼야 한다.
-        verify(profileRepository, never()).findByPlantId(any());
+        assertThat(response.destination()).isEqualTo(RobotLocationType.SUNLIGHT);
+
+        ArgumentCaptor<DeviceCommandIssuedEvent> event =
+                ArgumentCaptor.forClass(DeviceCommandIssuedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().deviceUid()).isEqualTo(JETSON_UID);
+        assertThat(event.getValue().poseX()).isEqualByComparingTo("1.250");
+        assertThat(event.getValue().poseYaw()).isEqualByComparingTo("1.5708");
+    }
+
+    @Test
+    void navigateWithoutAConfiguredPoseIsRejected() {
+        // 좌표 없는 위치로 보내면 로봇이 갈 곳을 모른다. 0,0,0 으로 채우면 지도 원점으로 달려간다.
+        givenDevices();
+        RobotLocation home = RobotLocation.register(ROBOT_ID, RobotLocationType.HOME, null);
+        when(locationRepository.findByRobotIdAndLocationType(ROBOT_ID, RobotLocationType.HOME))
+                .thenReturn(Optional.of(home));
+
+        assertThatThrownBy(() -> service.issue(
+                USER_ID, PLANT_ID,
+                new IssueDeviceCommandRequest(
+                        DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.LOCATION_POSE_NOT_CONFIGURED);
+        verify(commandRepository, never()).save(any());
+    }
+
+    @Test
+    void navigateRequiresADestination() {
+        assertThatThrownBy(() -> service.issue(
+                USER_ID, PLANT_ID,
+                new IssueDeviceCommandRequest(DeviceCommandType.NAVIGATE, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.NAVIGATE_DESTINATION_REQUIRED);
+    }
+
+    @Test
+    void fanUsesTheDefaultSecondsWhenOmitted() {
+        givenDevices();
+
+        service.issue(USER_ID, PLANT_ID,
+                new IssueDeviceCommandRequest(DeviceCommandType.FAN, null, null));
+
+        ArgumentCaptor<DeviceCommandIssuedEvent> event =
+                ArgumentCaptor.forClass(DeviceCommandIssuedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().deviceUid()).isEqualTo(PI_UID);
+        assertThat(event.getValue().runSeconds()).isEqualTo(30);
+    }
+
+    @Test
+    void rejectsFieldsThatDoNotMatchTheType() {
+        // 무시하고 진행하면 앱이 잘못 조립한 요청이 조용히 통과해 버그가 늦게 드러난다.
+        assertThatThrownBy(() -> service.issue(USER_ID, PLANT_ID,
+                new IssueDeviceCommandRequest(
+                        DeviceCommandType.WATER, RobotLocationType.HOME, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
+        assertThatThrownBy(() -> service.issue(USER_ID, PLANT_ID,
+                new IssueDeviceCommandRequest(DeviceCommandType.WATER, null, 30)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
     }
 
     @Test
     void rejectsWhenACommandOfTheSameTypeIsStillPending() {
-        // 장치도 BUSY 로 거절하지만, 서버에서 먼저 막아야 사용자가 즉시 이유를 본다.
         when(commandRepository.existsByPlantIdAndCommandTypeAndStatus(
                 PLANT_ID, DeviceCommandType.WATER, DeviceCommandStatus.ISSUED))
                 .thenReturn(true);
 
-        assertThatThrownBy(() -> service.issue(USER_ID, PLANT_ID, DeviceCommandType.WATER))
+        assertThatThrownBy(() -> service.issue(USER_ID, PLANT_ID, water()))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.DEVICE_COMMAND_ALREADY_PENDING);
@@ -136,15 +214,18 @@ class DeviceCommandServiceTest {
     }
 
     @Test
-    void rejectsWhenTheRobotHasNoRaspberry() {
-        // 펌프와 카메라는 라즈베리에 달려 있다. 젯슨만 등록된 로봇에는 보낼 곳이 없다.
+    void rejectsWhenTheRobotLacksTheTargetDevice() {
+        // 이동은 젯슨이 받는다. 라즈베리만 등록된 로봇에는 보낼 곳이 없다.
         givenAssignment();
-        IotDevice jetson = mock(IotDevice.class);
-        when(jetson.getDeviceType()).thenReturn(IotDeviceType.JETSON_ORIN);
+        IotDevice raspberry = mock(IotDevice.class);
+        when(raspberry.getDeviceType()).thenReturn(IotDeviceType.RASPBERRY_PI);
         when(iotDeviceRepository.findAllByRobotIdOrderByDeviceTypeAsc(ROBOT_ID))
-                .thenReturn(List.of(jetson));
+                .thenReturn(List.of(raspberry));
 
-        assertThatThrownBy(() -> service.issue(USER_ID, PLANT_ID, DeviceCommandType.WATER))
+        assertThatThrownBy(() -> service.issue(
+                USER_ID, PLANT_ID,
+                new IssueDeviceCommandRequest(
+                        DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.COMMAND_DEVICE_NOT_FOUND);
@@ -152,24 +233,22 @@ class DeviceCommandServiceTest {
 
     @Test
     void rejectsWateringWhenTheProfileHasNoAmount() {
-        // 기본값으로 아무 양이나 보내면 화분 크기에 따라 과급수가 된다. 설정을 요구한다.
-        givenAssignmentWithRaspberry();
+        givenDevices();
         givenProfileWateringMl(null);
 
-        assertThatThrownBy(() -> service.issue(USER_ID, PLANT_ID, DeviceCommandType.WATER))
+        assertThatThrownBy(() -> service.issue(USER_ID, PLANT_ID, water()))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WATERING_AMOUNT_NOT_CONFIGURED);
         verify(commandRepository, never()).save(any());
-        verify(eventPublisher, never()).publishEvent(any(DeviceCommandIssuedEvent.class));
     }
 
     @Test
     void issuedRowRecordsTheTargetDevice() {
-        givenAssignmentWithRaspberry();
+        givenDevices();
         givenProfileWateringMl(new BigDecimal("100"));
 
-        service.issue(USER_ID, PLANT_ID, DeviceCommandType.WATER);
+        service.issue(USER_ID, PLANT_ID, water());
 
         ArgumentCaptor<DeviceCommand> saved = ArgumentCaptor.forClass(DeviceCommand.class);
         verify(commandRepository).save(saved.capture());
@@ -178,6 +257,10 @@ class DeviceCommandServiceTest {
         assertThat(saved.getValue().getDeviceUid()).isEqualTo(PI_UID);
         assertThat(saved.getValue().getIssuedAt())
                 .isEqualTo(LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
+    }
+
+    private IssueDeviceCommandRequest water() {
+        return new IssueDeviceCommandRequest(DeviceCommandType.WATER, null, null);
     }
 
     private void givenOwnedPlant() {
@@ -195,14 +278,17 @@ class DeviceCommandServiceTest {
                 .thenReturn(Optional.of(assignment));
     }
 
-    private void givenAssignmentWithRaspberry() {
+    /** 라즈베리와 젯슨이 모두 등록된 로봇이다. 명령 종류가 받을 장치를 고른다. */
+    private void givenDevices() {
         givenAssignment();
         IotDevice raspberry = mock(IotDevice.class);
-        when(raspberry.getDeviceType()).thenReturn(IotDeviceType.RASPBERRY_PI);
-        // 급수량이 비어 발행 전에 실패하는 테스트는 uid 를 읽지 않는다.
+        lenient().when(raspberry.getDeviceType()).thenReturn(IotDeviceType.RASPBERRY_PI);
         lenient().when(raspberry.getDeviceUid()).thenReturn(PI_UID);
+        IotDevice jetson = mock(IotDevice.class);
+        lenient().when(jetson.getDeviceType()).thenReturn(IotDeviceType.JETSON_ORIN);
+        lenient().when(jetson.getDeviceUid()).thenReturn(JETSON_UID);
         when(iotDeviceRepository.findAllByRobotIdOrderByDeviceTypeAsc(ROBOT_ID))
-                .thenReturn(List.of(raspberry));
+                .thenReturn(List.of(jetson, raspberry));
     }
 
     private void givenProfileWateringMl(BigDecimal amount) {

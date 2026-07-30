@@ -17,12 +17,18 @@ class CommandResultTopicParserTest {
         assertThat(parser.parse("potner/device/raspberry-01/result/capture"))
                 .contains(new CommandResultTopicParser.ParsedResultTopic(
                         "raspberry-01", DeviceCommandType.CAPTURE));
+        assertThat(parser.parse("potner/device/raspberry-01/result/fan"))
+                .contains(new CommandResultTopicParser.ParsedResultTopic(
+                        "raspberry-01", DeviceCommandType.FAN));
+        assertThat(parser.parse("potner/device/jetson-01/result/navigate"))
+                .contains(new CommandResultTopicParser.ParsedResultTopic(
+                        "jetson-01", DeviceCommandType.NAVIGATE));
     }
 
     @Test
     void rejectsACommandNameTheServerDoesNotKnow() {
         // 구독이 result/# 와일드카드라 장치가 새 결과를 먼저 붙이면 여기서 걸러진다.
-        assertThat(parser.parse("potner/device/raspberry-01/result/fan")).isEmpty();
+        assertThat(parser.parse("potner/device/raspberry-01/result/dance")).isEmpty();
     }
 
     @Test
