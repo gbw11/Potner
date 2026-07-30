@@ -26,6 +26,7 @@ import 'package:potner_app/features/plant/presentation/pages/plant_profile_page.
 import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/registered_plants_page.dart';
 import 'package:potner_app/features/user/presentation/pages/my_page.dart';
+import 'package:potner_app/features/user/presentation/pages/notification_settings_page.dart';
 import 'package:potner_app/features/user/presentation/pages/password_change_page.dart';
 import 'package:potner_app/features/user/presentation/pages/profile_page.dart';
 import 'package:potner_app/features/user/presentation/pages/withdraw_page.dart';
@@ -177,6 +178,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'withdraw',
                     builder: (context, state) => const WithdrawPage(),
+                  ),
+                  GoRoute(
+                    path: 'notifications',
+                    builder: (context, state) =>
+                        const NotificationSettingsPage(),
                   ),
                 ],
               ),

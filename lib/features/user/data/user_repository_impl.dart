@@ -33,4 +33,24 @@ class UserRepositoryImpl implements UserRepository {
   Future<void> withdraw() {
     return _api.withdraw();
   }
+
+  @override
+  Future<NotificationSettings> getNotificationSettings() {
+    return _api.getNotificationSettings();
+  }
+
+  @override
+  Future<NotificationSettings> updateNotificationSettings({
+    bool? allEnabled,
+    bool? pushEnabled,
+    bool? plantCareEnabled,
+    bool? marketingEnabled,
+  }) {
+    return _api.updateNotificationSettings(
+      allEnabled: allEnabled,
+      pushEnabled: pushEnabled,
+      plantCareEnabled: plantCareEnabled,
+      marketingEnabled: marketingEnabled,
+    );
+  }
 }
