@@ -42,7 +42,7 @@ class HomePage extends ConsumerWidget {
           HomeStatus.empty => withHeader(
             _EmptyView(
               nickname: user?.nickname,
-              onRegisterPlant: () => _showComingSoon(context, '내 식물 등록하기'),
+              onRegisterPlant: () => context.go('/plants/register'),
             ),
           ),
           HomeStatus.failure => withHeader(
@@ -60,7 +60,7 @@ class HomePage extends ConsumerWidget {
                 ref.read(homeControllerProvider.notifier).refresh(),
             onPlantSelected: (plantId) =>
                 ref.read(homeControllerProvider.notifier).selectPlant(plantId),
-            onRegisterPlant: () => _showComingSoon(context, '내 식물 등록하기'),
+            onRegisterPlant: () => context.go('/plants/register'),
             onRegisterDevice: () => _showComingSoon(context, '디바이스 등록하기'),
             onPlantDetail: () => _showComingSoon(context, '나의 식물 상세'),
             onPhotoLog: () => _showComingSoon(context, '포토 로그'),
