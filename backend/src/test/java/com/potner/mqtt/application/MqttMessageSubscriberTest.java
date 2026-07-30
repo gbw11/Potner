@@ -29,6 +29,7 @@ class MqttMessageSubscriberTest {
     private RobotStateMessageProcessor robotStateProcessor;
     private BatteryMessageProcessor batteryProcessor;
     private CommandResultMessageProcessor commandResultProcessor;
+    private WaterLowMessageProcessor waterLowProcessor;
     private MqttMessageSubscriber subscriber;
 
     @BeforeEach
@@ -38,13 +39,30 @@ class MqttMessageSubscriberTest {
         robotStateProcessor = mock(RobotStateMessageProcessor.class);
         batteryProcessor = mock(BatteryMessageProcessor.class);
         commandResultProcessor = mock(CommandResultMessageProcessor.class);
+        waterLowProcessor = mock(WaterLowMessageProcessor.class);
         subscriber = new MqttMessageSubscriber(
                 sensorProcessor,
                 heartbeatProcessor,
                 robotStateProcessor,
                 batteryProcessor,
-                commandResultProcessor
+                commandResultProcessor,
+                waterLowProcessor
         );
+    }
+
+    @Test
+    void delegatesWaterLowTopicToItsProcessor() {
+        Message<String> message = new GenericMessage<>(
+                "{\"waterLow\":true}",
+                Map.of(MqttHeaders.RECEIVED_TOPIC, "potner/device/raspberry-01/status/water-low")
+        );
+
+        subscriber.receive(message);
+
+        verify(waterLowProcessor)
+                .process("potner/device/raspberry-01/status/water-low", "{\"waterLow\":true}");
+        verify(batteryProcessor, never()).process(
+                "potner/device/raspberry-01/status/water-low", "{\"waterLow\":true}");
     }
 
     @Test

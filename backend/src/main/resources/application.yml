@@ -84,6 +84,10 @@ potner:
     # 배터리 잔량 구독이다. 어느 장치를 신뢰하는지는 potner.device.battery-reporter-type 이 정한다.
     battery:
       topic: ${MQTT_BATTERY_TOPIC:potner/device/+/status/battery}
+    # 급수 스테이션 물 부족 보고 구독이다. 스테이션 수위 센서를 읽는 라즈베리가 보낸다.
+    # 부족으로 바뀔 때만 사용자에게 푸시가 나가고, 보충(false) 보고가 플래그를 내린다.
+    water-low:
+      topic: ${MQTT_WATER_LOW_TOPIC:potner/device/+/status/water-low}
     # 서버 → 로봇 명령이다. 수신 토픽과 접두사를 맞추고 command/ 아래로 모은다.
     # {deviceUid} 와 {command} 는 발행할 때 치환한다.
     command:
