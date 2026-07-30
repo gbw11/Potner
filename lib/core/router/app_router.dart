@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_shell.dart';
-import 'package:potner_app/core/navigation/app_section_page.dart';
 import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
@@ -26,6 +25,10 @@ import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dar
 import 'package:potner_app/features/plant/presentation/pages/plant_profile_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/registered_plants_page.dart';
+import 'package:potner_app/features/user/presentation/pages/my_page.dart';
+import 'package:potner_app/features/user/presentation/pages/password_change_page.dart';
+import 'package:potner_app/features/user/presentation/pages/profile_page.dart';
+import 'package:potner_app/features/user/presentation/pages/withdraw_page.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 
@@ -157,16 +160,23 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: '/my',
-                builder: (context, state) => const AppSectionPage(
-                  sectionKey: Key('section_page_my'),
-                  title: '마이',
-                  icon: Icons.person_outline_rounded,
-                  description: '마이페이지는 다음 작업에서 연결합니다.',
-                ),
+                builder: (context, state) => const MyPage(),
                 routes: [
                   GoRoute(
                     path: 'plants',
                     builder: (context, state) => const RegisteredPlantsPage(),
+                  ),
+                  GoRoute(
+                    path: 'profile',
+                    builder: (context, state) => const ProfilePage(),
+                  ),
+                  GoRoute(
+                    path: 'password',
+                    builder: (context, state) => const PasswordChangePage(),
+                  ),
+                  GoRoute(
+                    path: 'withdraw',
+                    builder: (context, state) => const WithdrawPage(),
                   ),
                 ],
               ),
