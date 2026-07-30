@@ -83,6 +83,53 @@ void main() {
     expect(find.text('비밀번호가 일치하지 않습니다.'), findsOneWidget);
     expect(repository.signupCalls, 0);
   });
+
+  testWidgets('successful signup shows the complete screen and prefills login', (
+    tester,
+  ) async {
+    final repository = _FakeAuthRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(repository),
+          homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
+        ],
+        child: const PotnerApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('go_to_signup')));
+    await tester.tap(find.byKey(const Key('go_to_signup')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('signup_email')),
+      'new@example.com',
+    );
+    await tester.enterText(find.byKey(const Key('signup_nickname')), '새싹');
+    await tester.enterText(
+      find.byKey(const Key('signup_password')),
+      'password1',
+    );
+    await tester.enterText(
+      find.byKey(const Key('signup_password_confirm')),
+      'password1',
+    );
+    await tester.ensureVisible(find.byKey(const Key('signup_submit')));
+    await tester.tap(find.byKey(const Key('signup_submit')));
+    await tester.pumpAndSettle();
+
+    expect(repository.signupCalls, 1);
+    expect(find.text('Potner와 함께할 준비, 완료!'), findsOneWidget);
+    expect(find.text('회원가입이 완료되었어요!'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('signup_complete_later')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome Back'), findsOneWidget);
+    expect(find.text('new@example.com'), findsOneWidget);
+  });
 }
 
 class _FakeAuthRepository implements AuthRepository {

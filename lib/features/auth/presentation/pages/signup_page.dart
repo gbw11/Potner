@@ -240,10 +240,7 @@ class _SignupPageState extends ConsumerState<SignupPage> {
 
     if (result.isSuccess) {
       TextInput.finishAutofillContext();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('회원가입이 완료되었습니다. 로그인해 주세요.')));
-      context.go('/login', extra: email);
+      context.go('/signup/complete', extra: email);
       return;
     }
 
