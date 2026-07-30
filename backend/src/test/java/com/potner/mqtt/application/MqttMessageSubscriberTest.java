@@ -26,6 +26,7 @@ class MqttMessageSubscriberTest {
     private SensorTelemetryMessageProcessor sensorProcessor;
     private HeartbeatMessageProcessor heartbeatProcessor;
     private RobotStateMessageProcessor robotStateProcessor;
+    private BatteryMessageProcessor batteryProcessor;
     private MqttMessageSubscriber subscriber;
 
     @BeforeEach
@@ -33,10 +34,12 @@ class MqttMessageSubscriberTest {
         sensorProcessor = mock(SensorTelemetryMessageProcessor.class);
         heartbeatProcessor = mock(HeartbeatMessageProcessor.class);
         robotStateProcessor = mock(RobotStateMessageProcessor.class);
+        batteryProcessor = mock(BatteryMessageProcessor.class);
         subscriber = new MqttMessageSubscriber(
                 sensorProcessor,
                 heartbeatProcessor,
-                robotStateProcessor
+                robotStateProcessor,
+                batteryProcessor
         );
     }
 

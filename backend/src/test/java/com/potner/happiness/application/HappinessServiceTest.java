@@ -83,11 +83,14 @@ class HappinessServiceTest {
                 bloomRepository,
                 assignmentRepository,
                 robotRepository,
+                new HappinessMessageFactory(),
                 new HappinessProperties(
                         true,
                         new BigDecimal("0.5"),
                         30,
-                        IotDeviceType.JETSON_ORIN
+                        IotDeviceType.JETSON_ORIN,
+                        5,
+                        5
                 ),
                 new SensorQueryProperties("+09:00", 15, 7, 90),
                 Clock.fixed(NOW, ZoneOffset.UTC)

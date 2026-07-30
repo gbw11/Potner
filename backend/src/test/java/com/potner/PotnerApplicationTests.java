@@ -14,6 +14,7 @@ import com.potner.diary.application.DiaryWriteResult;
 import com.potner.happiness.application.ExpressionPublishScheduler;
 import com.potner.mqtt.application.LoggingRobotCommandPublisher;
 import com.potner.mqtt.application.RobotCommandPublisher;
+import com.potner.mqtt.application.BatteryMessageProcessor;
 import com.potner.mqtt.application.RobotStateMessageProcessor;
 import com.potner.mqtt.application.SensorTelemetryMessageProcessor;
 import com.potner.device.application.HeartbeatUpdateResult;
@@ -134,6 +135,9 @@ class PotnerApplicationTests {
 
     @Autowired
     private RobotStateMessageProcessor robotStateProcessor;
+
+    @Autowired
+    private BatteryMessageProcessor batteryProcessor;
 
     @Autowired
     private AlertRepository alertRepository;
@@ -2248,6 +2252,99 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void batteryFromTheJetsonIsStoredAndExposed() throws Exception {
+        SensorFixture fixture = createSensorFixture("battery@example.com");
+        Tokens tokens = login("battery@example.com");
+
+        // 한 번도 받지 못한 로봇은 비어 있다. 화면이 '측정 없음' 을 구분할 수 있어야 한다.
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "78"));
+
+        assertThat(robotBatteryPercent(fixture.robotId())).isEqualTo(78);
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/devices", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.robot.batteryPercent").value(78))
+                // 시각이 없으면 사흘 전 값이 현재값처럼 보인다.
+                .andExpect(jsonPath("$.robot.batteryMeasuredAt").isNotEmpty());
+
+        // 잔량 보고도 장치가 살아 있다는 증거다.
+        assertDeviceState(fixture.jetsonUid(), "ONLINE", true);
+
+        // 같은 값이 다시 와도 시각을 갱신한다. 상태(state)와 다른 점이다. 배터리는 '언제부터
+        // 이 값인지' 가 아니라 '이 값이 얼마나 최근인지' 가 필요하다.
+        LocalDateTime firstMeasuredAt = robotBatteryMeasuredAt(fixture.robotId());
+        jdbcTemplate.update(
+                "UPDATE robot SET battery_measured_at = ? WHERE robot_id = ?",
+                firstMeasuredAt.minusMinutes(10),
+                fixture.robotId());
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "78"));
+        assertThat(robotBatteryMeasuredAt(fixture.robotId())).isAfter(firstMeasuredAt.minusMinutes(10));
+    }
+
+    @Test
+    void batteryIsRejectedFromTheRaspberryAndFromOutOfRangeValues() throws Exception {
+        SensorFixture fixture = createSensorFixture("battery-reject@example.com");
+
+        // robot.battery_percent 가 컬럼 하나라 두 장치가 보내면 서로 덮어써 값이 흔들린다.
+        // 규격상 젯슨만 보내며 서버가 그 규칙을 강제한다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.raspberryUid()),
+                batteryJson(fixture.raspberryUid(), "42"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        // CHECK 제약과 같은 범위다. 여기서 막지 않으면 저장 단계에서 예외가 난다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "101"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        // 페이로드가 다른 장치를 주장한다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson("jetson-somebody-else", "55"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isNull();
+
+        // 경계값은 통과해야 한다.
+        batteryProcessor.process(
+                statusBatteryTopic(fixture.jetsonUid()),
+                batteryJson(fixture.jetsonUid(), "0"));
+        assertThat(robotBatteryPercent(fixture.robotId())).isZero();
+    }
+
+    private String statusBatteryTopic(String deviceUid) {
+        return "potner/device/" + deviceUid + "/status/battery";
+    }
+
+    private String batteryJson(String deviceUid, String batteryPercent) {
+        return """
+                {"messageId":"%s","deviceId":"%s","batteryPercent":%s,"measuredAt":"%s"}
+                """.formatted(
+                UUID.randomUUID(),
+                deviceUid,
+                batteryPercent,
+                nowUtc().minusSeconds(5).format(UTC_ISO));
+    }
+
+    private Integer robotBatteryPercent(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT battery_percent FROM robot WHERE robot_id = ?", Integer.class, robotId);
+    }
+
+    private LocalDateTime robotBatteryMeasuredAt(String robotId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT battery_measured_at FROM robot WHERE robot_id = ?",
+                LocalDateTime.class,
+                robotId);
+    }
+
+    @Test
     void robotStateFromMqttIsStoredAndExposed() throws Exception {
         SensorFixture fixture = createSensorFixture("robot-state@example.com");
         Tokens tokens = login("robot-state@example.com");
@@ -2362,6 +2459,127 @@ class PotnerApplicationTests {
                 "SELECT state_changed_at FROM robot WHERE robot_id = ?",
                 LocalDateTime.class,
                 robotId);
+    }
+
+    @Test
+    void homeGradeAndKoreanMessageFollowTheSensors() throws Exception {
+        SensorFixture fixture = createSensorFixture("happiness-grade@example.com");
+        Tokens tokens = login("happiness-grade@example.com");
+        LocalDateTime base = nowUtc().minusMinutes(5);
+
+        // 측정값이 없으면 판정 근거가 없다. GOOD 으로 처리하면 기기가 꺼져 있는 동안
+        // "아주 좋아요" 를 보여주게 된다.
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("UNKNOWN"))
+                .andExpect(jsonPath("$.headline").value("상태를 확인할 수 없어요"))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(0));
+
+        // 바질 발아기 기준은 토양 40~55, 온도 21~29, 습도 60~80 이다.
+        insertReading(fixture, SensorType.SOIL_MOISTURE, "45.00", SensorUnit.PERCENT, base);
+        insertReading(fixture, SensorType.TEMPERATURE, "24.00", SensorUnit.CELSIUS, base);
+        insertReading(fixture, SensorType.HUMIDITY, "70.00", SensorUnit.PERCENT, base);
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("GOOD"))
+                .andExpect(jsonPath("$.headline").value("아주 좋아요!"))
+                .andExpect(jsonPath("$.detail").value("온도와 습도가 편안해요 :)"))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(0));
+
+        insertReading(fixture, SensorType.SOIL_MOISTURE, "20.00", SensorUnit.PERCENT,
+                base.plusMinutes(1));
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("FAIR"))
+                .andExpect(jsonPath("$.headline").value("조금 신경 써주세요"))
+                .andExpect(jsonPath("$.detail").value("흙이 말랐어요."))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(1))
+                .andExpect(jsonPath("$.abnormalMetrics[0].sensorType").value("SOIL_MOISTURE"))
+                .andExpect(jsonPath("$.abnormalMetrics[0].status").value("LOW"));
+
+        insertReading(fixture, SensorType.TEMPERATURE, "35.00", SensorUnit.CELSIUS,
+                base.plusMinutes(2));
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("POOR"))
+                .andExpect(jsonPath("$.headline").value("도움이 필요해요"))
+                // 목적격 조사가 마지막 낱말의 종성에 따라 갈린다. '온도를', '수분을'.
+                .andExpect(jsonPath("$.detail").value("토양 수분, 온도를 확인해주세요."))
+                .andExpect(jsonPath("$.abnormalMetrics.length()").value(2));
+
+        Tokens stranger = signupAndLogin("happiness-grade-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/happiness", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    @Test
+    void dailyStatusReportScoresThatDaysAlerts() throws Exception {
+        SensorFixture fixture = createSensorFixture("status-report@example.com");
+        Tokens tokens = login("status-report@example.com");
+        String userId = userIdOf("status-report@example.com");
+        LocalDate today = serviceToday();
+
+        // 측정이 없던 날은 점수를 주지 않는다. 알림도 없으니 100 점이 되는데, 그러면 기기가
+        // 꺼져 있던 하루가 완벽한 하루로 보인다.
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(nullValue()))
+                .andExpect(jsonPath("$.adjustments.length()").value(0))
+                // 급수 기록 기능이 아직 없다. 필드는 미리 둔다.
+                .andExpect(jsonPath("$.wateredMl").value(nullValue()));
+
+        insertReading(fixture, SensorType.TEMPERATURE, "24.00", SensorUnit.CELSIUS,
+                nowUtc().minusMinutes(1));
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(100))
+                .andExpect(jsonPath("$.adjustments.length()").value(0));
+
+        insertAlert(userId, fixture.plantId(), "SOIL_MOISTURE", nowUtc(), false, false);
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(95))
+                .andExpect(jsonPath("$.adjustments.length()").value(1))
+                .andExpect(jsonPath("$.adjustments[0].reason").value("SOIL_MOISTURE_ALERT"))
+                .andExpect(jsonPath("$.adjustments[0].points").value(-5));
+
+        // 누적 광량 이상도 alert 에 기록되므로 같은 감점 경로를 탄다. 광량 판정을 따로 또
+        // 깎으면 같은 사실로 두 번 감점한다.
+        insertAlert(userId, fixture.plantId(), "DAILY_LIGHT", nowUtc(), false, false);
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(90));
+
+        // 그날 꽃이 폈으면 더한다. 유일한 가점이다.
+        mockMvc.perform(post("/api/v1/plants/{plantId}/blooms", fixture.plantId())
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isCreated());
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(95))
+                .andExpect(jsonPath("$.adjustments[*].reason").value(hasItems("BLOOMED")));
+
+        // 알림이 없던 다른 날은 이 식물의 점수에 영향을 주지 않는다.
+        assertStatusReport(tokens, fixture.plantId(), today.minusDays(3))
+                .andExpect(jsonPath("$.happinessScore").value(nullValue()));
+
+        Tokens stranger = signupAndLogin("status-report-stranger@example.com");
+        mockMvc.perform(get("/api/v1/plants/{plantId}/status-report", fixture.plantId())
+                        .header("Authorization", "Bearer " + stranger.accessToken())
+                        .param("date", today.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_NOT_FOUND"));
+    }
+
+    private ResultActions assertStatusReport(Tokens tokens, String plantId, LocalDate date)
+            throws Exception {
+        return mockMvc.perform(get("/api/v1/plants/{plantId}/status-report", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .param("date", date.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(plantId))
+                .andExpect(jsonPath("$.date").value(date.toString()));
     }
 
     @Test
