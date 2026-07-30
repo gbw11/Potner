@@ -93,7 +93,12 @@ class MenuPage extends ConsumerWidget {
           icon: Icons.person_outline_rounded,
           action: _MenuAction.my,
         ),
-        _MenuEntry(id: 'devices', label: '장치 관리', icon: Icons.router_outlined),
+        _MenuEntry(
+          id: 'devices',
+          label: '장치 관리',
+          icon: Icons.router_outlined,
+          action: _MenuAction.deviceManagement,
+        ),
         _MenuEntry(
           id: 'logout',
           label: '로그아웃',
@@ -194,6 +199,8 @@ class MenuPage extends ConsumerWidget {
         context.go('/my/plants');
       case _MenuAction.deviceRegistration:
         context.go('/devices/register');
+      case _MenuAction.deviceManagement:
+        context.go('/devices');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -341,6 +348,7 @@ enum _MenuAction {
   myPlants,
   registeredPlants,
   deviceRegistration,
+  deviceManagement,
   my,
   logout,
   comingSoon,

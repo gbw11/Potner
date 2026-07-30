@@ -5,9 +5,11 @@ import 'package:potner_app/app.dart';
 import 'package:potner_app/features/auth/data/auth_repository_impl.dart';
 import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/user.dart';
+import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/home/data/home_repository_impl.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 
+import 'support/fake_device_repository.dart';
 import 'support/fake_home_repository.dart';
 import 'support/fake_plant_repository.dart';
 
@@ -76,6 +78,8 @@ void main() {
 
     await tester.tap(find.byKey(const Key('device_registration_back')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('device_management_back')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('open_menu_button')));
     await tester.pumpAndSettle();
 
@@ -130,6 +134,7 @@ Future<void> _pumpAuthenticatedApp(
         authRepositoryProvider.overrideWithValue(repository),
         homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
         plantRepositoryProvider.overrideWithValue(FakePlantRepository()),
+        deviceRepositoryProvider.overrideWithValue(FakeDeviceRepository()),
       ],
       child: const PotnerApp(),
     ),
