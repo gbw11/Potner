@@ -21,6 +21,7 @@ public class MqttMessageSubscriber {
     private static final String HEARTBEAT_TOPIC_SUFFIX = "/status/heartbeat";
     private static final String ROBOT_STATE_TOPIC_SUFFIX = "/status/state";
     private static final String BATTERY_TOPIC_SUFFIX = "/status/battery";
+    private static final String WATER_LOW_TOPIC_SUFFIX = "/status/water-low";
 
     /**
      * 결과 회신은 마지막 조각이 명령 이름이라 접미사가 고정이 아니다. {@code /result/} 구간의
@@ -33,19 +34,22 @@ public class MqttMessageSubscriber {
     private final RobotStateMessageProcessor robotStateProcessor;
     private final BatteryMessageProcessor batteryProcessor;
     private final CommandResultMessageProcessor commandResultProcessor;
+    private final WaterLowMessageProcessor waterLowProcessor;
 
     public MqttMessageSubscriber(
             SensorTelemetryMessageProcessor sensorProcessor,
             HeartbeatMessageProcessor heartbeatProcessor,
             RobotStateMessageProcessor robotStateProcessor,
             BatteryMessageProcessor batteryProcessor,
-            CommandResultMessageProcessor commandResultProcessor
+            CommandResultMessageProcessor commandResultProcessor,
+            WaterLowMessageProcessor waterLowProcessor
     ) {
         this.sensorProcessor = sensorProcessor;
         this.heartbeatProcessor = heartbeatProcessor;
         this.robotStateProcessor = robotStateProcessor;
         this.batteryProcessor = batteryProcessor;
         this.commandResultProcessor = commandResultProcessor;
+        this.waterLowProcessor = waterLowProcessor;
     }
 
     @ServiceActivator(inputChannel = "mqttInputChannel")
@@ -76,6 +80,8 @@ public class MqttMessageSubscriber {
                 robotStateProcessor.process(topic, rawPayload);
             } else if (topic.endsWith(BATTERY_TOPIC_SUFFIX)) {
                 batteryProcessor.process(topic, rawPayload);
+            } else if (topic.endsWith(WATER_LOW_TOPIC_SUFFIX)) {
+                waterLowProcessor.process(topic, rawPayload);
             } else if (topic.contains(COMMAND_RESULT_TOPIC_MARKER)) {
                 commandResultProcessor.process(topic, rawPayload);
             } else {

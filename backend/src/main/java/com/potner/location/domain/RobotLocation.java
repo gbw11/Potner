@@ -88,6 +88,25 @@ public class RobotLocation {
         return poseX != null && poseY != null && poseYaw != null;
     }
 
+    /**
+     * 물 부족 보고를 반영한다.
+     *
+     * <p>부족일 때만 보고 시각을 갱신한다. {@code waterLowAt} 은 "마지막으로 부족이 보고된
+     * 시각" 이고, 해제 뒤에도 남겨 두어 언제까지 부족했는지가 보이게 한다.
+     *
+     * @return 부족 상태로 <strong>처음</strong> 바뀌었으면 {@code true}. 알림은 이때만 나간다 —
+     *         장치가 같은 상태를 주기적으로 반복 보고하므로 매번 알리면 물을 채울 때까지
+     *         알림이 쏟아진다
+     */
+    public boolean reportWaterLow(boolean low, LocalDateTime reportedAt) {
+        boolean becameLow = low && !this.waterLow;
+        this.waterLow = low;
+        if (low) {
+            this.waterLowAt = reportedAt;
+        }
+        return becameLow;
+    }
+
     public String getId() {
         return id;
     }
