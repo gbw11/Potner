@@ -5,6 +5,9 @@ import 'package:potner_app/app.dart';
 import 'package:potner_app/features/auth/data/auth_repository_impl.dart';
 import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/user.dart';
+import 'package:potner_app/features/home/data/home_repository_impl.dart';
+
+import 'support/fake_home_repository.dart';
 
 void main() {
   testWidgets('authenticated routes share the bottom navigation', (
@@ -116,7 +119,10 @@ Future<void> _pumpAuthenticatedApp(
 ) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [authRepositoryProvider.overrideWithValue(repository)],
+      overrides: [
+        authRepositoryProvider.overrideWithValue(repository),
+        homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
+      ],
       child: const PotnerApp(),
     ),
   );
