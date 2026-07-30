@@ -20,7 +20,13 @@ class CameraStore:
 
     def next_path(self, ext: str = ".jpg") -> Path:
         stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d_%H%M%S")
-        return self.directory / f"frame_{stamp}{ext}"
+        path = self.directory / f"frame_{stamp}{ext}"
+        # 같은 초에 연속 촬영해도 기존 파일을 덮어쓰지 않도록 접미사 부여
+        n = 1
+        while path.exists():
+            path = self.directory / f"frame_{stamp}_{n}{ext}"
+            n += 1
+        return path
 
     def capture(self, camera: Camera, *, ext: str | None = None) -> CaptureResult:
         # mock PNG / picamera jpg

@@ -9,7 +9,7 @@ from pathlib import Path
 from src.collector import Collector
 from src.config import load_config
 from src.device import resolve_device_id
-from src.mqtt import build_mqtt_publisher, build_water_listener
+from src.mqtt import build_capture_listener, build_mqtt_publisher, build_water_listener
 from src.transport import build_spring_publisher
 
 
@@ -41,6 +41,11 @@ def main() -> int:
     publisher = build_spring_publisher(config)
     mqtt_publisher = build_mqtt_publisher(config)
     water_listener = None if args.once else build_water_listener(config)
+    capture_listener = (
+        None
+        if args.once
+        else build_capture_listener(config, capture_fn=collector.capture_once)
+    )
     running = True
 
     def _stop(_signum, _frame) -> None:
@@ -73,11 +78,20 @@ def main() -> int:
             print(f"warn: water listener unavailable: {exc}")
             water_listener = None
 
+    capture_note = "off"
+    if capture_listener is not None:
+        try:
+            capture_listener.start()
+            capture_note = f"on {capture_listener.command_topic}"
+        except Exception as exc:  # noqa: BLE001 — 촬영 실패해도 수집은 계속
+            print(f"warn: capture listener unavailable: {exc}")
+            capture_listener = None
+
     print(
         f"platform={config.get('platform')} device_id={device_id} interval={interval}s "
         f"storage={config.get('storage', {}).get('path')} "
         f"backend={'on ' + publisher.url if publisher.enabled else 'off'} "
-        f"mqtt={mqtt_note} water={water_note}"
+        f"mqtt={mqtt_note} water={water_note} capture={capture_note}"
     )
 
     try:
@@ -104,6 +118,8 @@ def main() -> int:
             while running and time.time() < end:
                 time.sleep(0.2)
     finally:
+        if capture_listener is not None:
+            capture_listener.close()
         if water_listener is not None:
             water_listener.close()
             water_listener.pump.close()
