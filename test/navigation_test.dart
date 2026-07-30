@@ -45,6 +45,30 @@ void main() {
     expect(find.text('식물 관리'), findsOneWidget);
     expect(find.text('성장 기록'), findsOneWidget);
 
+    final plantRegistration = find.byKey(
+      const Key('menu_item_plant_registration'),
+    );
+    final deviceRegistration = find.byKey(
+      const Key('menu_item_device_registration'),
+    );
+    final careSettings = find.byKey(const Key('menu_item_care_settings'));
+
+    expect(plantRegistration, findsOneWidget);
+    expect(deviceRegistration, findsOneWidget);
+    expect(careSettings, findsOneWidget);
+    expect(
+      tester.getTopLeft(plantRegistration).dy,
+      lessThan(tester.getTopLeft(deviceRegistration).dy),
+    );
+    expect(
+      tester.getTopLeft(deviceRegistration).dy,
+      lessThan(tester.getTopLeft(careSettings).dy),
+    );
+
+    await tester.tap(deviceRegistration);
+    await tester.pumpAndSettle();
+    expect(find.text('디바이스 등록하기 기능은 다음 작업에서 연결합니다.'), findsOneWidget);
+
     final serviceAlertsTitle = find.text('서비스 알림');
     await tester.scrollUntilVisible(
       serviceAlertsTitle,
