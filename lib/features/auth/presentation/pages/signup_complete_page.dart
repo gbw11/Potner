@@ -13,10 +13,10 @@ class SignupCompletePage extends ConsumerWidget {
 
   final String? email;
 
-  void _continue(BuildContext context, WidgetRef ref) {
+  void _continue(BuildContext context, WidgetRef ref, {required bool toPlantRegistration}) {
     final isAuthenticated = ref.read(authControllerProvider).isAuthenticated;
     if (isAuthenticated) {
-      context.go('/');
+      context.go(toPlantRegistration ? '/plants/register' : '/');
       return;
     }
     context.go('/login', extra: email);
@@ -85,13 +85,21 @@ class SignupCompletePage extends ConsumerWidget {
                         const SizedBox(height: 48),
                         FilledButton(
                           key: const Key('signup_complete_register_plant'),
-                          onPressed: () => _continue(context, ref),
+                          onPressed: () => _continue(
+                            context,
+                            ref,
+                            toPlantRegistration: true,
+                          ),
                           child: const Text('내 식물 등록하기'),
                         ),
                         const SizedBox(height: 6),
                         TextButton(
                           key: const Key('signup_complete_later'),
-                          onPressed: () => _continue(context, ref),
+                          onPressed: () => _continue(
+                            context,
+                            ref,
+                            toPlantRegistration: false,
+                          ),
                           child: const Text(
                             '나중에 할게요',
                             style: TextStyle(

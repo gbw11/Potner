@@ -21,6 +21,7 @@ class MenuPage extends ConsumerWidget {
           id: 'plant_registration',
           label: '내 식물 등록하기',
           icon: Icons.add_circle_outline_rounded,
+          action: _MenuAction.plantRegistration,
         ),
         _MenuEntry(
           id: 'device_registration',
@@ -177,6 +178,8 @@ class MenuPage extends ConsumerWidget {
         context.go('/');
       case _MenuAction.alerts:
         context.go('/alerts');
+      case _MenuAction.plantRegistration:
+        context.go('/plants/register');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -317,4 +320,4 @@ class _MenuEntry {
   final bool destructive;
 }
 
-enum _MenuAction { home, alerts, my, logout, comingSoon }
+enum _MenuAction { home, alerts, plantRegistration, my, logout, comingSoon }

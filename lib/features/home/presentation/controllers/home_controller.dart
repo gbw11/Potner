@@ -54,7 +54,9 @@ class HomeState {
 }
 
 class HomeController extends Notifier<HomeState> {
-  late final HomeRepository _repository;
+  // build()는 provider 일시정지 후 재개될 때 같은 인스턴스에서 다시 실행될 수
+  // 있으므로 late final 로 두면 두 번째 할당에서 죽는다.
+  late HomeRepository _repository;
   Future<void>? _loadFuture;
 
   @override
