@@ -1,5 +1,6 @@
 package com.potner.command.domain;
 
+import com.potner.location.domain.RobotLocationType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -53,6 +54,15 @@ public class DeviceCommand {
     @Column(name = "requested_ml", precision = 10, scale = 2)
     private BigDecimal requestedMl;
 
+    /** NAVIGATE 만. 목적지 위치 종류다. 좌표는 발행 시점의 robot_location 에서 꺼내 실었다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "destination", length = 20)
+    private RobotLocationType destination;
+
+    /** FAN 만. 1회 가동 시간(초)이다. */
+    @Column(name = "run_seconds")
+    private Integer runSeconds;
+
     @Column(name = "dispensed_ml", precision = 10, scale = 2)
     private BigDecimal dispensedMl;
 
@@ -77,6 +87,8 @@ public class DeviceCommand {
             String deviceUid,
             DeviceCommandType commandType,
             BigDecimal requestedMl,
+            RobotLocationType destination,
+            Integer runSeconds,
             LocalDateTime issuedAt
     ) {
         DeviceCommand command = new DeviceCommand();
@@ -87,6 +99,8 @@ public class DeviceCommand {
         command.commandType = commandType;
         command.status = DeviceCommandStatus.ISSUED;
         command.requestedMl = requestedMl;
+        command.destination = destination;
+        command.runSeconds = runSeconds;
         command.issuedAt = issuedAt;
         return command;
     }
@@ -146,6 +160,14 @@ public class DeviceCommand {
 
     public BigDecimal getRequestedMl() {
         return requestedMl;
+    }
+
+    public RobotLocationType getDestination() {
+        return destination;
+    }
+
+    public Integer getRunSeconds() {
+        return runSeconds;
     }
 
     public BigDecimal getDispensedMl() {

@@ -46,6 +46,8 @@ class DeviceCommandResultServiceTest {
                 "plant-1", "robot-1", PI_UID,
                 DeviceCommandType.WATER,
                 new BigDecimal("350.00"),
+                null,
+                null,
                 LocalDateTime.ofInstant(NOW.minusSeconds(20), ZoneOffset.UTC)
         );
         requestId = command.getRequestId();

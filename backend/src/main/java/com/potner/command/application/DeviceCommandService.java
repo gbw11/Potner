@@ -4,15 +4,19 @@ import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
+import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.dto.DeviceCommandListResponse;
 import com.potner.command.dto.DeviceCommandResponse;
+import com.potner.command.dto.IssueDeviceCommandRequest;
 import com.potner.common.error.BusinessException;
 import com.potner.common.error.ErrorCode;
 import com.potner.device.domain.IotDevice;
 import com.potner.device.domain.IotDeviceRepository;
-import com.potner.device.domain.IotDeviceType;
 import com.potner.device.domain.PlantDeviceAssignment;
 import com.potner.device.domain.PlantDeviceAssignmentRepository;
+import com.potner.location.domain.RobotLocation;
+import com.potner.location.domain.RobotLocationRepository;
+import com.potner.location.domain.RobotLocationType;
 import com.potner.plant.domain.PlantGrowthProfile;
 import com.potner.plant.domain.PlantGrowthProfileRepository;
 import com.potner.plant.domain.PlantRepository;
@@ -48,7 +52,9 @@ public class DeviceCommandService {
     private final PlantDeviceAssignmentRepository assignmentRepository;
     private final IotDeviceRepository iotDeviceRepository;
     private final PlantGrowthProfileRepository profileRepository;
+    private final RobotLocationRepository locationRepository;
     private final SensorQueryProperties sensorQueryProperties;
+    private final DeviceCommandProperties properties;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
@@ -58,7 +64,9 @@ public class DeviceCommandService {
             PlantDeviceAssignmentRepository assignmentRepository,
             IotDeviceRepository iotDeviceRepository,
             PlantGrowthProfileRepository profileRepository,
+            RobotLocationRepository locationRepository,
             SensorQueryProperties sensorQueryProperties,
+            DeviceCommandProperties properties,
             ApplicationEventPublisher eventPublisher,
             Clock clock
     ) {
@@ -67,14 +75,18 @@ public class DeviceCommandService {
         this.assignmentRepository = assignmentRepository;
         this.iotDeviceRepository = iotDeviceRepository;
         this.profileRepository = profileRepository;
+        this.locationRepository = locationRepository;
         this.sensorQueryProperties = sensorQueryProperties;
+        this.properties = properties;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
 
     @Transactional
-    public DeviceCommandResponse issue(String userId, String plantId, DeviceCommandType type) {
+    public DeviceCommandResponse issue(String userId, String plantId, IssueDeviceCommandRequest request) {
+        DeviceCommandType type = request.type();
         requireOwnedPlant(userId, plantId);
+        requireFieldsMatchType(request);
 
         // 대기 중 재발행을 서버에서 먼저 막는다. 장치도 BUSY 로 거절하지만 그건 이력 행을
         // 하나 더 남기고, 사용자에게는 "왜 안 되는지" 가 회신이 올 때까지 보이지 않는다.
@@ -87,15 +99,21 @@ public class DeviceCommandService {
                 .findFirstByPlantIdAndUnassignedAtIsNullOrderByAssignedAtDesc(plantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLANT_ASSIGNMENT_NOT_FOUND));
 
-        // 급수도 촬영도 라즈베리가 받는다. 펌프와 카메라가 라즈베리에 달려 있다.
+        // 명령 종류가 받을 장치를 정한다. 펌프·팬·카메라는 라즈베리에, 바퀴는 젯슨에 있다.
         IotDevice device = iotDeviceRepository
                 .findAllByRobotIdOrderByDeviceTypeAsc(assignment.getRobotId())
                 .stream()
-                .filter(candidate -> candidate.getDeviceType() == IotDeviceType.RASPBERRY_PI)
+                .filter(candidate -> candidate.getDeviceType() == type.targetDeviceType())
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ErrorCode.COMMAND_DEVICE_NOT_FOUND));
 
         BigDecimal requestedMl = type == DeviceCommandType.WATER ? wateringAmount(plantId) : null;
+        RobotLocation destination = type == DeviceCommandType.NAVIGATE
+                ? requireNavigableLocation(assignment.getRobotId(), request.destination())
+                : null;
+        Integer runSeconds = type == DeviceCommandType.FAN
+                ? Optional.ofNullable(request.seconds()).orElse(properties.fanRunSeconds())
+                : null;
 
         DeviceCommand command = commandRepository.save(DeviceCommand.issue(
                 plantId,
@@ -103,6 +121,8 @@ public class DeviceCommandService {
                 device.getDeviceUid(),
                 type,
                 requestedMl,
+                destination == null ? null : destination.getLocationType(),
+                runSeconds,
                 now()
         ));
 
@@ -110,7 +130,12 @@ public class DeviceCommandService {
                 command.getRequestId(),
                 command.getDeviceUid(),
                 command.getCommandType(),
-                command.getRequestedMl()
+                command.getRequestedMl(),
+                command.getDestination(),
+                destination == null ? null : destination.getPoseX(),
+                destination == null ? null : destination.getPoseY(),
+                destination == null ? null : destination.getPoseYaw(),
+                command.getRunSeconds()
         ));
         return DeviceCommandResponse.from(command);
     }
@@ -137,6 +162,41 @@ public class DeviceCommandService {
                 plantId,
                 commands.stream().map(DeviceCommandResponse::from).toList()
         );
+    }
+
+    /**
+     * 요청 필드가 명령 종류에 맞는지 본다.
+     *
+     * <p>NAVIGATE 가 아닌데 목적지가 오거나 FAN 이 아닌데 가동 시간이 오면 거절한다. 무시하고
+     * 진행하면 앱이 잘못 조립한 요청이 조용히 통과해 버그가 늦게 드러난다.
+     */
+    private void requireFieldsMatchType(IssueDeviceCommandRequest request) {
+        boolean needsDestination = request.type() == DeviceCommandType.NAVIGATE;
+        if (needsDestination && request.destination() == null) {
+            throw new BusinessException(ErrorCode.NAVIGATE_DESTINATION_REQUIRED);
+        }
+        if (!needsDestination && request.destination() != null) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+        if (request.type() != DeviceCommandType.FAN && request.seconds() != null) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+    }
+
+    /**
+     * 이동 목적지의 위치를 찾는다. 좌표까지 있어야 한다.
+     *
+     * <p>좌표 없는 위치로 명령을 내보내면 로봇이 갈 곳을 모른다. 미설정(NULL)을 0,0,0 으로
+     * 채워 보내는 것은 더 나쁘다 — 지도 원점으로 달려간다.
+     */
+    private RobotLocation requireNavigableLocation(String robotId, RobotLocationType destination) {
+        RobotLocation location = locationRepository
+                .findByRobotIdAndLocationType(robotId, destination)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ROBOT_LOCATION_NOT_FOUND));
+        if (!location.hasPose()) {
+            throw new BusinessException(ErrorCode.LOCATION_POSE_NOT_CONFIGURED);
+        }
+        return location;
     }
 
     /**

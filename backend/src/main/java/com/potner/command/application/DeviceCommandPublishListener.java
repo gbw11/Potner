@@ -1,6 +1,5 @@
 package com.potner.command.application;
 
-import com.potner.command.domain.DeviceCommandType;
 import com.potner.mqtt.application.RobotCommand;
 import com.potner.mqtt.application.RobotCommandPublisher;
 import org.springframework.stereotype.Component;
@@ -31,9 +30,18 @@ public class DeviceCommandPublishListener {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCommandIssued(DeviceCommandIssuedEvent event) {
-        Object payload = event.commandType() == DeviceCommandType.WATER
-                ? new WaterCommandPayload(event.requestedMl(), event.requestId())
-                : new CaptureCommandPayload(event.requestId());
+        Object payload = switch (event.commandType()) {
+            case WATER -> new WaterCommandPayload(event.requestedMl(), event.requestId());
+            case CAPTURE -> new CaptureCommandPayload(event.requestId());
+            case FAN -> new FanCommandPayload(event.runSeconds(), event.requestId());
+            case NAVIGATE -> new NavigateCommandPayload(
+                    event.destination().name(),
+                    event.poseX(),
+                    event.poseY(),
+                    event.poseYaw(),
+                    event.requestId()
+            );
+        };
         commandPublisher.publish(
                 event.deviceUid(),
                 new RobotCommand(event.commandType().commandName(), payload)

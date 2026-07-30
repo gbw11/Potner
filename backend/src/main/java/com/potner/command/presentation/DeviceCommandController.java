@@ -47,11 +47,16 @@ public class DeviceCommandController {
     @Operation(
             summary = "장치 명령 발행",
             description = """
-                    type 은 WATER(급수) 또는 CAPTURE(촬영)이다. 두 명령 모두 식물에 배정된 로봇의
-                    라즈베리파이가 받는다.
+                    type 은 WATER(급수) / CAPTURE(촬영) / FAN(송풍) / NAVIGATE(이동)다.
+                    급수·촬영·송풍은 스테이션의 라즈베리파이가, 이동은 젯슨이 받는다.
 
                     급수량은 요청으로 받지 않고 식물의 적용 생육 기준(recommendedWateringMl)을
                     쓴다. 기준에 급수량이 비어 있으면 400 (WATERING_AMOUNT_NOT_CONFIGURED) 이다.
+
+                    NAVIGATE 는 destination(WATER_STATION/HOME/SUNLIGHT/GREETING)이 필수이고,
+                    그 위치의 지도 좌표가 입력되어 있어야 한다. 좌표가 없으면 400
+                    (LOCATION_POSE_NOT_CONFIGURED) 이다. FAN 은 seconds(1~300)를 줄 수 있고
+                    생략하면 서버 기본값을 쓴다.
 
                     같은 식물에 같은 종류의 명령이 회신 대기 중이면 409
                     (DEVICE_COMMAND_ALREADY_PENDING) 다. 장치가 죽어 회신이 없으면 서버가
@@ -65,7 +70,7 @@ public class DeviceCommandController {
             @PathVariable String plantId,
             @Valid @RequestBody IssueDeviceCommandRequest request
     ) {
-        return deviceCommandService.issue(principal.userId(), plantId, request.type());
+        return deviceCommandService.issue(principal.userId(), plantId, request);
     }
 
     @GetMapping

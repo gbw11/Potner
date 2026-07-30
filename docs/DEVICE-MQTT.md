@@ -117,11 +117,15 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/status/water-low     스테이션 물 부족   파이만 (18절)
   potner/device/<device_uid>/result/water         급수 결과 회신     파이만 (16절)
   potner/device/<device_uid>/result/capture       촬영 결과 회신     파이만 (16절)
+  potner/device/<device_uid>/result/fan           송풍 결과 회신     파이만 (16절)
+  potner/device/<device_uid>/result/navigate      이동 결과 회신     젯슨만 (16절)
 
 서버 → 장치
   potner/device/<device_uid>/command/expression   디스플레이 표정    젯슨이 구독
   potner/device/<device_uid>/command/water        급수 명령          파이가 구독 (16절)
   potner/device/<device_uid>/command/capture      촬영 명령          파이가 구독 (16절)
+  potner/device/<device_uid>/command/fan          송풍 명령          파이가 구독 (16절)
+  potner/device/<device_uid>/command/navigate     이동 명령          젯슨이 구독 (16절)
 ```
 
 **결과 회신은 반드시 `result/` 아래여야 합니다.** `command/water/result` 처럼 `command/` 아래에
@@ -448,28 +452,34 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
 들어가 `mosquitto_passwd`를 실행해야 합니다. 앱에 기기 연결 화면을 만들어도 이것이 해결되지
 않으면 사용자가 자기 기기를 연결할 수 없습니다. **앱 화면보다 이쪽이 선결입니다.**
 
-**급수는 절반이 붙었습니다.** 서버 → 라즈베리 급수 명령과 결과 회신(16절)까지는 구현됐고,
-로봇 이동이 남았습니다.
+**급수 흐름의 서버 쪽은 전부 붙었습니다.** 남은 것은 장치 쪽 수신 구현입니다.
 
 ```
 ① 라즈베리 → 토양 수분 → 서버                     구현됨
 ② 서버 판정 → 사용자 알림 "흙이 말랐어요"          구현됨
-③ 서버 → 젯슨: 스테이션 이동 명령                  미구현 ← 남은 것
-④ 젯슨: NAVIGATING → DOCKING → 도착
+③ 서버 → 젯슨: 스테이션 이동 명령                  서버 구현됨 (16절) — 젯슨 수신 미구현
+④ 젯슨: NAVIGATING → DOCKING → 도착 → 결과 회신    젯슨 미구현
 ⑤ 서버 → 라즈베리: 급수 명령                       구현됨 (16절)
 ⑥ 라즈베리: 급수 → 완료 보고                       구현됨 (16절)
-⑦ 서버 → 젯슨: 대기 장소 복귀 명령                 미구현 ← 남은 것
+⑦ 서버 → 젯슨: 대기 장소 복귀 명령                 서버 구현됨 (16절) — 젯슨 수신 미구현
 ```
 
-이전 판의 질문 일곱 개 중 다섯이 답을 얻었습니다. 명령·결과 계약은 requestId 반향으로
-확정(16절), 급수량은 서버가 생육 기준에서 정함, 보고는 `result/` 아래, 물 부족 감지는
-불리언 보고로 확정(18절), 좌표 저장소는 위치 등록으로 해결(17절). 남은 질문은 둘입니다.
+**중재 문제는 결정으로 풀렸습니다: 모든 동작 명령은 서버를 거칩니다.** 서버가 생육 데이터
+(수분·누적 광량)로 판단해 명령을 내리고, 로봇은 받은 명령만 수행합니다. 이 결정의 로봇 쪽
+절반이 남아 있습니다 — **`mission_manager` 의 자율 임무(임계값 판단 → 스스로 이동)를 꺼야
+합니다.** 켠 채로 서버 명령을 받으면 두 주인의 명령 사이에서 왕복합니다.
 
-1. **자율 임무와 서버 명령의 중재.** 로봇 `mission_manager` 가 배터리·수분 임계값을 자체
-   판단해 스스로 이동하는데, 서버도 이동 명령을 보내면 누가 이깁니까? 이것이 정해지기 전에
-   ③⑦을 붙이면 로봇이 두 주인의 명령 사이에서 왕복합니다. **③⑦의 유일한 선결 조건입니다.**
-2. **`GREETING`은 서버가 시킵니까, 로봇이 자율로 합니까?** 자율이면 서버는 상태만 기록합니다.
-   송풍 트리거(습도?)와 함께 기획 결정이 필요합니다.
+장치 쪽에 남은 구현:
+
+1. **젯슨: `command/navigate` 수신 + `result/navigate` 반향** (16절 계약). 도착이 `OK` 회신으로
+   확인돼야 서버가 다음 명령(급수)을 이어 보낼 수 있습니다.
+2. **라즈베리: `command/fan` 수신 + `result/fan` 반향** (16절 계약). 팬 하드웨어 제어
+   (`cli.fan`)는 이미 있고 MQTT 리스너만 없습니다.
+3. **라즈베리: 결과 토픽 두 줄 수정** (16절 경고).
+
+남은 기획 질문은 하나입니다 — **`GREETING`은 서버가 시킵니까, 로봇이 자율로 합니까?**
+마중 위치(17절)를 서버가 갖고 있으니 서버가 시키는 쪽이 결정과 일관되지만, 트리거(귀가를
+어떻게 아는가)가 미정입니다.
 
 **스테이션은 서버에 생겼습니다(17절).** 등록(스테이션 코드)·좌표·물 부족 알림까지 있습니다.
 배수트레이 알림은 범위에서 뺐습니다 — 물 부족만 전달하기로 결정했습니다. 디자인의
@@ -818,10 +828,52 @@ capture_result_topic: potner/device/raspberry-01/result/capture
 그대로 되돌려야 합니다. `dispensedMl` 은 요청량과 다를 수 있습니다(펌프 상한 도달 등) —
 실제로 나간 양을 보내야 일기가 맞습니다.
 
+### 이동 명령 — 서버 → 젯슨 (수신 구현 필요)
+
+모든 동작 명령이 서버를 거치기로 결정되면서 이동도 이 계약을 씁니다. **젯슨 브릿지가
+`command/navigate` 를 구독하고 `result/navigate` 로 반향하는 구현이 필요합니다** — 현재
+브릿지는 `command/expression` 만 처리합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/navigate
+{"destination": "WATER_STATION", "x": 1.250, "y": -0.480, "yaw": 1.5708, "requestId": "<uuid>"}
+
+젯슨 → 서버   potner/device/<device_uid>/result/navigate
+{"messageId": "<uuid>", "deviceId": "jetson-01", "requestId": "<그대로 반향>",
+ "status": "OK", "measuredAt": "..."}
+```
+
+- **좌표를 그대로 쓰세요.** map 프레임(m, rad)이며 출처는 서버의 위치 저장소(17절)입니다.
+  로봇 파라미터의 `station_poses` 는 쓰지 않습니다 — 좌표의 출처가 둘이 되면 어긋납니다.
+- `destination` 은 로그와 상태 보고용 이름입니다(WATER_STATION/HOME/SUNLIGHT/GREETING).
+- `OK` 는 **도착(도킹 완료)** 을 뜻합니다. 이 회신이 와야 서버가 다음 명령(급수 등)을 이어
+  보냅니다. 실패는 `ERROR` + `error` 문구(예: DOCKING_FAILED, NAVIGATION_FAILED), 이동 중
+  새 명령은 `BUSY` 입니다.
+- 자율 임무는 꺼야 합니다(12절). 서버 명령만이 이동의 트리거입니다.
+
+### 송풍 명령 — 서버 → 라즈베리 (수신 구현 필요)
+
+토양 수분 과다를 말리는 명령입니다. 팬 하드웨어 제어(`cli.fan`)는 이미 있으므로
+급수 수신기와 같은 모양의 MQTT 리스너만 붙이면 됩니다.
+
+```
+서버 → 파이   potner/device/<device_uid>/command/fan
+{"seconds": 30, "requestId": "<uuid>"}
+
+파이 → 서버   potner/device/<device_uid>/result/fan
+{"messageId": "<uuid>", "deviceId": "raspberry-01", "requestId": "<그대로 반향>",
+ "status": "OK", "measuredAt": "..."}
+```
+
+가동 시간을 서버가 정합니다. 말리기는 "짧은 가동 → 수분 재측정 → 필요하면 재가동" 의
+반복이라 한 번에 오래 돌리지 않습니다 — 과건조는 되돌릴 수 없습니다.
+
 ### 서버 쪽 동작
 
-- 발행 주체: `POST /api/v1/plants/{plantId}/device-commands` `{"type":"WATER"|"CAPTURE"}`.
+- 발행 주체: `POST /api/v1/plants/{plantId}/device-commands`
+  `{"type":"WATER"|"CAPTURE"|"FAN"|"NAVIGATE", "destination"?: ..., "seconds"?: ...}`.
   급수량은 요청이 아니라 식물의 적용 생육 기준(`recommendedWateringMl`)에서 나옵니다.
+  NAVIGATE 는 목적지의 지도 좌표(17절)가 입력되어 있어야 발행됩니다.
 - 같은 식물·같은 종류가 회신 대기 중이면 409 로 거절합니다.
 - 회신이 120초(기본) 안에 없으면 서버가 `TIMED_OUT` 으로 끊습니다. 늦게 온 회신은 그 위에
   덮어씁니다 — 타임아웃은 추정이고 회신은 물리적 사실입니다.
