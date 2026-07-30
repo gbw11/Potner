@@ -8,6 +8,9 @@ import 'package:potner_app/features/device/presentation/pages/device_management_
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_calendar_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_detail_page.dart';
+import 'package:potner_app/features/photo/presentation/pages/growth_comparison_page.dart';
+import 'package:potner_app/features/photo/presentation/pages/photo_detail_page.dart';
+import 'package:potner_app/features/photo/presentation/pages/photo_log_page.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:potner_app/features/auth/presentation/pages/login_page.dart';
@@ -117,6 +120,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         ),
                       ),
                     ],
+                  ),
+                  GoRoute(
+                    path: 'photos',
+                    builder: (context, state) => const PhotoLogPage(),
+                    routes: [
+                      GoRoute(
+                        path: ':plantId/:photoId',
+                        builder: (context, state) => PhotoDetailPage(
+                          plantId: state.pathParameters['plantId']!,
+                          photoId: state.pathParameters['photoId']!,
+                        ),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'compare',
+                    builder: (context, state) =>
+                        const GrowthComparisonPage(),
                   ),
                 ],
               ),
