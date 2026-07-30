@@ -62,7 +62,13 @@ class HomePage extends ConsumerWidget {
                 ref.read(homeControllerProvider.notifier).selectPlant(plantId),
             onRegisterPlant: () => context.go('/plants/register'),
             onRegisterDevice: () => context.go('/devices/register'),
-            onPlantDetail: () => _showComingSoon(context, '나의 식물 상세'),
+            onPlantDetail: () {
+              // 프리뷰 상태의 가짜 식물로 이동하지 않도록 실제 데이터만 쓴다.
+              final plantId = liveHome.dashboard?.plant.id;
+              if (plantId != null) {
+                context.go('/plants/$plantId');
+              }
+            },
             onPhotoLog: () => context.go('/growth/photos'),
             onCareSettings: () => _showComingSoon(context, '케어 설정'),
           ),

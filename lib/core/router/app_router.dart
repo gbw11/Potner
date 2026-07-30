@@ -25,6 +25,7 @@ import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dar
 import 'package:potner_app/features/plant/presentation/pages/plant_profile_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/registered_plants_page.dart';
+import 'package:potner_app/features/sensor/presentation/pages/environment_dashboard_page.dart';
 import 'package:potner_app/features/user/presentation/pages/my_page.dart';
 import 'package:potner_app/features/user/presentation/pages/notification_settings_page.dart';
 import 'package:potner_app/features/user/presentation/pages/password_change_page.dart';
@@ -95,6 +96,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                             builder: (context, state) => CareSettingsPage(
                               plantId: state.pathParameters['plantId']!,
                             ),
+                          ),
+                          GoRoute(
+                            path: 'environment',
+                            builder: (context, state) =>
+                                EnvironmentDashboardPage(
+                                  plantId: state.pathParameters['plantId']!,
+                                ),
                           ),
                         ],
                       ),

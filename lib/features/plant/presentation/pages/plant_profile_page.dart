@@ -222,6 +222,15 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
               ),
               const SizedBox(height: 14),
               FilledButton.tonal(
+                key: const Key('profile_environment'),
+                onPressed: _isSaving
+                    ? null
+                    : () =>
+                          context.go('/plants/${_detail.plantId}/environment'),
+                child: const Text('환경 정보'),
+              ),
+              const SizedBox(height: 14),
+              FilledButton.tonal(
                 key: const Key('profile_care_settings'),
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFFF5DFA1),
