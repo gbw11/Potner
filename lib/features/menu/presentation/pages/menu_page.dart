@@ -34,6 +34,7 @@ class MenuPage extends ConsumerWidget {
           id: 'device_registration',
           label: '디바이스 등록하기',
           icon: Icons.devices_outlined,
+          action: _MenuAction.deviceRegistration,
         ),
         _MenuEntry(
           id: 'care_settings',
@@ -191,6 +192,8 @@ class MenuPage extends ConsumerWidget {
         context.go('/plants');
       case _MenuAction.registeredPlants:
         context.go('/my/plants');
+      case _MenuAction.deviceRegistration:
+        context.go('/devices/register');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -337,6 +340,7 @@ enum _MenuAction {
   plantRegistration,
   myPlants,
   registeredPlants,
+  deviceRegistration,
   my,
   logout,
   comingSoon,
