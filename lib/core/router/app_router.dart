@@ -7,6 +7,7 @@ import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:potner_app/features/auth/presentation/pages/login_page.dart';
+import 'package:potner_app/features/auth/presentation/pages/signup_complete_page.dart';
 import 'package:potner_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:potner_app/features/home/presentation/home_page.dart';
 import 'package:potner_app/features/menu/presentation/pages/menu_page.dart';
@@ -27,6 +28,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),
+      GoRoute(
+        path: '/signup/complete',
+        builder: (context, state) => SignupCompletePage(
+          email: state.extra is String ? state.extra! as String : null,
+        ),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           return AppNavigationShell(navigationShell: navigationShell);
@@ -107,7 +114,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
       final path = state.uri.path;
-      final isPublic = path == '/login' || path == '/signup';
+      final isPublic =
+          path == '/login' || path == '/signup' || path == '/signup/complete';
       final requiresSplash =
           auth.status == AuthStatus.initializing ||
           (auth.status == AuthStatus.failure && auth.isRestoring);
@@ -117,7 +125,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       if (auth.isAuthenticated) {
-        if (isPublic || path == '/splash') {
+        // 가입 완료 화면은 자동 로그인 뒤에도 보여 줘야 하므로 홈으로 돌리지 않는다.
+        if ((isPublic && path != '/signup/complete') || path == '/splash') {
           final from = state.uri.queryParameters['from'];
           if (_isSafeDestination(from)) {
             return from;
@@ -163,5 +172,7 @@ bool _isSafeDestination(String? location) {
   if (uri == null) {
     return false;
   }
-  return uri.path != '/login' && uri.path != '/signup' && uri.path != '/splash';
+  return uri.path != '/login' &&
+      !uri.path.startsWith('/signup') &&
+      uri.path != '/splash';
 }
