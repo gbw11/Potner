@@ -109,8 +109,7 @@ def main() -> int:
             print(
                 f"[{row['timestamp']}] device={device_id} "
                 f"T={row['temperature_c']}C H={row['humidity_pct']}% "
-                f"Lux={row['light_lux']} Soil={row['soil_moisture_pct']}% "
-                f"(raw={row['soil_raw']}) | spring={pub_note} mqtt={mqtt_status}"
+                f"| spring={pub_note} mqtt={mqtt_status}"
             )
             if args.once:
                 break

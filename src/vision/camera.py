@@ -31,8 +31,10 @@ class Picamera2Camera:
         contrast: float = 1.1,
         saturation: float = 1.05,
     ) -> None:
+        # import 만 검증하고, 장치 오픈은 첫 촬영 때까지 미룬다.
+        # (기동 시점에 /dev 카메라가 잠깐 안 보여도 mqtt/하트비트는 살아 있게)
         try:
-            from picamera2 import Picamera2
+            import picamera2  # noqa: F401
         except ImportError as exc:
             raise ImportError(
                 "picamera2 가 필요합니다. Pi에서: sudo apt install -y python3-picamera2 "
@@ -41,6 +43,7 @@ class Picamera2Camera:
 
         self.width = width
         self.height = height
+        self.camera_num = camera_num
         self.settle_sec = settle_sec
         self._controls: dict[str, Any] = {
             "AeEnable": True,
@@ -51,27 +54,33 @@ class Picamera2Camera:
             "Contrast": float(contrast),
             "Saturation": float(saturation),
         }
-        self._picam = Picamera2(camera_num=camera_num)
-        still = self._picam.create_still_configuration(
-            main={"size": (width, height), "format": "RGB888"},
-        )
-        self._picam.configure(still)
+        self._picam = None
         self._started = False
 
     def _ensure_started(self) -> None:
-        if not self._started:
-            self._picam.start()
-            # 컨트롤은 start 이후에 적용하는 편이 안정적
-            try:
-                self._picam.set_controls(self._controls)
-            except Exception:  # noqa: BLE001
-                # 일부 컨트롤이 보드/드라이버에서 미지원일 수 있음
-                for key, value in self._controls.items():
-                    try:
-                        self._picam.set_controls({key: value})
-                    except Exception:  # noqa: BLE001
-                        pass
-            self._started = True
+        if self._started:
+            return
+        from picamera2 import Picamera2
+
+        if self._picam is None:
+            self._picam = Picamera2(camera_num=self.camera_num)
+            still = self._picam.create_still_configuration(
+                main={"size": (self.width, self.height), "format": "RGB888"},
+            )
+            self._picam.configure(still)
+
+        self._picam.start()
+        # 컨트롤은 start 이후에 적용하는 편이 안정적
+        try:
+            self._picam.set_controls(self._controls)
+        except Exception:  # noqa: BLE001
+            # 일부 컨트롤이 보드/드라이버에서 미지원일 수 있음
+            for key, value in self._controls.items():
+                try:
+                    self._picam.set_controls({key: value})
+                except Exception:  # noqa: BLE001
+                    pass
+        self._started = True
 
     def capture(self, dest_path: str) -> CaptureResult:
         path = Path(dest_path)
@@ -104,6 +113,8 @@ class Picamera2Camera:
             )
 
     def close(self) -> None:
+        if self._picam is None:
+            return
         if self._started:
             try:
                 self._picam.stop()
@@ -114,3 +125,4 @@ class Picamera2Camera:
             self._picam.close()
         except Exception:  # noqa: BLE001
             pass
+        self._picam = None

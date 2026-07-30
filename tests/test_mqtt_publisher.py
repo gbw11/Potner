@@ -27,7 +27,8 @@ def test_build_messages_sensor_data_only_with_device_id():
     assert "message" not in messages[0][1] or "괜찮" not in str(messages[0][1])
 
 
-def test_build_messages_includes_light_and_soil_when_present():
+def test_build_messages_ignores_light_and_soil_even_when_present():
+    """조도·토양수분은 Pi MQTT 발행 대상이 아니다."""
     publisher = MqttTelemetryPublisher(
         host="127.0.0.1",
         device_id="serial-abc",
@@ -43,7 +44,7 @@ def test_build_messages_includes_light_and_soil_when_present():
         }
     )
     types = [p["sensorType"] for _, p in messages]
-    assert types == ["TEMPERATURE", "HUMIDITY", "ILLUMINANCE", "SOIL_MOISTURE"]
+    assert types == ["TEMPERATURE", "HUMIDITY"]
 
 
 def test_build_messages_skips_missing_climate():

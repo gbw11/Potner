@@ -25,8 +25,8 @@ def build_sensors(config: dict[str, Any]) -> SensorBundle:
     if platform == "mock":
         return SensorBundle(
             climate=MockClimateSensor() if sensors_cfg.get("climate", {}).get("enabled", True) else None,
-            light=MockLightSensor() if sensors_cfg.get("light", {}).get("enabled", True) else None,
-            soil=MockSoilSensor() if sensors_cfg.get("soil", {}).get("enabled", True) else None,
+            light=MockLightSensor() if sensors_cfg.get("light", {}).get("enabled", False) else None,
+            soil=MockSoilSensor() if sensors_cfg.get("soil", {}).get("enabled", False) else None,
         )
 
     climate = None
@@ -55,7 +55,7 @@ def build_sensors(config: dict[str, Any]) -> SensorBundle:
             print(f"warn: climate sensor unavailable ({driver}): {exc}")
 
     light_cfg = sensors_cfg.get("light", {})
-    if light_cfg.get("enabled", True):
+    if light_cfg.get("enabled", False):
         driver = str(light_cfg.get("driver", "bh1750")).lower()
         try:
             if driver == "bh1750":
@@ -68,7 +68,7 @@ def build_sensors(config: dict[str, Any]) -> SensorBundle:
             print(f"warn: light sensor unavailable ({driver}): {exc}")
 
     soil_cfg = sensors_cfg.get("soil", {})
-    if soil_cfg.get("enabled", True):
+    if soil_cfg.get("enabled", False):
         driver = str(soil_cfg.get("driver", "ads1115")).lower()
         try:
             if driver == "ads1115":

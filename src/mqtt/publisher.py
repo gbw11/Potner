@@ -31,11 +31,11 @@ class MqttTelemetryPublisher:
     """
     Collector reading → potner MQTT sensor messages + heartbeat.
 
-    Sends available metrics (no status text):
+    Sends available climate metrics (no status text):
       - TEMPERATURE / CELSIUS
       - HUMIDITY / PERCENT
-      - ILLUMINANCE / LUX
-      - SOIL_MOISTURE / PERCENT
+
+    조도(ILLUMINANCE)·토양수분(SOIL_MOISTURE)은 Pi 담당이 아니라 발행하지 않는다.
 
     heartbeat 는 connect() 이후 백그라운드 스레드가 주기 발행한다.
     서버는 90초간 heartbeat 가 없으면 OFFLINE 으로 표시한다.
@@ -149,8 +149,6 @@ class MqttTelemetryPublisher:
         sensors = (
             ("temperature_c", "TEMPERATURE", "CELSIUS"),
             ("humidity_pct", "HUMIDITY", "PERCENT"),
-            ("light_lux", "ILLUMINANCE", "LUX"),
-            ("soil_moisture_pct", "SOIL_MOISTURE", "PERCENT"),
         )
         for key, sensor_type, unit in sensors:
             value = reading.get(key)
