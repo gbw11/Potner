@@ -158,6 +158,13 @@ class AuthController extends Notifier<AuthState> {
         : AuthCommandResult.failure(failure);
   }
 
+  /// 서버에서 갱신된 사용자 정보를 상태에 반영한다. 닉네임 변경 등에 쓴다.
+  void updateUser(User user) {
+    if (state.status == AuthStatus.authenticated) {
+      state = AuthState(status: AuthStatus.authenticated, user: user);
+    }
+  }
+
   Future<void> continueWithoutSession() async {
     await _clearSessionBestEffort();
     state = const AuthState.unauthenticated();

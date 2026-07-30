@@ -40,7 +40,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('bottom_nav_my')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('section_page_my')), findsOneWidget);
+    expect(find.byKey(const Key('my_page')), findsOneWidget);
   });
 
   testWidgets('full menu exposes sections and connects existing actions', (

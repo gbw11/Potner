@@ -114,6 +114,7 @@ class MenuPage extends ConsumerWidget {
           label: '회원 탈퇴',
           icon: Icons.person_remove_outlined,
           destructive: true,
+          action: _MenuAction.withdrawal,
         ),
       ],
     ),
@@ -213,6 +214,8 @@ class MenuPage extends ConsumerWidget {
         context.go('/growth/compare');
       case _MenuAction.flowering:
         context.go('/growth/blooms');
+      case _MenuAction.withdrawal:
+        context.go('/my/withdraw');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -365,6 +368,7 @@ enum _MenuAction {
   photoLog,
   growthComparison,
   flowering,
+  withdrawal,
   my,
   logout,
   comingSoon,
