@@ -11,7 +11,9 @@ import 'package:potner_app/features/auth/presentation/pages/signup_complete_page
 import 'package:potner_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:potner_app/features/home/presentation/home_page.dart';
 import 'package:potner_app/features/menu/presentation/pages/menu_page.dart';
+import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
+import 'package:potner_app/features/plant/presentation/pages/registered_plants_page.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 
@@ -47,8 +49,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) => const HomePage(),
                 routes: [
                   GoRoute(
-                    path: 'plants/register',
-                    builder: (context, state) => const PlantRegistrationPage(),
+                    path: 'plants',
+                    builder: (context, state) => const PlantListPage(),
+                    routes: [
+                      GoRoute(
+                        path: 'register',
+                        builder: (context, state) =>
+                            const PlantRegistrationPage(),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -90,6 +99,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   icon: Icons.person_outline_rounded,
                   description: '마이페이지는 다음 작업에서 연결합니다.',
                 ),
+                routes: [
+                  GoRoute(
+                    path: 'plants',
+                    builder: (context, state) => const RegisteredPlantsPage(),
+                  ),
+                ],
               ),
             ],
           ),

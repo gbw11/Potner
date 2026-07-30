@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:potner_app/core/api/api_client.dart';
 import 'package:potner_app/features/plant/data/plant_api.dart';
+import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/domain/plant_reference.dart';
 import 'package:potner_app/features/plant/domain/plant_repository.dart';
 
@@ -31,5 +32,15 @@ class PlantRepositoryImpl implements PlantRepository {
       name: name,
       adoptedDate: adoptedDate,
     );
+  }
+
+  @override
+  Future<List<MyPlant>> getMyPlants() {
+    return _api.getMyPlants();
+  }
+
+  @override
+  Future<void> deletePlant(String plantId) {
+    return _api.deletePlant(plantId);
   }
 }
