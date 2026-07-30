@@ -240,6 +240,14 @@ class _SignupPageState extends ConsumerState<SignupPage> {
 
     if (result.isSuccess) {
       TextInput.finishAutofillContext();
+      // 가입 API는 토큰을 발급하지 않으므로 방금 계정으로 즉시 로그인한다.
+      // 실패해도 완료 화면은 그대로 보여 주고, 화면이 로그인 경로로 안내한다.
+      await ref
+          .read(authControllerProvider.notifier)
+          .login(email: email, password: _passwordController.text);
+      if (!mounted) {
+        return;
+      }
       context.go('/signup/complete', extra: email);
       return;
     }

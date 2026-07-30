@@ -1,22 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
+import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 
 /// 회원가입 직후 한 번 보여 주는 완료 화면이다.
 ///
-/// 가입만으로는 로그인되지 않으므로 두 버튼 모두 로그인 화면으로 이어진다.
-/// [email]은 로그인 화면의 이메일 칸을 미리 채우는 데 쓴다.
-class SignupCompletePage extends StatelessWidget {
+/// 가입 직후 자동 로그인까지 끝난 상태면 홈으로 이어지고, 자동 로그인이
+/// 실패했다면 [email]이 미리 채워진 로그인 화면으로 안내한다.
+class SignupCompletePage extends ConsumerWidget {
   const SignupCompletePage({this.email, super.key});
 
   final String? email;
 
-  void _goToLogin(BuildContext context) {
+  void _continue(BuildContext context, WidgetRef ref) {
+    final isAuthenticated = ref.read(authControllerProvider).isAuthenticated;
+    if (isAuthenticated) {
+      context.go('/');
+      return;
+    }
     context.go('/login', extra: email);
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
@@ -78,13 +85,13 @@ class SignupCompletePage extends StatelessWidget {
                         const SizedBox(height: 48),
                         FilledButton(
                           key: const Key('signup_complete_register_plant'),
-                          onPressed: () => _goToLogin(context),
+                          onPressed: () => _continue(context, ref),
                           child: const Text('내 식물 등록하기'),
                         ),
                         const SizedBox(height: 6),
                         TextButton(
                           key: const Key('signup_complete_later'),
-                          onPressed: () => _goToLogin(context),
+                          onPressed: () => _continue(context, ref),
                           child: const Text(
                             '나중에 할게요',
                             style: TextStyle(

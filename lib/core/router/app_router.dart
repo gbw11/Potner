@@ -125,7 +125,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       if (auth.isAuthenticated) {
-        if (isPublic || path == '/splash') {
+        // 가입 완료 화면은 자동 로그인 뒤에도 보여 줘야 하므로 홈으로 돌리지 않는다.
+        if ((isPublic && path != '/signup/complete') || path == '/splash') {
           final from = state.uri.queryParameters['from'];
           if (_isSafeDestination(from)) {
             return from;
