@@ -123,6 +123,10 @@ potner:
     sunlight-lux-ratio: ${HAPPINESS_SUNLIGHT_LUX_RATIO:0.5}
     # 디스플레이가 달린 장치다. 하드웨어 구성이 바뀌면 RASPBERRY_PI 로 돌릴 수 있다.
     display-device-type: ${HAPPINESS_DISPLAY_DEVICE_TYPE:JETSON_ORIN}
+    # 일별 점수 감점·가점 폭이다. 알림 하나면 95점이 된다. 감점 폭은 기획 감각의 문제라
+    # 코드를 고치지 않고 조절할 수 있어야 한다.
+    alert-penalty: ${HAPPINESS_ALERT_PENALTY:5}
+    bloom-bonus: ${HAPPINESS_BLOOM_BONUS:5}
   alert:
     sample-size: ${ALERT_SAMPLE_SIZE:3}
     hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}

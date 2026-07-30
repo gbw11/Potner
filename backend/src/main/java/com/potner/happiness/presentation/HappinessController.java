@@ -33,18 +33,26 @@ public class HappinessController {
 
     @GetMapping
     @Operation(
-            summary = "표정 조회",
+            summary = "현재 상태 조회 (홈 화면)",
             description = """
-                    로봇 디스플레이에 그릴 표정을 반환한다. 앱 화면용이 아니라 판정 확인용이다.
+                    지금 상태를 등급과 두 줄 문구로 준다. 홈 화면의 "로지의 상태" 영역이다.
 
-                    expression 은 VERY_HAPPY, HAPPY, NEUTRAL, SAD 넷이다. 온·습도가 baseline 을
-                    정하고 행동이 그 위를 덮으며, 행동 쪽이 이긴다.
+                    grade 는 GOOD, FAIR, POOR, UNKNOWN 이다. 기준을 벗어난 센서 지표 수로 정하며
+                    0개면 GOOD, 1개면 FAIR, 2개 이상이면 POOR 다. 신선한 측정값이 하나도 없거나
+                    생육 기준이 없으면 UNKNOWN 이다 — GOOD 으로 처리하면 기기가 꺼져 있는 동안
+                    "아주 좋아요" 를 보여주게 된다.
 
-                    baseline 은 부스트가 걷힌 뒤 돌아갈 표정이다. 급수 중이라 VERY_HAPPY 인데
-                    baseline 이 SAD 이면 물을 다 마신 뒤 우울로 떨어진다는 뜻이다.
+                    headline 과 detail 이 화면의 큰 글씨·작은 글씨다. 서버가 문구를 만들지만
+                    abnormalMetrics 도 함께 주므로 앱이 자체 문구로 바꿀 수 있다.
 
-                    reason 은 서버가 문구를 만들지 않으므로 표시할 말은 받는 쪽이 고른다.
-                    측정값이 신선도 기준을 넘겨 오래됐으면 NEUTRAL / NONE 이다.
+                    abnormalMetrics 에는 토양 수분·온도·습도만 들어온다. 조도는 밤에 0 lux 가
+                    정상이라 순간값으로 판정하지 않으며, 광량은 일별 점수에서 다룬다.
+
+                    expression 은 로봇 디스플레이용이다. 앱은 쓰지 않는다. 등급과 다른 값이 나올
+                    수 있다 — 급수 중이면 표정은 VERY_HAPPY 지만 온도가 나쁘면 등급은 그대로
+                    나쁘다. 표정은 감정을 전하고 등급은 확인할 것을 알린다.
+
+                    점수는 여기 없다. 점수는 하루를 돌아보는 값이라 status-report 로 나간다.
                     """
     )
     public HappinessResponse getHappiness(
