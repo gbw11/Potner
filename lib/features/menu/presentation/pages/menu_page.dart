@@ -56,6 +56,7 @@ class MenuPage extends ConsumerWidget {
           id: 'flowering',
           label: '개화 기록',
           icon: Icons.local_florist_rounded,
+          action: _MenuAction.flowering,
         ),
         _MenuEntry(
           id: 'photo_log',
@@ -210,6 +211,8 @@ class MenuPage extends ConsumerWidget {
         context.go('/growth/photos');
       case _MenuAction.growthComparison:
         context.go('/growth/compare');
+      case _MenuAction.flowering:
+        context.go('/growth/blooms');
       case _MenuAction.my:
         context.go('/my');
       case _MenuAction.logout:
@@ -361,6 +364,7 @@ enum _MenuAction {
   plantDiary,
   photoLog,
   growthComparison,
+  flowering,
   my,
   logout,
   comingSoon,

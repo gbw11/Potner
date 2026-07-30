@@ -6,8 +6,10 @@ import 'package:potner_app/core/navigation/app_section_page.dart';
 import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
+import 'package:potner_app/features/bloom/presentation/pages/bloom_list_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_calendar_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_detail_page.dart';
+import 'package:potner_app/features/growth/presentation/pages/growth_hub_page.dart';
 import 'package:potner_app/features/photo/presentation/pages/growth_comparison_page.dart';
 import 'package:potner_app/features/photo/presentation/pages/photo_detail_page.dart';
 import 'package:potner_app/features/photo/presentation/pages/photo_log_page.dart';
@@ -101,13 +103,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: '/growth',
-                builder: (context, state) => const AppSectionPage(
-                  sectionKey: Key('section_page_growth'),
-                  title: '성장기록',
-                  icon: Icons.local_florist_outlined,
-                  description: '성장 기록 화면은 다음 작업에서 연결합니다.',
-                ),
+                builder: (context, state) => const GrowthHubPage(),
                 routes: [
+                  GoRoute(
+                    path: 'blooms',
+                    builder: (context, state) => const BloomListPage(),
+                  ),
                   GoRoute(
                     path: 'diary',
                     builder: (context, state) => const DiaryCalendarPage(),
