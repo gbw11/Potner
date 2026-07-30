@@ -6,6 +6,8 @@ import 'package:potner_app/core/navigation/app_section_page.dart';
 import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
+import 'package:potner_app/features/diary/presentation/pages/diary_calendar_page.dart';
+import 'package:potner_app/features/diary/presentation/pages/diary_detail_page.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:potner_app/features/auth/presentation/pages/login_page.dart';
@@ -102,6 +104,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   icon: Icons.local_florist_outlined,
                   description: '성장 기록 화면은 다음 작업에서 연결합니다.',
                 ),
+                routes: [
+                  GoRoute(
+                    path: 'diary',
+                    builder: (context, state) => const DiaryCalendarPage(),
+                    routes: [
+                      GoRoute(
+                        path: ':plantId/:diaryId',
+                        builder: (context, state) => DiaryDetailPage(
+                          plantId: state.pathParameters['plantId']!,
+                          diaryId: state.pathParameters['diaryId']!,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ],
           ),
