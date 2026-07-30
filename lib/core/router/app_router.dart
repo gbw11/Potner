@@ -6,6 +6,7 @@ import 'package:potner_app/core/navigation/app_section_page.dart';
 import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
+import 'package:potner_app/features/alert/presentation/pages/alerts_page.dart';
 import 'package:potner_app/features/bloom/presentation/pages/bloom_list_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_calendar_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_detail_page.dart';
@@ -148,12 +149,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: '/alerts',
-                builder: (context, state) => const AppSectionPage(
-                  sectionKey: Key('section_page_alerts'),
-                  title: '알림',
-                  icon: Icons.notifications_none_rounded,
-                  description: '알림 내역 화면은 다음 작업에서 연결합니다.',
-                ),
+                builder: (context, state) => const AlertsPage(),
               ),
             ],
           ),

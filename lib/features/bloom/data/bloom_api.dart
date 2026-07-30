@@ -55,6 +55,14 @@ class BloomApi {
     }
   }
 
+  Future<void> markRead(String bloomId) async {
+    try {
+      await _dio.patch<Object?>('blooms/$bloomId/read');
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   BloomRecord _parseBloom(Object? value) {
     final bloom = _asMap(value);
     return BloomRecord(

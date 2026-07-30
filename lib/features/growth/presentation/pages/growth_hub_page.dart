@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_menu_button.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 
 /// 성장기록 탭의 메인이다. 기록 화면들로 이어 주는 허브 역할만 한다.
@@ -10,7 +11,12 @@ class GrowthHubPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       key: const Key('growth_hub_page'),
-      appBar: AppBar(title: const Text('성장기록'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('성장기록'),
+        centerTitle: true,
+        automaticallyImplyLeading: false,
+        actions: const [AppMenuButton(), SizedBox(width: 8)],
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),

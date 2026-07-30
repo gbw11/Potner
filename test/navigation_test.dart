@@ -1,14 +1,18 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:potner_app/app.dart';
 import 'package:potner_app/features/auth/data/auth_repository_impl.dart';
 import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/user.dart';
+import 'package:potner_app/features/alert/data/alert_repository_impl.dart';
+import 'package:potner_app/features/bloom/data/bloom_repository_impl.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/home/data/home_repository_impl.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 
+import 'support/fake_alert_repository.dart';
+import 'support/fake_bloom_repository.dart';
 import 'support/fake_device_repository.dart';
 import 'support/fake_home_repository.dart';
 import 'support/fake_plant_repository.dart';
@@ -32,7 +36,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('bottom_nav_alerts')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('section_page_alerts')), findsOneWidget);
+    expect(find.byKey(const Key('alerts_page')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('bottom_nav_my')));
     await tester.pumpAndSettle();
@@ -101,7 +105,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('menu_item_alert_history')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('section_page_alerts')), findsOneWidget);
+    expect(find.byKey(const Key('alerts_page')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('open_menu_button')));
     await tester.pumpAndSettle();
@@ -135,6 +139,8 @@ Future<void> _pumpAuthenticatedApp(
         homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
         plantRepositoryProvider.overrideWithValue(FakePlantRepository()),
         deviceRepositoryProvider.overrideWithValue(FakeDeviceRepository()),
+        alertRepositoryProvider.overrideWithValue(FakeAlertRepository()),
+        bloomRepositoryProvider.overrideWithValue(FakeBloomRepository()),
       ],
       child: const PotnerApp(),
     ),

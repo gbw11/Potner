@@ -56,6 +56,13 @@ class FakeBloomRepository implements BloomRepository {
     deletedBloomIds.add(bloomId);
     blooms.removeWhere((bloom) => bloom.bloomId == bloomId);
   }
+
+  @override
+  Future<void> markRead(String bloomId) async {
+    readBloomIds.add(bloomId);
+  }
+
+  final List<String> readBloomIds = [];
 }
 
 class RecordBloomCall {
