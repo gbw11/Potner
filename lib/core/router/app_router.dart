@@ -11,7 +11,9 @@ import 'package:potner_app/features/auth/presentation/pages/signup_complete_page
 import 'package:potner_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:potner_app/features/home/presentation/home_page.dart';
 import 'package:potner_app/features/menu/presentation/pages/menu_page.dart';
+import 'package:potner_app/features/plant/presentation/pages/care_settings_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dart';
+import 'package:potner_app/features/plant/presentation/pages/plant_profile_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/registered_plants_page.dart';
 
@@ -56,6 +58,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         path: 'register',
                         builder: (context, state) =>
                             const PlantRegistrationPage(),
+                      ),
+                      GoRoute(
+                        path: ':plantId',
+                        builder: (context, state) => PlantProfilePage(
+                          plantId: state.pathParameters['plantId']!,
+                        ),
+                        routes: [
+                          GoRoute(
+                            path: 'care',
+                            builder: (context, state) => CareSettingsPage(
+                              plantId: state.pathParameters['plantId']!,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

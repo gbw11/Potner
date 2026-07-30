@@ -45,7 +45,8 @@ class PlantListPage extends ConsumerWidget {
                       for (final plant in items) ...[
                         _PlantCard(
                           plant: plant,
-                          onTap: () => _showProfileComingSoon(context),
+                          onTap: () =>
+                              context.go('/plants/${plant.plantId}'),
                         ),
                         const SizedBox(height: 14),
                       ],
@@ -57,13 +58,6 @@ class PlantListPage extends ConsumerWidget {
     );
   }
 
-  void _showProfileComingSoon(BuildContext context) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text('식물 프로필 화면은 다음 작업에서 연결합니다.')),
-      );
-  }
 }
 
 class _CountCard extends StatelessWidget {
