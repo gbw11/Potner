@@ -104,7 +104,9 @@ public class StatusReportService {
                 .map(Alert::getMetricType)
                 // 같은 지표로 여러 건이 열렸다 닫혔을 수 있다. 하루에 한 지표는 한 번만 깎는다.
                 .distinct()
+                // 감점 이유가 없는 지표(물 부족)는 여기서 빠진다. 근거는 ScoreReason.ofAlert 에.
                 .map(ScoreReason::ofAlert)
+                .flatMap(Optional::stream)
                 .forEach(reason -> adjustments.add(
                         new StatusReportResponse.ScoreAdjustment(reason, -properties.alertPenalty())));
 

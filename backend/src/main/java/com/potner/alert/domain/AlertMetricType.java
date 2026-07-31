@@ -9,6 +9,10 @@ import java.util.Optional;
  *
  * <p>센서 종류와 1:1이 아니다. 조도는 순간값으로 판정하지 않고 하루 누적 광량과 일조 시간으로
  * 판정하므로 {@code DAILY_LIGHT}, {@code PHOTOPERIOD}가 별도 지표로 존재한다.
+ *
+ * <p>{@code STATION_WATER_LOW} 는 측정값이 없는 유일한 지표다. 물 부족 보고가 불리언이라
+ * {@code measured_value}·{@code threshold_min}·{@code threshold_max} 가 NULL 로 남는다.
+ * 방향은 항상 {@code LOW} 다.
  */
 public enum AlertMetricType {
 
@@ -16,7 +20,8 @@ public enum AlertMetricType {
     HUMIDITY,
     SOIL_MOISTURE,
     DAILY_LIGHT,
-    PHOTOPERIOD;
+    PHOTOPERIOD,
+    STATION_WATER_LOW;
 
     /**
      * 순간값으로 판정할 수 있는 센서 종류를 지표로 변환한다.
