@@ -5,6 +5,7 @@ import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.CommandResultMessage;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,10 +27,16 @@ import java.util.Optional;
 public class DeviceCommandResultService {
 
     private final DeviceCommandRepository commandRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
-    public DeviceCommandResultService(DeviceCommandRepository commandRepository, Clock clock) {
+    public DeviceCommandResultService(
+            DeviceCommandRepository commandRepository,
+            ApplicationEventPublisher eventPublisher,
+            Clock clock
+    ) {
         this.commandRepository = commandRepository;
+        this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
 
@@ -69,6 +76,16 @@ public class DeviceCommandResultService {
                 message.messageId().toString(),
                 LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
         );
+        // 자동 케어 체인이 다음 단계를 잇는 근거다. 커밋 이후에 수신되므로 여기서 발행해도
+        // 회신 반영이 실패하면 이벤트도 나가지 않는다.
+        eventPublisher.publishEvent(new DeviceCommandCompletedEvent(
+                command.getRequestId(),
+                command.getPlantId(),
+                command.getCommandType(),
+                command.getInitiator(),
+                command.getDestination(),
+                command.getStatus()
+        ));
         return CommandResultApplyOutcome.APPLIED;
     }
 

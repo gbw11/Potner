@@ -1,5 +1,6 @@
 package com.potner.command.application;
 
+import com.potner.command.domain.CommandInitiator;
 import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
@@ -24,6 +25,7 @@ import com.potner.plant.domain.PlantStatus;
 import com.potner.sensor.config.SensorQueryProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -84,8 +86,29 @@ public class DeviceCommandService {
 
     @Transactional
     public DeviceCommandResponse issue(String userId, String plantId, IssueDeviceCommandRequest request) {
-        DeviceCommandType type = request.type();
         requireOwnedPlant(userId, plantId);
+        return doIssue(plantId, request, CommandInitiator.USER);
+    }
+
+    /**
+     * 자동 케어가 발행한다. 사용자 요청이 아니므로 소유자 검사 대신 식물 생존만 확인한다.
+     *
+     * <p>{@code REQUIRES_NEW} 인 이유: 호출자가 커밋 이후 단계({@code AFTER_COMMIT} 리스너)라
+     * 이미 끝난 트랜잭션에 합류하면 여기서 저장한 명령 행이 커밋되지 않는다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public DeviceCommandResponse issueAuto(String plantId, IssueDeviceCommandRequest request) {
+        plantRepository.findByIdAndStatusNot(plantId, PlantStatus.DELETED)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLANT_NOT_FOUND));
+        return doIssue(plantId, request, CommandInitiator.AUTO);
+    }
+
+    private DeviceCommandResponse doIssue(
+            String plantId,
+            IssueDeviceCommandRequest request,
+            CommandInitiator initiator
+    ) {
+        DeviceCommandType type = request.type();
         requireFieldsMatchType(request);
 
         // 대기 중 재발행을 서버에서 먼저 막는다. 장치도 BUSY 로 거절하지만 그건 이력 행을
@@ -120,6 +143,7 @@ public class DeviceCommandService {
                 assignment.getRobotId(),
                 device.getDeviceUid(),
                 type,
+                initiator,
                 requestedMl,
                 destination == null ? null : destination.getLocationType(),
                 runSeconds,

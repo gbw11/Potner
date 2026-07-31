@@ -1,5 +1,6 @@
 package com.potner.command.dto;
 
+import com.potner.command.domain.CommandInitiator;
 import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
@@ -17,10 +18,13 @@ import java.time.LocalDateTime;
  * @param dispensedMl 실제 급수량. 요청량과 다를 수 있다(펌프 상한 도달 등)
  * @param destination NAVIGATE 만. 그 외 {@code null}
  * @param runSeconds  FAN 만. 그 외 {@code null}
+ * @param initiator   USER: 사용자가 발행, AUTO: 서버 자동 케어가 발행. 이력에서 "내가 안 시킨
+ *                    급수" 를 구분하는 근거다
  */
 public record DeviceCommandResponse(
         String requestId,
         DeviceCommandType type,
+        CommandInitiator initiator,
         DeviceCommandStatus status,
         BigDecimal requestedMl,
         RobotLocationType destination,
@@ -35,6 +39,7 @@ public record DeviceCommandResponse(
         return new DeviceCommandResponse(
                 command.getRequestId(),
                 command.getCommandType(),
+                command.getInitiator(),
                 command.getStatus(),
                 command.getRequestedMl(),
                 command.getDestination(),

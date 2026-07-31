@@ -33,6 +33,14 @@ public record DeviceCommandProperties(
          * <p>짧게 잡는 이유는 말리기가 "가동 → 수분 재측정 → 필요하면 재가동" 반복이기
          * 때문이다. 한 번에 오래 돌리면 과건조를 되돌릴 수 없다.
          */
-        @Positive int fanRunSeconds
+        @Positive int fanRunSeconds,
+
+        /**
+         * 수분 부족 알림이 열리면 이동 → 급수 → 복귀를 자동으로 잇는다.
+         *
+         * <p>끄면 진행 중인 체인도 다음 회신에서 멈춘다. 오작동하는 로봇을 세울 때 서버
+         * 재배포 없이 이 값만 내리면 된다.
+         */
+        boolean autoWaterEnabled
 ) {
 }
