@@ -37,7 +37,7 @@ constexpr int PIN_R_ENC_B = 39;
 //   "지도상 이동거리"가 셋 다 달라져서 원인을 찾기 어렵습니다.
 //   tests/test_firmware_constants.py 가 대조합니다.
 constexpr float COUNTS_PER_REV   = 1440.0f;  // FIT0403 출력축 (확정값)
-constexpr float WHEEL_DIAMETER_M = 0.075f;   // 확정 — 75mm 구동 바퀴
+constexpr float WHEEL_DIAMETER_M = 0.060f;   // 확정 — 60mm 구동 바퀴
 constexpr float MAX_WHEEL_MPS    = 0.25f;
 
 // 브링업용 개루프 듀티 상한. PID를 거치지 않는 경로라 낮게 묶어둡니다.
