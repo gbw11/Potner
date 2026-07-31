@@ -63,7 +63,7 @@ class SensorReadingServiceTest {
         when(device.getRobot()).thenReturn(robot);
         when(robot.getId()).thenReturn(ROBOT_ID);
         when(assignment.getPlantId()).thenReturn(PLANT_ID);
-        when(iotDeviceRepository.findByDeviceUid("raspberry-01")).thenReturn(Optional.of(device));
+        when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull("raspberry-01")).thenReturn(Optional.of(device));
         when(assignmentRepository
                 .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(ROBOT_ID))
                 .thenReturn(Optional.of(assignment));
@@ -110,7 +110,7 @@ class SensorReadingServiceTest {
 
     @Test
     void returnsDeviceNotFoundWithoutSaving() {
-        when(iotDeviceRepository.findByDeviceUid("raspberry-01")).thenReturn(Optional.empty());
+        when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull("raspberry-01")).thenReturn(Optional.empty());
 
         assertThat(service.save(message())).isEqualTo(SensorReadingSaveResult.DEVICE_NOT_FOUND);
 

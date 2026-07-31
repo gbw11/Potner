@@ -111,7 +111,7 @@ public class DeviceRegistrationService {
     }
 
     public RobotListResponse getRobots(String userId) {
-        List<Robot> robots = robotRepository.findAllByUserIdOrderByNameAsc(userId);
+        List<Robot> robots = robotRepository.findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(userId);
         if (robots.isEmpty()) {
             return new RobotListResponse(List.of());
         }
@@ -171,6 +171,30 @@ public class DeviceRegistrationService {
         PlantDeviceAssignment assignment = assignmentRepository
                 .save(PlantDeviceAssignment.assign(plantId, robotId, nowUtc()));
         return PlantAssignmentResponse.of(assignment, robot);
+    }
+
+    /**
+     * 로봇과 하위 장치를 함께 해제한다. 같은 코드로 다른 계정이 새로 등록할 수 있게 된다.
+     *
+     * <p>물리 삭제가 아니다 — 측정 이력이 RESTRICT 로 참조하고 있어 지울 수 없고, 이력은 이전
+     * 주인의 식물 기록이라 남는 것이 맞다. 활성 배정도 함께 해제해 로봇이 식물에서 풀린다.
+     *
+     * <p><strong>브로커 계정은 여기서 정리되지 않는다.</strong> mosquitto 계정은 device_uid 로
+     * 수동 관리되므로, 소유권을 넘길 때는 비밀번호 재발급이 별도로 필요하다. 안 하면 이전
+     * 주인이 새 주인의 토픽에 발행할 수 있다 (DEVICE-MQTT.md 12절).
+     */
+    @Transactional
+    public void releaseRobot(String userId, String robotId) {
+        Robot robot = findOwnedRobot(userId, robotId);
+        LocalDateTime now = nowUtc();
+
+        assignmentRepository
+                .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(robotId)
+                .ifPresent(assignment -> assignment.unassign(now));
+        iotDeviceRepository
+                .findAllByRobotIdOrderByDeviceTypeAsc(robotId)
+                .forEach(device -> device.release(now));
+        robot.release(now);
     }
 
     /** 행을 지우지 않고 해제 시각만 남긴다. 같은 식물에 다른 로봇을 다시 배정할 수 있다. */
@@ -235,12 +259,13 @@ public class DeviceRegistrationService {
     }
 
     /**
-     * device_uid 는 robot 과 iot_device 를 통틀어 유일해야 한다. MQTT 토픽 세그먼트로 쓰이므로
-     * 겹치면 어느 장치의 측정값인지 가릴 수 없다.
+     * device_uid 는 robot 과 iot_device 를 통틀어 <strong>활성 행끼리</strong> 유일해야 한다.
+     * MQTT 토픽 세그먼트로 쓰이므로 활성이 겹치면 어느 장치의 측정값인지 가릴 수 없다.
+     * 해제된 행은 이력이라 검사에서 빠진다 — 그래서 넘겨받은 기기를 같은 코드로 등록할 수 있다.
      */
     private void requireUnusedDeviceUid(String deviceUid) {
-        if (robotRepository.existsByDeviceUid(deviceUid)
-                || iotDeviceRepository.existsByDeviceUid(deviceUid)) {
+        if (robotRepository.existsByDeviceUidAndReleasedAtIsNull(deviceUid)
+                || iotDeviceRepository.existsByDeviceUidAndReleasedAtIsNull(deviceUid)) {
             throw new BusinessException(ErrorCode.DEVICE_UID_ALREADY_REGISTERED);
         }
     }
@@ -252,7 +277,7 @@ public class DeviceRegistrationService {
 
     /** 타인 로봇은 존재 여부를 노출하지 않도록 403 이 아니라 404 다. */
     private Robot findOwnedRobot(String userId, String robotId) {
-        return robotRepository.findByIdAndUserId(robotId, userId)
+        return robotRepository.findByIdAndUserIdAndReleasedAtIsNull(robotId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ROBOT_NOT_FOUND));
     }
 
