@@ -19,7 +19,8 @@ class HomeApi {
             return HomePlant(
               id: _requiredString(plant['plantId']),
               name: _requiredString(plant['name']),
-              adoptedDate: _requiredDate(plant['adoptedDate']),
+              createdAt: _requiredDate(plant['createdAt']),
+              adoptedDate: _optionalDate(plant['adoptedDate']),
               thumbnailUrl: _optionalString(photo?['thumbnailUrl']),
               imageUrl:
                   _optionalString(photo?['originalUrl']) ??
@@ -78,10 +79,11 @@ class HomeApi {
   Future<String?> getLatestPhoto(HomePlant plant) async {
     try {
       final now = DateTime.now();
+      final firstPhotoDate = plant.adoptedDate ?? plant.createdAt;
       final response = await _dio.get<Object?>(
         'plants/${plant.id}/photos',
         queryParameters: {
-          'from': _dateParameter(plant.adoptedDate),
+          'from': _dateParameter(firstPhotoDate),
           'to': _dateParameter(now),
         },
       );
@@ -168,6 +170,18 @@ class HomeApi {
 
   DateTime _requiredDate(Object? value) {
     final parsed = DateTime.tryParse(_requiredString(value));
+    if (parsed == null) {
+      throw const FormatException('Expected an ISO date.');
+    }
+    return parsed;
+  }
+
+  DateTime? _optionalDate(Object? value) {
+    final text = _optionalString(value);
+    if (text == null) {
+      return null;
+    }
+    final parsed = DateTime.tryParse(text);
     if (parsed == null) {
       throw const FormatException('Expected an ISO date.');
     }
