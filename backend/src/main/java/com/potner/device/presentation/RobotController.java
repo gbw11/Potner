@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,6 +60,28 @@ public class RobotController {
             @Valid @RequestBody RegisterRobotRequest request
     ) {
         return deviceRegistrationService.registerRobot(principal.userId(), request);
+    }
+
+    @DeleteMapping("/{robotId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(
+            summary = "로봇 해제",
+            description = """
+                    로봇과 하위 IoT 장치를 함께 해제한다. 기기를 교체하거나 다른 사람에게 넘길 때
+                    쓴다. 활성 식물 배정도 함께 풀린다.
+
+                    물리 삭제가 아니다. 측정 이력·명령 이력은 원래 식물에 그대로 남고, 해제된
+                    deviceUid 는 다른 계정이 새로 등록할 수 있다.
+
+                    되돌릴 수 없다. 같은 기기를 다시 쓰려면 새로 등록해야 하고, 그때 uploadToken 도
+                    새로 발급된다.
+                    """
+    )
+    public void releaseRobot(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable String robotId
+    ) {
+        deviceRegistrationService.releaseRobot(principal.userId(), robotId);
     }
 
     @PostMapping("/{robotId}/upload-token")

@@ -38,7 +38,7 @@ class IotDeviceHeartbeatServiceTest {
 
     @Test
     void heartbeatMarksExistingDeviceOnlineAtServerReceivedTime() {
-        when(repository.findByDeviceUid("raspberry-01")).thenReturn(Optional.of(device));
+        when(repository.findByDeviceUidAndReleasedAtIsNull("raspberry-01")).thenReturn(Optional.of(device));
 
         assertThat(service.recordHeartbeat("raspberry-01"))
                 .isEqualTo(HeartbeatUpdateResult.UPDATED);
@@ -48,7 +48,7 @@ class IotDeviceHeartbeatServiceTest {
 
     @Test
     void unknownDeviceIsNotUpdated() {
-        when(repository.findByDeviceUid("unknown")).thenReturn(Optional.empty());
+        when(repository.findByDeviceUidAndReleasedAtIsNull("unknown")).thenReturn(Optional.empty());
 
         assertThat(service.recordHeartbeat("unknown"))
                 .isEqualTo(HeartbeatUpdateResult.DEVICE_NOT_FOUND);

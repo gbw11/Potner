@@ -198,7 +198,7 @@ class StationWaterLowServiceTest {
 
     @Test
     void ignoresAReportFromAnUnknownDevice() {
-        when(iotDeviceRepository.findByDeviceUid("unknown")).thenReturn(Optional.empty());
+        when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull("unknown")).thenReturn(Optional.empty());
 
         assertThat(service.report("unknown", true, REPORTED_AT))
                 .isEqualTo(WaterLowUpdateResult.DEVICE_NOT_FOUND);
@@ -238,6 +238,6 @@ class StationWaterLowServiceTest {
         lenient().when(robot.getUser()).thenReturn(user);
         IotDevice device = mock(IotDevice.class);
         lenient().when(device.getRobot()).thenReturn(robot);
-        lenient().when(iotDeviceRepository.findByDeviceUid(PI_UID)).thenReturn(Optional.of(device));
+        lenient().when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull(PI_UID)).thenReturn(Optional.of(device));
     }
 }

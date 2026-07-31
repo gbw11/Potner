@@ -104,7 +104,7 @@ public class RobotLocationService {
 
     /** 타인 로봇은 존재 여부를 노출하지 않도록 403 이 아니라 404 다. */
     private void requireOwnedRobot(String userId, String robotId) {
-        robotRepository.findByIdAndUserId(robotId, userId)
+        robotRepository.findByIdAndUserIdAndReleasedAtIsNull(robotId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ROBOT_NOT_FOUND));
     }
 }

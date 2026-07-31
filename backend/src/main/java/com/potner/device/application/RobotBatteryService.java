@@ -48,7 +48,7 @@ public class RobotBatteryService {
      * <p>잔량을 받았다는 사실 자체가 장치가 살아 있다는 증거라 heartbeat 도 함께 갱신한다.
      */
     public BatteryUpdateResult recordBattery(String deviceUid, int batteryPercent) {
-        IotDevice device = iotDeviceRepository.findByDeviceUid(deviceUid).orElse(null);
+        IotDevice device = iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull(deviceUid).orElse(null);
         if (device == null) {
             return BatteryUpdateResult.DEVICE_NOT_FOUND;
         }

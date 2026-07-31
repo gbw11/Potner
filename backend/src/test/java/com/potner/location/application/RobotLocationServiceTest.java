@@ -45,7 +45,7 @@ class RobotLocationServiceTest {
     @BeforeEach
     void setUp() {
         service = new RobotLocationService(locationRepository, robotRepository);
-        lenient().when(robotRepository.findByIdAndUserId(ROBOT_ID, USER_ID))
+        lenient().when(robotRepository.findByIdAndUserIdAndReleasedAtIsNull(ROBOT_ID, USER_ID))
                 .thenReturn(Optional.of(mock(Robot.class)));
         lenient().when(locationRepository.save(any(RobotLocation.class)))
                 .thenAnswer(call -> call.getArgument(0));
@@ -157,7 +157,7 @@ class RobotLocationServiceTest {
     @Test
     void hidesOtherUsersRobots() {
         // 타인 로봇은 존재 여부를 노출하지 않도록 403 이 아니라 404 다.
-        when(robotRepository.findByIdAndUserId("other-robot", USER_ID))
+        when(robotRepository.findByIdAndUserIdAndReleasedAtIsNull("other-robot", USER_ID))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getLocations(USER_ID, "other-robot"))

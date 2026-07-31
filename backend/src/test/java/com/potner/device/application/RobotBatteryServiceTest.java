@@ -88,7 +88,7 @@ class RobotBatteryServiceTest {
 
     @Test
     void unknownDeviceIsReported() {
-        when(iotDeviceRepository.findByDeviceUid("jetson-99")).thenReturn(Optional.empty());
+        when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull("jetson-99")).thenReturn(Optional.empty());
 
         assertThat(robotBatteryService.recordBattery("jetson-99", 78))
                 .isEqualTo(BatteryUpdateResult.DEVICE_NOT_FOUND);
@@ -107,7 +107,7 @@ class RobotBatteryServiceTest {
         IotDevice device = mock(IotDevice.class);
         org.mockito.Mockito.lenient().when(device.getDeviceType()).thenReturn(deviceType);
         org.mockito.Mockito.lenient().when(device.getRobot()).thenReturn(robot);
-        when(iotDeviceRepository.findByDeviceUid("jetson-01")).thenReturn(Optional.of(device));
+        when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull("jetson-01")).thenReturn(Optional.of(device));
         return device;
     }
 }

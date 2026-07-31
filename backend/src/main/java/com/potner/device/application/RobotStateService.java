@@ -40,7 +40,7 @@ public class RobotStateService {
      * 하드웨어가 상태 보고로 heartbeat 를 대체하더라도 장치가 OFFLINE 으로 오판되지 않는다.
      */
     public RobotStateUpdateResult recordState(String deviceUid, RobotState state) {
-        IotDevice device = iotDeviceRepository.findByDeviceUid(deviceUid).orElse(null);
+        IotDevice device = iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull(deviceUid).orElse(null);
         if (device == null) {
             return RobotStateUpdateResult.DEVICE_NOT_FOUND;
         }
