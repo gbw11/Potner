@@ -184,7 +184,7 @@ class ArrivalDebugController extends Notifier<ArrivalDebugState> {
       message: switch (result.status) {
         ArrivalProcessingStatus.ok when type == ArrivalEventType.approach =>
           'Jetson이 GREETING 위치 도착을 확인했어요.',
-        ArrivalProcessingStatus.ok => '마중 취소 명령을 확인했어요. HOME으로 복귀합니다.',
+        ArrivalProcessingStatus.ok => 'Jetson이 HOME 위치 복귀를 확인했어요.',
         ArrivalProcessingStatus.busy => '로봇이 다른 작업 중이라 명령을 거절했어요.',
         ArrivalProcessingStatus.timedOut => 'Jetson 응답 시간이 초과됐어요.',
         ArrivalProcessingStatus.error =>

@@ -167,7 +167,10 @@ void main() {
       repositories.arrival.calls.last.visitId,
       repositories.arrival.calls.first.visitId,
     );
-    expect(find.text('마중 취소 명령을 확인했어요. HOME으로 복귀합니다.'), findsOneWidget);
+    expect(
+      find.text('Jetson이 HOME 위치 복귀를 확인했어요.'),
+      findsOneWidget,
+    );
   });
 }
 
