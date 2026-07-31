@@ -5,8 +5,10 @@ import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/navigation/app_menu_button.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
+import 'package:potner_app/features/device/presentation/controllers/robot_status_controller.dart';
 import 'package:potner_app/features/home/domain/home_dashboard.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
+import 'package:potner_app/features/home/presentation/widgets/robot_status_button.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -15,6 +17,7 @@ class HomePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
     final home = ref.watch(homeControllerProvider);
+    final robotStatus = ref.watch(robotStatusControllerProvider);
     final header = _HomeHeader(
       onAlerts: () =>
           context.go(withNavigationOrigin('/alerts', AppNavigationOrigin.home)),
@@ -22,6 +25,7 @@ class HomePage extends ConsumerWidget {
         withNavigationOrigin('/my/profile', AppNavigationOrigin.home),
       ),
       hasUnreadAlerts: home.unreadAlertCount > 0,
+      robotStatusButton: RobotStatusButton(status: robotStatus),
     );
 
     Widget withHeader(Widget child) {
@@ -99,11 +103,13 @@ class _HomeHeader extends StatelessWidget {
     required this.onAlerts,
     required this.onMy,
     required this.hasUnreadAlerts,
+    required this.robotStatusButton,
   });
 
   final VoidCallback onAlerts;
   final VoidCallback onMy;
   final bool hasUnreadAlerts;
+  final Widget robotStatusButton;
 
   @override
   Widget build(BuildContext context) {
@@ -112,19 +118,25 @@ class _HomeHeader extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Transform.translate(
-            offset: const Offset(-30, 0),
-            child: SizedBox(
-              width: 140,
-              height: 88,
-              child: Image.asset(
-                'assets/images/auth/potner_logo_login.png',
-                fit: BoxFit.contain,
-                semanticLabel: 'Potner',
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Transform.translate(
+                offset: const Offset(-30, 0),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: SizedBox(
+                    height: 88,
+                    child: Image.asset(
+                      'assets/images/auth/potner_logo_login.png',
+                      fit: BoxFit.contain,
+                      semanticLabel: 'Potner',
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          const Spacer(),
           Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -166,6 +178,7 @@ class _HomeHeader extends StatelessWidget {
                         ),
                     ],
                   ),
+                  robotStatusButton,
                   IconButton(
                     key: const Key('home_my_button'),
                     tooltip: '마이페이지',
