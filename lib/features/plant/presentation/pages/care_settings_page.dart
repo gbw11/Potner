@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 import 'package:potner_app/features/plant/domain/plant_detail.dart';
@@ -28,9 +28,10 @@ class CareSettingsPage extends ConsumerWidget {
         centerTitle: true,
         leading: BackButton(
           key: const Key('care_settings_back'),
-          onPressed: () => context.canPop()
-              ? context.pop()
-              : context.go('/plants/$plantId'),
+          onPressed: () => returnFromSharedPage(
+            context,
+            fallbackLocation: '/plants/$plantId',
+          ),
         ),
       ),
       body: SafeArea(
@@ -152,8 +153,7 @@ class _CareFormState extends ConsumerState<_CareForm> {
                   divisions: 100,
                   format: (value) => '${value.round()}%',
                   enabled: !_isSaving,
-                  onChanged: (values) =>
-                      setState(() => _soilMoisture = values),
+                  onChanged: (values) => setState(() => _soilMoisture = values),
                 ),
               if (_temperature != null)
                 _RangeSection(
@@ -328,6 +328,7 @@ class _CareFormState extends ConsumerState<_CareForm> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(content: Text('변경된 설정이 없어요.')));
+      _returnAfterSave();
       return;
     }
 
@@ -344,6 +345,7 @@ class _CareFormState extends ConsumerState<_CareForm> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(content: Text('케어 설정을 저장했어요.')));
+      _returnAfterSave();
     } catch (error) {
       if (!mounted) {
         return;
@@ -357,6 +359,13 @@ class _CareFormState extends ConsumerState<_CareForm> {
           ),
         );
     }
+  }
+
+  void _returnAfterSave() {
+    returnFromSharedPage(
+      context,
+      fallbackLocation: '/plants/${_profile.plantId}',
+    );
   }
 
   Future<void> _confirmAndReset() async {

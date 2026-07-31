@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
 import 'package:potner_app/features/photo/data/photo_repository_impl.dart';
@@ -97,9 +98,9 @@ class _PhotoDetailBodyState extends ConsumerState<_PhotoDetailBody> {
             children: [
               BackButton(
                 key: const Key('photo_detail_back'),
-                onPressed: () => context.canPop()
-                    ? context.pop()
-                    : context.go('/growth/photos'),
+                onPressed: () => context.go(
+                  withCurrentNavigationOrigin(context, '/growth/photos'),
+                ),
               ),
               Expanded(
                 child: Text(

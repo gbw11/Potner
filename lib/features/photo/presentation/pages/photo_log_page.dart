@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/photo/presentation/photo_providers.dart';
 import 'package:potner_app/features/plant/domain/my_plant.dart';
@@ -29,7 +30,7 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
         leading: BackButton(
           key: const Key('photo_log_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/growth'),
+              returnFromSharedPage(context, fallbackLocation: '/growth'),
         ),
       ),
       body: SafeArea(
@@ -48,14 +49,30 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      const Icon(
+                        Icons.photo_library_outlined,
+                        key: Key('photo_log_empty_icon'),
+                        size: 52,
+                        color: AppColors.primarySoft,
+                      ),
+                      const SizedBox(height: 14),
                       const Text(
                         '식물을 등록하면 매일 성장 사진이 쌓여요.',
-                        style: TextStyle(color: AppColors.textMuted),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          height: 1.5,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       FilledButton(
                         key: const Key('photo_log_register_plant'),
-                        onPressed: () => context.go('/plants/register'),
+                        onPressed: () => context.go(
+                          withCurrentNavigationOrigin(
+                            context,
+                            '/plants/register',
+                          ),
+                        ),
                         child: const Text('내 식물 등록하기'),
                       ),
                     ],
@@ -90,8 +107,7 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
             error: (error, _) => _CenteredMessage(
               message: plantErrorMessage(error, '사진을 불러오지 못했습니다.'),
               retryKey: const Key('photo_log_photos_retry'),
-              onRetry: () =>
-                  ref.invalidate(plantPhotosProvider(plant.plantId)),
+              onRetry: () => ref.invalidate(plantPhotosProvider(plant.plantId)),
             ),
             data: (items) {
               if (items.isEmpty) {
@@ -129,7 +145,10 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
                             key: Key('photo_card_${photo.photoId}'),
                             borderRadius: BorderRadius.circular(18),
                             onTap: () => context.go(
-                              '/growth/photos/${plant.plantId}/${photo.photoId}',
+                              withCurrentNavigationOrigin(
+                                context,
+                                '/growth/photos/${plant.plantId}/${photo.photoId}',
+                              ),
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(18),

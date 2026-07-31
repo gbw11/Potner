@@ -90,6 +90,14 @@ class DeviceApi {
     }
   }
 
+  Future<void> deleteRobot(String robotId) async {
+    try {
+      await _dio.delete<Object?>('robots/$robotId');
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   Future<RobotLiveStatus?> getPlantRobotStatus(String plantId) async {
     try {
       final response = await _dio.get<Object?>('plants/$plantId/devices');
@@ -114,9 +122,7 @@ class DeviceApi {
 
   Future<String> reissueUploadToken(String robotId) async {
     try {
-      final response = await _dio.post<Object?>(
-        'robots/$robotId/upload-token',
-      );
+      final response = await _dio.post<Object?>('robots/$robotId/upload-token');
       final data = _asMap(response.data);
       return _requiredString(data['uploadToken']);
     } on DioException catch (exception) {
@@ -138,9 +144,9 @@ class DeviceApi {
     try {
       final response = await _dio.get<Object?>('robots/$robotId/locations');
       final data = _asMap(response.data);
-      return _asList(data['locations'])
-          .map(_parseLocation)
-          .toList(growable: false);
+      return _asList(
+        data['locations'],
+      ).map(_parseLocation).toList(growable: false);
     } on DioException catch (exception) {
       throw ApiException.fromDio(exception);
     } on FormatException catch (exception) {

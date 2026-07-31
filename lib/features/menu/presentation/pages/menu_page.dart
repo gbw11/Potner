@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
@@ -40,6 +41,13 @@ class MenuPage extends ConsumerWidget {
           id: 'care_settings',
           label: '케어 설정',
           icon: Icons.tune_rounded,
+          action: _MenuAction.careSettings,
+        ),
+        _MenuEntry(
+          id: 'environment',
+          label: '환경 정보',
+          icon: Icons.eco_outlined,
+          action: _MenuAction.environment,
         ),
       ],
     ),
@@ -147,7 +155,8 @@ class MenuPage extends ConsumerWidget {
                   IconButton(
                     key: const Key('close_menu_button'),
                     tooltip: '메뉴 닫기',
-                    onPressed: () => context.pop(),
+                    onPressed: () =>
+                        context.canPop() ? context.pop() : context.go('/'),
                     icon: const Icon(Icons.close_rounded),
                   ),
                 ],
@@ -196,31 +205,35 @@ class MenuPage extends ConsumerWidget {
       case _MenuAction.home:
         context.go('/');
       case _MenuAction.alerts:
-        context.go('/alerts');
+        context.go(_fromMenu('/alerts'));
       case _MenuAction.plantRegistration:
-        context.go('/plants/register');
+        context.go(_fromMenu('/plants/register'));
       case _MenuAction.myPlants:
-        context.go('/plants');
+        context.go(_fromMenu('/plants'));
       case _MenuAction.registeredPlants:
-        context.go('/my/plants');
+        context.go(_fromMenu('/my/plants'));
       case _MenuAction.deviceRegistration:
-        context.go('/devices/register');
+        context.go(_fromMenu('/devices/register'));
       case _MenuAction.deviceManagement:
-        context.go('/devices');
+        context.go(_fromMenu('/devices'));
+      case _MenuAction.careSettings:
+        context.go(_fromMenu('/plant-selection/care'));
+      case _MenuAction.environment:
+        context.go(_fromMenu('/plant-selection/environment'));
       case _MenuAction.plantDiary:
-        context.go('/growth/diary');
+        context.go(_fromMenu('/growth/diary'));
       case _MenuAction.photoLog:
-        context.go('/growth/photos');
+        context.go(_fromMenu('/growth/photos'));
       case _MenuAction.growthComparison:
-        context.go('/growth/compare');
+        context.go(_fromMenu('/growth/compare'));
       case _MenuAction.flowering:
-        context.go('/growth/blooms');
+        context.go(_fromMenu('/growth/blooms'));
       case _MenuAction.withdrawal:
-        context.go('/my/withdraw');
+        context.go(_fromMenu('/my/withdraw'));
       case _MenuAction.notificationSettings:
-        context.go('/my/notifications');
+        context.go(_fromMenu('/my/notifications'));
       case _MenuAction.my:
-        context.go('/my');
+        context.go(_fromMenu('/my/profile'));
       case _MenuAction.logout:
         await ref.read(authControllerProvider.notifier).logout();
       case _MenuAction.comingSoon:
@@ -230,6 +243,10 @@ class MenuPage extends ConsumerWidget {
             SnackBar(content: Text('${entry.label} 기능은 다음 작업에서 연결합니다.')),
           );
     }
+  }
+
+  String _fromMenu(String location) {
+    return withNavigationOrigin(location, AppNavigationOrigin.menu);
   }
 }
 
@@ -367,6 +384,8 @@ enum _MenuAction {
   registeredPlants,
   deviceRegistration,
   deviceManagement,
+  careSettings,
+  environment,
   plantDiary,
   photoLog,
   growthComparison,

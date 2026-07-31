@@ -12,7 +12,7 @@ import 'support/fake_home_repository.dart';
 import 'support/fake_plant_repository.dart';
 
 void main() {
-  testWidgets('plant registration submits selections and returns home', (
+  testWidgets('plant registration submits selections and returns to menu', (
     tester,
   ) async {
     final plantRepository = FakePlantRepository();
@@ -90,7 +90,7 @@ void main() {
     expect(call.lifeStageId, 'stage-seedling');
     expect(call.adoptedDate, isNull);
 
-    expect(find.byKey(const Key('home_page')), findsOneWidget);
+    expect(find.byKey(const Key('menu_page')), findsOneWidget);
   });
 
   testWidgets('plant registration requires every selection before submit', (

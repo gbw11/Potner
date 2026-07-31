@@ -17,6 +17,7 @@ class FakeDeviceRepository implements DeviceRepository {
   final List<AssignCall> assignCalls = [];
   final List<String> reissuedRobotIds = [];
   final List<String> unassignedPlantIds = [];
+  final List<String> deletedRobotIds = [];
   Object? registerIotDeviceError;
   Object? assignError;
 
@@ -25,8 +26,15 @@ class FakeDeviceRepository implements DeviceRepository {
     required String deviceUid,
     required String name,
   }) async {
-    registerRobotCalls.add(
-      RegisterRobotCall(deviceUid: deviceUid, name: name),
+    registerRobotCalls.add(RegisterRobotCall(deviceUid: deviceUid, name: name));
+    robots.add(
+      ManagedRobot(
+        robotId: 'robot-new',
+        deviceUid: deviceUid,
+        name: name,
+        connectionStatus: DeviceConnectionStatus.online,
+        devices: const [],
+      ),
     );
     return RobotRegistration(
       robotId: 'robot-1',
@@ -71,6 +79,12 @@ class FakeDeviceRepository implements DeviceRepository {
   Future<List<ManagedRobot>> getRobots() async => List.of(robots);
 
   @override
+  Future<void> deleteRobot(String robotId) async {
+    deletedRobotIds.add(robotId);
+    robots.removeWhere((robot) => robot.robotId == robotId);
+  }
+
+  @override
   Future<RobotLiveStatus?> getPlantRobotStatus(String plantId) async {
     return liveStatuses[plantId];
   }
@@ -98,9 +112,11 @@ class FakeDeviceRepository implements DeviceRepository {
     required RobotLocationType type,
     String? stationCode,
   }) async {
-    registerLocationCalls.add(
-      (robotId: robotId, type: type, stationCode: stationCode),
-    );
+    registerLocationCalls.add((
+      robotId: robotId,
+      type: type,
+      stationCode: stationCode,
+    ));
     final info = RobotLocationInfo(
       locationId: 'loc-${type.name}',
       type: type,

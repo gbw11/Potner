@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/widgets/form_error.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
+import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
 import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
@@ -44,6 +46,9 @@ class _DeviceRegistrationPageState
   @override
   Widget build(BuildContext context) {
     final plants = ref.watch(myPlantsProvider);
+    final returnsToManagement =
+        GoRouterState.of(context).uri.queryParameters['completion'] ==
+        'management';
 
     return Scaffold(
       appBar: AppBar(
@@ -51,7 +56,13 @@ class _DeviceRegistrationPageState
         centerTitle: true,
         leading: BackButton(
           key: const Key('device_registration_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/'),
+          onPressed: () {
+            if (returnsToManagement) {
+              context.go(withCurrentNavigationOrigin(context, '/devices'));
+              return;
+            }
+            returnFromSharedPage(context, fallbackLocation: '/');
+          },
         ),
       ),
       body: SafeArea(
@@ -155,7 +166,9 @@ class _DeviceRegistrationPageState
                             for (final plant in items)
                               DropdownMenuItem(
                                 value: plant,
-                                child: Text('${plant.name} (${plant.speciesName})'),
+                                child: Text(
+                                  '${plant.name} (${plant.speciesName})',
+                                ),
                               ),
                           ],
                           onChanged: _isSubmitting
@@ -278,7 +291,15 @@ class _DeviceRegistrationPageState
     if (!mounted) {
       return;
     }
-    context.go('/');
+    final completion = GoRouterState.of(
+      context,
+    ).uri.queryParameters['completion'];
+    if (completion == 'management') {
+      ref.invalidate(robotsProvider);
+      context.go(withCurrentNavigationOrigin(context, '/devices'));
+      return;
+    }
+    returnFromSharedPage(context, fallbackLocation: '/');
   }
 
   Future<void> _showUploadTokenDialog(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
@@ -36,7 +37,7 @@ class PlantProfilePage extends ConsumerWidget {
         leading: BackButton(
           key: const Key('plant_profile_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/plants'),
+              returnFromSharedPage(context, fallbackLocation: '/plants'),
         ),
       ),
       body: SafeArea(
@@ -231,8 +232,12 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
                 ),
                 onPressed: _isSaving
                     ? null
-                    : () =>
-                          context.go('/plants/${_detail.plantId}/environment'),
+                    : () => context.go(
+                        withPreviousNavigationLocation(
+                          context,
+                          '/plants/${_detail.plantId}/environment',
+                        ),
+                      ),
                 child: const Text('환경 정보'),
               ),
               const SizedBox(height: 14),
@@ -244,7 +249,12 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
                 ),
                 onPressed: _isSaving
                     ? null
-                    : () => context.go('/plants/${_detail.plantId}/care'),
+                    : () => context.go(
+                        withPreviousNavigationLocation(
+                          context,
+                          '/plants/${_detail.plantId}/care',
+                        ),
+                      ),
                 child: const Text('케어 설정'),
               ),
               const SizedBox(height: 14),
@@ -457,9 +467,7 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '식물을 삭제하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '식물을 삭제하지 못했습니다.'))),
         );
     }
   }

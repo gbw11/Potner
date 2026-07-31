@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 import 'package:potner_app/features/user/data/user_repository_impl.dart';
@@ -25,7 +25,8 @@ class NotificationSettingsPage extends ConsumerWidget {
         centerTitle: true,
         leading: BackButton(
           key: const Key('notification_settings_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/my'),
+          onPressed: () =>
+              returnFromSharedPage(context, fallbackLocation: '/my'),
         ),
       ),
       body: SafeArea(
@@ -104,10 +105,7 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
                   contentPadding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
                   title: const Text(
                     '전체 알림',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                   ),
                   subtitle: const Text(
                     '모든 알림을 한 번에 제어합니다',
@@ -191,10 +189,7 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
                   padding: EdgeInsets.only(top: 12, left: 4),
                   child: Text(
                     '전체 알림이 꺼져 있으면 세부 설정과 무관하게 알림이 오지 않아요.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textMuted,
-                    ),
+                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                   ),
                 ),
             ],
@@ -232,9 +227,7 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '설정을 저장하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '설정을 저장하지 못했습니다.'))),
         );
     } finally {
       if (mounted) {

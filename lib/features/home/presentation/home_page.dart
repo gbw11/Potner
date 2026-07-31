@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/navigation/app_menu_button.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
@@ -15,8 +16,11 @@ class HomePage extends ConsumerWidget {
     final user = ref.watch(authControllerProvider).user;
     final home = ref.watch(homeControllerProvider);
     final header = _HomeHeader(
-      onAlerts: () => context.go('/alerts'),
-      onMy: () => context.go('/my'),
+      onAlerts: () =>
+          context.go(withNavigationOrigin('/alerts', AppNavigationOrigin.home)),
+      onMy: () => context.go(
+        withNavigationOrigin('/my/profile', AppNavigationOrigin.home),
+      ),
       hasUnreadAlerts: home.unreadAlertCount > 0,
     );
 
@@ -57,25 +61,36 @@ class HomePage extends ConsumerWidget {
             onPlantSelected: (plantId) =>
                 ref.read(homeControllerProvider.notifier).selectPlant(plantId),
             onRegisterPlant: () => context.go('/plants/register'),
-            onRegisterDevice: () => context.go('/devices/register'),
+            onRegisterDevice: () => context.go(
+              withNavigationOrigin(
+                '/devices/register',
+                AppNavigationOrigin.home,
+              ),
+            ),
             onPlantDetail: () {
               final plantId = home.dashboard?.plant.id;
               if (plantId != null) {
                 context.go('/plants/$plantId');
               }
             },
-            onPhotoLog: () => context.go('/growth/photos'),
-            onCareSettings: () => _showComingSoon(context, '케어 설정'),
+            onPhotoLog: () => context.go(
+              withNavigationOrigin('/growth/photos', AppNavigationOrigin.home),
+            ),
+            onCareSettings: () {
+              final plantId = home.dashboard?.plant.id;
+              if (plantId != null) {
+                context.go(
+                  withNavigationOrigin(
+                    '/plants/$plantId/care',
+                    AppNavigationOrigin.home,
+                  ),
+                );
+              }
+            },
           ),
         },
       ),
     );
-  }
-
-  void _showComingSoon(BuildContext context, String feature) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text('$feature 기능은 다음 작업에서 연결합니다.')));
   }
 }
 

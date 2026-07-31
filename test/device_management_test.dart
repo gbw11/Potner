@@ -101,6 +101,23 @@ void main() {
     expect(deviceRepository.unassignedPlantIds, ['plant-rose']);
     expect(find.byKey(const Key('unassign_robot-1')), findsNothing);
   });
+
+  testWidgets('device management deletes a robot after confirmation', (
+    tester,
+  ) async {
+    final deviceRepository = await _pumpToDeviceManagement(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('delete_robot_robot-1')));
+    await tester.tap(find.byKey(const Key('delete_robot_robot-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('디바이스 삭제'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('delete_robot_confirm')));
+    await tester.pumpAndSettle();
+
+    expect(deviceRepository.deletedRobotIds, ['robot-1']);
+    expect(find.byKey(const Key('robot_card_robot-1')), findsNothing);
+  });
 }
 
 class _FakeAuthRepository implements AuthRepository {

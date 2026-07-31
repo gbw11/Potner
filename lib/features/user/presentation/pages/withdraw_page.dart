@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
@@ -25,7 +25,8 @@ class _WithdrawPageState extends ConsumerState<WithdrawPage> {
         centerTitle: true,
         leading: BackButton(
           key: const Key('withdraw_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/my'),
+          onPressed: () =>
+              returnFromSharedPage(context, fallbackLocation: '/my'),
         ),
       ),
       body: SafeArea(
@@ -56,8 +57,9 @@ class _WithdrawPageState extends ConsumerState<WithdrawPage> {
                   Text(
                     '정말 탈퇴 하시겠어요?',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineMedium
-                        ?.copyWith(color: AppColors.text),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.headlineMedium?.copyWith(color: AppColors.text),
                   ),
                   const SizedBox(height: 10),
                   const Text.rich(
@@ -119,9 +121,10 @@ class _WithdrawPageState extends ConsumerState<WithdrawPage> {
                     key: const Key('withdraw_cancel'),
                     onPressed: _isSubmitting
                         ? null
-                        : () => context.canPop()
-                            ? context.pop()
-                            : context.go('/my'),
+                        : () => returnFromSharedPage(
+                            context,
+                            fallbackLocation: '/my',
+                          ),
                     child: const Text('취소'),
                   ),
                 ],
@@ -156,9 +159,7 @@ class _WithdrawPageState extends ConsumerState<WithdrawPage> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '탈퇴를 처리하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '탈퇴를 처리하지 못했습니다.'))),
         );
     }
   }

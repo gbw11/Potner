@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/diary/data/diary_repository_impl.dart';
 import 'package:potner_app/features/diary/domain/diary_models.dart';
@@ -47,7 +48,7 @@ class DiaryDetailPage extends ConsumerWidget {
         leading: BackButton(
           key: const Key('diary_detail_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/growth/diary'),
+              context.go(withCurrentNavigationOrigin(context, '/growth/diary')),
         ),
       ),
       body: SafeArea(
@@ -68,10 +69,7 @@ class DiaryDetailPage extends ConsumerWidget {
                   FilledButton.tonal(
                     key: const Key('diary_detail_retry'),
                     onPressed: () => ref.invalidate(
-                      diaryDetailProvider((
-                        plantId: plantId,
-                        diaryId: diaryId,
-                      )),
+                      diaryDetailProvider((plantId: plantId, diaryId: diaryId)),
                     ),
                     child: const Text('다시 시도'),
                   ),
@@ -251,7 +249,11 @@ class _StatusReportSection extends ConsumerWidget {
           children: [
             const Row(
               children: [
-                Icon(Icons.healing_outlined, size: 18, color: AppColors.primary),
+                Icon(
+                  Icons.healing_outlined,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
                 SizedBox(width: 6),
                 Text(
                   '상태 리포트',
@@ -431,10 +433,7 @@ class _ReportRow extends StatelessWidget {
                   color: AppColors.textMuted,
                 ),
               ),
-              Text(
-                value,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
+              Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
             ],
           ),
         ],

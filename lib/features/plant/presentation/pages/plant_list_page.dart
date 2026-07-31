@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
@@ -19,7 +20,7 @@ class PlantListPage extends ConsumerWidget {
         centerTitle: true,
         leading: BackButton(
           key: const Key('plant_list_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/'),
+          onPressed: () => returnFromSharedPage(context, fallbackLocation: '/'),
         ),
       ),
       body: SafeArea(
@@ -31,7 +32,9 @@ class PlantListPage extends ConsumerWidget {
           ),
           data: (items) => items.isEmpty
               ? _EmptyPlants(
-                  onRegister: () => context.go('/plants/register'),
+                  onRegister: () => context.go(
+                    withCurrentNavigationOrigin(context, '/plants/register'),
+                  ),
                 )
               : RefreshIndicator(
                   onRefresh: () => ref.refresh(myPlantsProvider.future),
@@ -45,8 +48,12 @@ class PlantListPage extends ConsumerWidget {
                       for (final plant in items) ...[
                         _PlantCard(
                           plant: plant,
-                          onTap: () =>
-                              context.go('/plants/${plant.plantId}'),
+                          onTap: () => context.go(
+                            withPreviousNavigationLocation(
+                              context,
+                              '/plants/${plant.plantId}',
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 14),
                       ],
@@ -57,7 +64,6 @@ class PlantListPage extends ConsumerWidget {
       ),
     );
   }
-
 }
 
 class _CountCard extends StatelessWidget {

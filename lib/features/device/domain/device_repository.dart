@@ -19,6 +19,8 @@ abstract class DeviceRepository {
 
   Future<List<ManagedRobot>> getRobots();
 
+  Future<void> deleteRobot(String robotId);
+
   /// 배정된 로봇이 없으면 null 이다.
   Future<RobotLiveStatus?> getPlantRobotStatus(String plantId);
 
