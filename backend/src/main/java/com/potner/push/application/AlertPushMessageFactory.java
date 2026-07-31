@@ -10,8 +10,8 @@ import java.util.Map;
 /**
  * 이상 알림을 사용자에게 보여줄 한국어 문구로 바꾼다.
  *
- * <p>지표 5종 × 방향 2종 = 10가지다. 새 지표를 추가하면 switch 가 컴파일 단계에서 빠진 조합을
- * 잡는다. default 를 두지 않는 이유가 그것이다.
+ * <p>센서 지표 5종 × 방향 2종에 물 부족(LOW 뿐)을 더해 11가지다. 새 지표를 추가하면 switch 가
+ * 컴파일 단계에서 빠진 조합을 잡는다. default 를 두지 않는 이유가 그것이다.
  *
  * <p>본문이 별명을 {@code %s의} 꼴로만 쓴다. 주격 조사(이/가)를 붙이면 별명의 받침에 따라
  * 문장이 어색해지는데, 관형격 조사는 받침과 무관해서 별도 처리가 필요 없다.
@@ -96,6 +96,15 @@ public class AlertPushMessageFactory {
                         "일조 시간이 길었어요",
                         "어제 %s의 일조 시간이 기준보다 길어요. 밤에는 빛을 차단해 주세요."
                 );
+            };
+            case STATION_WATER_LOW -> switch (deviation) {
+                case LOW -> new Copy(
+                        "스테이션 물이 부족해요",
+                        "%s의 원활한 급수를 위해 스테이션에 물을 보충해 주세요."
+                );
+                // 물 부족 보고는 불리언이라 LOW 로만 열린다. 여기 도달하면 여는 쪽이 잘못됐다.
+                case HIGH -> throw new IllegalStateException(
+                        "STATION_WATER_LOW alert cannot have HIGH deviation");
             };
         };
     }

@@ -17,8 +17,9 @@ import java.util.List;
  * @param adjustments    100 에서 움직인 이유. 점수가 100 이면 빈 목록이다.
  * @param lightHours     임계 조도 이상을 받은 실측 시간. 광량 집계가 아직 없으면 {@code null}.
  *                       광량은 하루가 끝난 뒤 새벽에 확정되므로 오늘 것은 비어 있다.
- * @param wateredMl      그날 급수량. 급수 기록이 아직 없어 항상 {@code null} 이다. 필드를 미리
- *                       두어 급수가 붙을 때 앱을 고치지 않게 한다.
+ * @param wateredMl      그날 실제로 나간 급수량의 합({@code device_command.dispensed_ml})이다.
+ *                       급수 기록이 없으면 {@code null} 이며 0 과 구분된다 — 0 은 급수를
+ *                       시도했으나 한 방울도 안 나간 경우다.
  */
 public record StatusReportResponse(
         String plantId,

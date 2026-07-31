@@ -22,7 +22,10 @@ import java.time.LocalDate;
  * 성장 일기 조회다.
  *
  * <p>작성 엔드포인트가 없다. 일기는 사용자가 쓰는 것이 아니라 매일 정해진 시각에 LLM 이 그날의
- * 센서·알림·사진을 근거로 쓴다. 생성은 다음 작업에서 배치로 붙는다.
+ * 센서·알림·사진을 근거로 쓴다. 생성은 {@code DiaryScheduler} 가 맡는다.
+ *
+ * <p>{@code LLM_API_KEY} 가 없으면 생성기가 no-op 구현으로 대체되어 일기가 한 건도 만들어지지
+ * 않는다. 조회가 계속 비어 있으면 이 설정을 먼저 확인해야 한다.
  */
 @RestController
 @RequestMapping("/api/v1/plants/{plantId}/diaries")

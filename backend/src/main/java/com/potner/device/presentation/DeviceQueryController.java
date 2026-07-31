@@ -34,7 +34,8 @@ public class DeviceQueryController {
 
                     robot 의 connectionStatus 와 lastSeenAt 은 저장된 값이 아니라 하위 장치 상태에서
                     계산한 값이다. 장치 하나라도 ONLINE 이면 로봇도 ONLINE 이다.
-                    batteryPercent 와 firmwareVersion 은 로봇 고유 데이터이며 수집 연동 전까지 비어 있다.
+                    batteryPercent 는 젯슨의 status/battery 로 수집한다. 한 번도 받지 못했으면 null 이다.
+                    firmwareVersion 은 장치가 보내는 토픽이 없어 항상 null 이다.
 
                     장치는 종류 순으로 정렬한다. 시각은 모두 UTC 다.
                     """

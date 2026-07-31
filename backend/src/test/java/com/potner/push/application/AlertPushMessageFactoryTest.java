@@ -22,7 +22,7 @@ class AlertPushMessageFactoryTest {
     @ParameterizedTest
     @EnumSource(AlertMetricType.class)
     void everyMetricHasCopyForBothDirections(AlertMetricType metricType) {
-        for (AlertDeviation deviation : AlertDeviation.values()) {
+        for (AlertDeviation deviation : supportedDeviations(metricType)) {
             PushMessage message = messageFactory.create(event(metricType, deviation, "로지"));
 
             assertThat(message.title()).isNotBlank();
@@ -36,13 +36,31 @@ class AlertPushMessageFactoryTest {
     void copyIsDistinctForEveryMetricAndDirection() {
         List<String> bodies = new ArrayList<>();
         for (AlertMetricType metricType : AlertMetricType.values()) {
-            for (AlertDeviation deviation : AlertDeviation.values()) {
+            for (AlertDeviation deviation : supportedDeviations(metricType)) {
                 bodies.add(messageFactory.create(event(metricType, deviation, "로지")).body());
             }
         }
 
-        // 지표 5종 × 방향 2종. 같은 문구가 겹치면 사용자가 무엇이 문제인지 구분할 수 없다.
-        assertThat(bodies).hasSize(10).doesNotHaveDuplicates();
+        // 센서 지표 5종 × 방향 2종 + 물 부족(LOW 뿐). 같은 문구가 겹치면 사용자가 무엇이
+        // 문제인지 구분할 수 없다.
+        assertThat(bodies).hasSize(11).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void stationWaterLowAsksForARefill() {
+        PushMessage message = messageFactory.create(
+                event(AlertMetricType.STATION_WATER_LOW, AlertDeviation.LOW, "로지")
+        );
+
+        assertThat(message.title()).isEqualTo("스테이션 물이 부족해요");
+        assertThat(message.body()).isEqualTo("로지의 원활한 급수를 위해 스테이션에 물을 보충해 주세요.");
+    }
+
+    /** 물 부족 보고는 불리언이라 LOW 로만 열린다. HIGH 는 여는 쪽의 버그다. */
+    private static List<AlertDeviation> supportedDeviations(AlertMetricType metricType) {
+        return metricType == AlertMetricType.STATION_WATER_LOW
+                ? List.of(AlertDeviation.LOW)
+                : List.of(AlertDeviation.values());
     }
 
     @Test

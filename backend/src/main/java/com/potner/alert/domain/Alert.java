@@ -38,13 +38,14 @@ public class Alert {
     @Column(name = "deviation", length = 10, nullable = false)
     private AlertDeviation deviation;
 
-    @Column(name = "measured_value", precision = 14, scale = 4, nullable = false)
+    /** 물 부족처럼 측정값이 없는 지표는 NULL 이다. 센서 알림은 DB CHECK 가 NOT NULL 을 강제한다. */
+    @Column(name = "measured_value", precision = 14, scale = 4)
     private BigDecimal measuredValue;
 
-    @Column(name = "threshold_min", precision = 14, scale = 4, nullable = false)
+    @Column(name = "threshold_min", precision = 14, scale = 4)
     private BigDecimal thresholdMin;
 
-    @Column(name = "threshold_max", precision = 14, scale = 4, nullable = false)
+    @Column(name = "threshold_max", precision = 14, scale = 4)
     private BigDecimal thresholdMax;
 
     @Column(name = "occurred_at", nullable = false)
@@ -104,6 +105,26 @@ public class Alert {
                 measuredValue,
                 thresholdMin,
                 thresholdMax,
+                occurredAt
+        );
+    }
+
+    /**
+     * 스테이션 물 부족 알림을 연다.
+     *
+     * <p>물 부족 보고는 불리언이라 측정값과 기준이 없다. 합성값으로 채우면 앱 알림 상세에
+     * 가짜 숫자가 노출되므로 비워 둔다. 방향은 항상 {@code LOW} 다 — "물이 너무 많다" 는
+     * 보고 자체가 없다.
+     */
+    public static Alert openStationWaterLow(String userId, String plantId, LocalDateTime occurredAt) {
+        return new Alert(
+                userId,
+                plantId,
+                AlertMetricType.STATION_WATER_LOW,
+                AlertDeviation.LOW,
+                null,
+                null,
+                null,
                 occurredAt
         );
     }

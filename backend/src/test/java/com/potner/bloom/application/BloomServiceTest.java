@@ -227,6 +227,41 @@ class BloomServiceTest {
                 ErrorCode.INVALID_REQUEST);
     }
 
+    @Test
+    void deviceBloomIsRecordedWithTodayAndDeviceSource() {
+        givenSaveReturnsArgument();
+        when(bloomRepository.existsByPlantIdAndBloomDateGreaterThanEqual(
+                PLANT_ID, SERVICE_TODAY.minusDays(7))).thenReturn(false);
+        when(bloomRepository.existsByPlantId(PLANT_ID)).thenReturn(false);
+
+        boolean recorded = bloomService.recordFromDevice(USER_ID, PLANT_ID, "로지", 7);
+
+        assertThat(recorded).isTrue();
+        ArgumentCaptor<PlantBloom> bloom = ArgumentCaptor.forClass(PlantBloom.class);
+        verify(bloomRepository).save(bloom.capture());
+        assertThat(bloom.getValue().getSource()).isEqualTo(BloomSource.DEVICE);
+        assertThat(bloom.getValue().getBloomDate()).isEqualTo(SERVICE_TODAY);
+
+        ArgumentCaptor<BloomRecordedEvent> event = ArgumentCaptor.forClass(BloomRecordedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().firstBloom()).isTrue();
+        assertThat(event.getValue().plantNickname()).isEqualTo("로지");
+    }
+
+    @Test
+    void deviceBloomIsSkippedDuringTheCooldownWindow() {
+        // 판정이 촬영 각도에 따라 개화 ↔ 영양생장 사이를 오가면 그때마다 "새 개화" 가 된다.
+        // 오늘 아침 사용자가 남긴 기록도 세야 같은 꽃이 두 건으로 남지 않는다.
+        when(bloomRepository.existsByPlantIdAndBloomDateGreaterThanEqual(
+                PLANT_ID, SERVICE_TODAY.minusDays(7))).thenReturn(true);
+
+        boolean recorded = bloomService.recordFromDevice(USER_ID, PLANT_ID, "로지", 7);
+
+        assertThat(recorded).isFalse();
+        verify(bloomRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
     private void givenOwnedPlant() {
         Plant plant = plant();
         when(plantRepository.findByIdAndUserIdAndStatusNot(PLANT_ID, USER_ID, PlantStatus.DELETED))

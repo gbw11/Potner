@@ -1,5 +1,6 @@
 package com.potner.command.application;
 
+import com.potner.command.domain.CommandInitiator;
 import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -20,6 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,6 +35,9 @@ class DeviceCommandResultServiceTest {
     @Mock
     private DeviceCommandRepository commandRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private DeviceCommandResultService service;
     private DeviceCommand command;
     private String requestId;
@@ -40,11 +46,13 @@ class DeviceCommandResultServiceTest {
     void setUp() {
         service = new DeviceCommandResultService(
                 commandRepository,
+                eventPublisher,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
         command = DeviceCommand.issue(
                 "plant-1", "robot-1", PI_UID,
                 DeviceCommandType.WATER,
+                CommandInitiator.USER,
                 new BigDecimal("350.00"),
                 null,
                 null,
@@ -68,6 +76,28 @@ class DeviceCommandResultServiceTest {
         assertThat(command.getReportedAt())
                 .isEqualTo(LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
         assertThat(command.getResultMessageId()).isEqualTo(MESSAGE_ID.toString());
+    }
+
+    @Test
+    void publishesACompletedEventOnlyWhenTheResultIsApplied() {
+        // 자동 케어 체인이 다음 단계를 잇는 근거다. 명령 속성이 그대로 실려야 체인이 단계를
+        // 구분할 수 있다.
+        service.apply(PI_UID, DeviceCommandType.WATER,
+                result("OK", new BigDecimal("348.50"), null, null));
+
+        org.mockito.ArgumentCaptor<DeviceCommandCompletedEvent> event =
+                org.mockito.ArgumentCaptor.forClass(DeviceCommandCompletedEvent.class);
+        org.mockito.Mockito.verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().requestId()).isEqualTo(requestId);
+        assertThat(event.getValue().commandType()).isEqualTo(DeviceCommandType.WATER);
+        assertThat(event.getValue().initiator()).isEqualTo(CommandInitiator.USER);
+        assertThat(event.getValue().status()).isEqualTo(DeviceCommandStatus.OK);
+
+        // 반영되지 않은 회신(중복 등)은 이벤트가 나가면 안 된다 — 체인이 두 번 이어진다.
+        service.apply(PI_UID, DeviceCommandType.WATER,
+                result("OK", new BigDecimal("348.50"), null, null));
+        org.mockito.Mockito.verify(eventPublisher, org.mockito.Mockito.times(1))
+                .publishEvent(any(DeviceCommandCompletedEvent.class));
     }
 
     @Test

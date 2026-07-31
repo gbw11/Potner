@@ -110,6 +110,17 @@ potner:
     timeout-check-interval-seconds: ${DEVICE_COMMAND_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
     # 송풍 1회 기본 가동 시간(초). 말리기는 짧은 가동과 수분 재측정의 반복이라 짧게 잡는다.
     fan-run-seconds: ${DEVICE_COMMAND_FAN_RUN_SECONDS:30}
+    # 수분 부족 알림 → 이동 → 급수 → 복귀 자동 체인. 끄면 진행 중인 체인도 다음 회신에서
+    # 멈추므로, 오작동하는 로봇은 재배포 없이 이 값만 내리면 세울 수 있다.
+    auto-water-enabled: ${DEVICE_COMMAND_AUTO_WATER_ENABLED:true}
+    # 하루 목표 광량을 채우도록 로봇을 햇빛 자리로 보내고, 채우면 그늘로 되돌린다.
+    auto-sunlight-enabled: ${DEVICE_COMMAND_AUTO_SUNLIGHT_ENABLED:true}
+    sunlight-check-interval-seconds: ${DEVICE_COMMAND_SUNLIGHT_CHECK_INTERVAL_SECONDS:1800}
+    # 햇빛 자리로 보내는 시간대(서비스 타임존). 창이 닫히면 목표 미달이어도 되돌린다.
+    sunlight-window-start-hour: ${DEVICE_COMMAND_SUNLIGHT_WINDOW_START_HOUR:8}
+    sunlight-window-end-hour: ${DEVICE_COMMAND_SUNLIGHT_WINDOW_END_HOUR:17}
+    # 사용자가 직접 이동시킨 로봇은 이 시간(분) 동안 자동 재배치가 건드리지 않는다.
+    manual-placement-hold-minutes: ${DEVICE_COMMAND_MANUAL_PLACEMENT_HOLD_MINUTES:60}
   device:
     # 배터리 잔량을 보고하도록 정한 장치다. robot.battery_percent 가 컬럼 하나라 두 장치가
     # 보내면 서로 덮어쓴다. 배터리 센서가 라즈베리로 옮겨가면 RASPBERRY_PI 로 바꾼다.
@@ -184,6 +195,12 @@ potner:
     # 되돌릴 수단이 없으므로, 판정 이력을 보고 min-confidence 를 확정한 뒤에 켠다.
     # 꺼져 있어도 판정과 저장은 그대로 돌아가 그동안 정확도를 관찰할 수 있다.
     auto-advance-enabled: ${VISION_AUTO_ADVANCE_ENABLED:false}
+    # 개화 판정으로 개화 기록을 자동으로 남긴다. 단계 승급과 달리 기본값이 켜짐인 이유는
+    # 개화 기록에 삭제 API 가 있어 오탐을 사용자가 정리할 수 있기 때문이다.
+    auto-bloom-enabled: ${VISION_AUTO_BLOOM_ENABLED:true}
+    # 최근 이 기간(일) 안에 개화 기록이 있으면 자동 기록을 건너뛴다. 판정이 촬영 각도에 따라
+    # 개화 ↔ 영양생장 사이를 오갈 때 기록이 반복 생성되는 것을 막는다.
+    bloom-cooldown-days: ${VISION_BLOOM_COOLDOWN_DAYS:7}
   push:
     # 비어 있으면 발송기가 no-op 으로 떨어진다. 기능을 끄는 플래그를 따로 두지 않는 이유는
     # CI 임시 컨테이너에 Firebase 키가 없기 때문이다. 초기화가 예외를 던지면 Health Check 가

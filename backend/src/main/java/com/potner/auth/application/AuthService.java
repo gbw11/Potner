@@ -2,6 +2,8 @@ package com.potner.auth.application;
 
 import com.potner.auth.domain.RefreshToken;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.auth.dto.EmailAvailabilityRequest;
+import com.potner.auth.dto.EmailAvailabilityResponse;
 import com.potner.auth.dto.LoginRequest;
 import com.potner.auth.dto.SignupRequest;
 import com.potner.auth.dto.SignupResponse;
@@ -50,6 +52,21 @@ public class AuthService {
         this.jwtTokenProvider = jwtTokenProvider;
         this.refreshTokenHasher = refreshTokenHasher;
         this.clock = clock;
+    }
+
+    /**
+     * 가입 전 이메일 사용 가능 여부를 본다.
+     *
+     * <p>가입과 같은 정규화·조회를 쓴다. 다른 방법으로 판정하면 여기서 통과한 주소가 가입에서
+     * 409 로 막히는 일이 생긴다.
+     *
+     * <p><strong>결과는 보장이 아니다.</strong> 확인과 가입 사이에 다른 사용자가 같은 주소로
+     * 가입할 수 있다. 최종 판정은 {@link #signup} 의 UNIQUE 제약이며, 이 조회는 사용자가 폼을
+     * 다 채우기 전에 알려 주기 위한 것이다.
+     */
+    public EmailAvailabilityResponse checkEmailAvailability(EmailAvailabilityRequest request) {
+        String email = normalizeEmail(request.email());
+        return new EmailAvailabilityResponse(email, !appUserRepository.existsByEmailIgnoreCase(email));
     }
 
     @Transactional

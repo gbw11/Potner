@@ -98,6 +98,54 @@ public class BloomService {
         return BloomResponse.of(bloom, plant.getNickname());
     }
 
+    /**
+     * 사진 판정이 감지한 개화를 기록한다. 호출자는 이미 "새로 피었는지"(직전 판정과의 비교)를
+     * 확인했고, 여기서는 기록 중복만 거른다.
+     *
+     * <p>냉각 기간 안의 기록(수동 포함)이 있으면 남기지 않는다. 판정이 촬영 각도에 따라
+     * 개화 ↔ 영양생장 사이를 오가면 그때마다 "새 개화" 가 되는데, 실제 재개화가 그 간격으로
+     * 일어나지는 않는다. 냉각을 사용자 기록까지 세는 이유는, 오늘 아침 사용자가 남긴 개화를
+     * 오후 사진이 또 남기면 같은 꽃이 두 건이 되기 때문이다.
+     *
+     * <p>소유권을 검사하지 않는다. 사용자 요청이 아니라 서버 내부(사진 분석)가 부르는 경로라
+     * 호출자가 이미 식물을 확정해서 넘긴다.
+     *
+     * @return 기록을 남겼으면 {@code true}, 냉각 기간에 걸려 건너뛰었으면 {@code false}
+     */
+    @Transactional
+    public boolean recordFromDevice(
+            String userId,
+            String plantId,
+            String plantNickname,
+            int cooldownDays
+    ) {
+        LocalDate bloomDate = serviceToday();
+        if (bloomRepository.existsByPlantIdAndBloomDateGreaterThanEqual(
+                plantId, bloomDate.minusDays(cooldownDays))) {
+            return false;
+        }
+
+        // 저장하기 전에 세야 한다. 저장한 뒤에 세면 방금 넣은 기록 때문에 첫 꽃이 없어진다.
+        boolean firstBloom = !bloomRepository.existsByPlantId(plantId);
+
+        PlantBloom bloom = bloomRepository.save(PlantBloom.record(
+                userId,
+                plantId,
+                bloomDate,
+                null,
+                BloomSource.DEVICE,
+                nowUtc()
+        ));
+        eventPublisher.publishEvent(new BloomRecordedEvent(
+                bloom.getId(),
+                userId,
+                plantId,
+                plantNickname,
+                firstBloom
+        ));
+        return true;
+    }
+
     /** 사용자 개화 기록 목록이다. 개화한 날 기준 최신순이다. */
     public BloomListResponse getMyBlooms(String userId, boolean unreadOnly, int page, int size) {
         if (page < 0 || size < 1) {
