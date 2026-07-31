@@ -223,6 +223,12 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
               const SizedBox(height: 14),
               FilledButton.tonal(
                 key: const Key('profile_environment'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFCCEBC0),
+                  foregroundColor: AppColors.primary,
+                  disabledBackgroundColor: const Color(0xFFE3EEDC),
+                  disabledForegroundColor: const Color(0xFF6D7868),
+                ),
                 onPressed: _isSaving
                     ? null
                     : () =>
