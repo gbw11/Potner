@@ -1,5 +1,6 @@
 package com.potner.mqtt.application;
 
+import com.potner.arrival.application.ArrivalResultMessageProcessor;
 import com.potner.command.application.CommandResultMessageProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +34,7 @@ public class MqttMessageSubscriber {
     private final HeartbeatMessageProcessor heartbeatProcessor;
     private final RobotStateMessageProcessor robotStateProcessor;
     private final BatteryMessageProcessor batteryProcessor;
+    private final ArrivalResultMessageProcessor arrivalResultProcessor;
     private final CommandResultMessageProcessor commandResultProcessor;
     private final WaterLowMessageProcessor waterLowProcessor;
 
@@ -41,6 +43,7 @@ public class MqttMessageSubscriber {
             HeartbeatMessageProcessor heartbeatProcessor,
             RobotStateMessageProcessor robotStateProcessor,
             BatteryMessageProcessor batteryProcessor,
+            ArrivalResultMessageProcessor arrivalResultProcessor,
             CommandResultMessageProcessor commandResultProcessor,
             WaterLowMessageProcessor waterLowProcessor
     ) {
@@ -48,6 +51,7 @@ public class MqttMessageSubscriber {
         this.heartbeatProcessor = heartbeatProcessor;
         this.robotStateProcessor = robotStateProcessor;
         this.batteryProcessor = batteryProcessor;
+        this.arrivalResultProcessor = arrivalResultProcessor;
         this.commandResultProcessor = commandResultProcessor;
         this.waterLowProcessor = waterLowProcessor;
     }
@@ -82,6 +86,9 @@ public class MqttMessageSubscriber {
                 batteryProcessor.process(topic, rawPayload);
             } else if (topic.endsWith(WATER_LOW_TOPIC_SUFFIX)) {
                 waterLowProcessor.process(topic, rawPayload);
+            } else if (topic.endsWith("/result/welcome_start")
+                    || topic.endsWith("/result/welcome_cancel")) {
+                arrivalResultProcessor.process(topic, rawPayload);
             } else if (topic.contains(COMMAND_RESULT_TOPIC_MARKER)) {
                 commandResultProcessor.process(topic, rawPayload);
             } else {

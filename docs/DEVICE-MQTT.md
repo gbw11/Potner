@@ -119,6 +119,8 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/result/capture       촬영 결과 회신     파이만 (16절)
   potner/device/<device_uid>/result/fan           송풍 결과 회신     파이만 (16절)
   potner/device/<device_uid>/result/navigate      이동 결과 회신     젯슨만 (16절)
+  potner/device/<device_uid>/result/welcome_start 귀가 마중 도착 회신 젯슨만
+  potner/device/<device_uid>/result/welcome_cancel 귀가 취소 회신     젯슨만
 
 서버 → 장치
   potner/device/<device_uid>/command/expression   디스플레이 표정    젯슨이 구독
@@ -126,6 +128,8 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/command/capture      촬영 명령          파이가 구독 (16절)
   potner/device/<device_uid>/command/fan          송풍 명령          파이가 구독 (16절)
   potner/device/<device_uid>/command/navigate     이동 명령          젯슨이 구독 (16절)
+  potner/device/<device_uid>/command/welcome_start 귀가 마중 시작     젯슨이 구독
+  potner/device/<device_uid>/command/welcome_cancel 귀가 마중 취소    젯슨이 구독
 ```
 
 **결과 회신은 반드시 `result/` 아래여야 합니다.** `command/water/result` 처럼 `command/` 아래에
