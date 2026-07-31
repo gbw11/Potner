@@ -64,8 +64,10 @@ void main() {
     expect(find.text('날짜 선택하기'), findsOneWidget);
   });
 
-  testWidgets('bloom list shows records and adds a new one', (tester) async {
-    final bloomRepository = await _pumpToGrowthHub(tester);
+  testWidgets('bloom list shows records without manual record action', (
+    tester,
+  ) async {
+    await _pumpToGrowthHub(tester);
 
     await tester.tap(find.byKey(const Key('growth_hub_blooms')));
     await tester.pumpAndSettle();
@@ -73,19 +75,8 @@ void main() {
     expect(find.byKey(const Key('bloom_card_bloom-1')), findsOneWidget);
     expect(find.text('첫 꽃망울!'), findsOneWidget);
     expect(find.text('직접 기록'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('bloom_record_button')));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byKey(const Key('bloom_note')), '두 번째 꽃!');
-    await tester.tap(find.byKey(const Key('bloom_submit')));
-    await tester.pumpAndSettle();
-
-    expect(bloomRepository.recordCalls, hasLength(1));
-    expect(bloomRepository.recordCalls.single.plantId, 'plant-rose');
-    expect(bloomRepository.recordCalls.single.note, '두 번째 꽃!');
-    expect(bloomRepository.recordCalls.single.bloomDate, isNull);
-    expect(find.text('두 번째 꽃!'), findsOneWidget);
+    expect(find.byKey(const Key('bloom_record_button')), findsNothing);
+    expect(find.text('개화 기록하기'), findsNothing);
   });
 
   testWidgets('bloom record can be deleted after confirmation', (tester) async {
