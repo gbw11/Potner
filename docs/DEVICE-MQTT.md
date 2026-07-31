@@ -485,9 +485,9 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
    (`cli.fan`)는 이미 있고 MQTT 리스너만 없습니다.
 3. **라즈베리: 결과 토픽 두 줄 수정** (16절 경고).
 
-남은 기획 질문은 하나입니다 — **`GREETING`은 서버가 시킵니까, 로봇이 자율로 합니까?**
-마중 위치(17절)를 서버가 갖고 있으니 서버가 시키는 쪽이 결정과 일관되지만, 트리거(귀가를
-어떻게 아는가)가 미정입니다.
+`GREETING`도 서버 명령으로 결정됐습니다. GPS 전에는 앱의 디버그 버튼이
+`POST /api/v1/arrival/events`를 호출하고, 이후 Android Geofence가 같은 API를 호출합니다.
+서버는 저장된 `GREETING`/`HOME` 좌표를 `welcome_start`에 담아 젯슨에 보냅니다.
 
 **스테이션은 서버에 생겼습니다(17절).** 등록(스테이션 코드)·좌표·물 부족 알림까지 있습니다.
 배수트레이 알림은 범위에서 뺐습니다 — 물 부족만 전달하기로 결정했습니다. 디자인의
@@ -863,6 +863,43 @@ capture_result_topic: potner/device/raspberry-01/result/capture
   보냅니다. 실패는 `ERROR` + `error` 문구(예: DOCKING_FAILED, NAVIGATION_FAILED), 이동 중
   새 명령은 `BUSY` 입니다.
 - 자율 임무는 꺼야 합니다(12절). 서버 명령만이 이동의 트리거입니다.
+
+### 귀가 마중 명령 — 서버 → 젯슨
+
+GPS 전에는 앱의 디버그 버튼, GPS 적용 뒤에는 Android Geofence가 같은 API와 MQTT 계약을
+사용합니다. `requestId`는 `eventId`와 같고 QoS 1 중복 수신에도 같은 이동을 다시 시작하지
+않아야 합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/welcome_start
+{"eventId":"<uuid>","visitId":"<uuid>","requestId":"<eventId와 같음>",
+ "destination":"GREETING","x":1.25,"y":-0.48,"yaw":1.5708,
+ "returnDestination":"HOME","returnX":0.10,"returnY":0.20,"returnYaw":0.0,
+ "waitSeconds":120,"totalTimeoutSeconds":300,"publishedAt":"..."}
+
+젯슨 → 서버   potner/device/<device_uid>/result/welcome_start
+{"messageId":"<새 uuid>","deviceId":"jetson-01","requestId":"<그대로 반향>",
+ "status":"OK"}
+```
+
+`welcome_start`의 `OK`는 **GREETING 좌표 도착**을 뜻합니다. 젯슨은 도착 뒤 사람을 인식하면
+인사하고 HOME으로 복귀합니다. 사람이 보이지 않으면 `waitSeconds` 뒤 복귀하고,
+`totalTimeoutSeconds`를 넘기면 기다리지 않고 HOME 복귀를 시작합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/welcome_cancel
+{"eventId":"<새 uuid>","visitId":"<start와 같음>","requestId":"<eventId와 같음>",
+ "returnDestination":"HOME","returnX":0.10,"returnY":0.20,"returnYaw":0.0,
+ "publishedAt":"..."}
+
+젯슨 → 서버   potner/device/<device_uid>/result/welcome_cancel
+{"messageId":"<새 uuid>","deviceId":"jetson-01","requestId":"<그대로 반향>",
+ "status":"OK"}
+```
+
+취소 `OK`는 **HOME 좌표 도착**을 뜻합니다. 이동 실패는 `ERROR`, 다른 방문이나 다른 임무를
+수행 중이라 시작하지 못하면 `BUSY`입니다. 실패에는 `error`와 기계 판독용 `code`를 함께
+보낼 수 있습니다.
 
 ### 송풍 명령 — 서버 → 라즈베리 (수신 구현 필요)
 

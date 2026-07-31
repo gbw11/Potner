@@ -82,7 +82,9 @@ class ArrivalServiceTest {
         );
         robot = Robot.register(mock(AppUser.class), "robot-shell-01", "거실 로봇");
         IotDevice jetson = IotDevice.register(robot, JETSON_UID, IotDeviceType.JETSON_ORIN);
-        lenient().when(robotRepository.findAllByUserIdOrderByNameAsc(USER_ID))
+        lenient().when(
+                        robotRepository
+                                .findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(USER_ID))
                 .thenReturn(List.of(robot));
         lenient().when(iotDeviceRepository.findAllByRobotIdOrderByDeviceTypeAsc(robot.getId()))
                 .thenReturn(List.of(jetson));
@@ -117,7 +119,8 @@ class ArrivalServiceTest {
         ArrivalEventResponse response = service.process(USER_ID, approach());
 
         assertThat(response.status()).isEqualTo("DUPLICATE_IGNORED");
-        verify(robotRepository, never()).findAllByUserIdOrderByNameAsc(any());
+        verify(robotRepository, never())
+                .findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(any());
         verify(eventPublisher, never()).publishEvent(any());
     }
 
@@ -157,13 +160,27 @@ class ArrivalServiceTest {
     @Test
     void multipleRobotsAreRejectedInsteadOfPickingOneArbitrarily() {
         Robot another = Robot.register(mock(AppUser.class), "robot-shell-02", "다른 로봇");
-        when(robotRepository.findAllByUserIdOrderByNameAsc(USER_ID))
+        when(robotRepository.findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(USER_ID))
                 .thenReturn(List.of(robot, another));
 
         assertThatThrownBy(() -> service.process(USER_ID, approach()))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.ARRIVAL_MULTIPLE_ROBOTS);
+    }
+
+    @Test
+    void releasedJetsonIsNotSelectedForArrivalCommands() {
+        IotDevice released =
+                IotDevice.register(robot, "old-jetson", IotDeviceType.JETSON_ORIN);
+        released.release(NOW.atZone(ZoneOffset.UTC).toLocalDateTime());
+        when(iotDeviceRepository.findAllByRobotIdOrderByDeviceTypeAsc(robot.getId()))
+                .thenReturn(List.of(released));
+
+        assertThatThrownBy(() -> service.process(USER_ID, approach()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.COMMAND_DEVICE_NOT_FOUND);
     }
 
     private void givenLocation(

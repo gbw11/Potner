@@ -12,4 +12,21 @@ public record ArrivalProperties(
         @Positive int commandTimeoutSeconds,
         @Positive int timeoutCheckIntervalSeconds
 ) {
+    public ArrivalProperties {
+        if (totalTimeoutSeconds <= welcomeWaitSeconds) {
+            throw new IllegalArgumentException(
+                    "totalTimeoutSeconds는 welcomeWaitSeconds보다 커야 합니다."
+            );
+        }
+        if (commandTimeoutSeconds > totalTimeoutSeconds) {
+            throw new IllegalArgumentException(
+                    "commandTimeoutSeconds는 totalTimeoutSeconds 이하여야 합니다."
+            );
+        }
+        if (timeoutCheckIntervalSeconds > commandTimeoutSeconds) {
+            throw new IllegalArgumentException(
+                    "timeoutCheckIntervalSeconds는 commandTimeoutSeconds 이하여야 합니다."
+            );
+        }
+    }
 }

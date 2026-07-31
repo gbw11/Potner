@@ -67,6 +67,7 @@ public class ArrivalService {
         IotDevice jetson = iotDeviceRepository
                 .findAllByRobotIdOrderByDeviceTypeAsc(robot.getId())
                 .stream()
+                .filter(device -> device.getReleasedAt() == null)
                 .filter(device -> device.getDeviceType() == IotDeviceType.JETSON_ORIN)
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ErrorCode.COMMAND_DEVICE_NOT_FOUND));
@@ -120,7 +121,8 @@ public class ArrivalService {
     }
 
     private Robot singleRobot(String userId) {
-        List<Robot> robots = robotRepository.findAllByUserIdOrderByNameAsc(userId);
+        List<Robot> robots =
+                robotRepository.findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(userId);
         if (robots.isEmpty()) {
             throw new BusinessException(ErrorCode.ROBOT_NOT_FOUND);
         }
