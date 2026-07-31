@@ -160,6 +160,10 @@ potner:
     sample-size: ${ALERT_SAMPLE_SIZE:3}
     hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}
     max-page-size: ${ALERT_MAX_PAGE_SIZE:100}
+    # 배수트레이 알림 임계값 = 식물별 권장 급수량 × 이 배수. 고정 ml 이 아닌 이유는 트레이 용량이
+    # 화분 크기에 따라 다르기 때문이다. 사실상 "급수 몇 회마다 비우기" 다.
+    # 시연에서 즉석으로 보여주려면 1 로 낮춘다 — 급수 한 번에 알림이 뜬다.
+    drainage-tray-watering-multiplier: ${ALERT_DRAINAGE_TRAY_WATERING_MULTIPLIER:8}
   photo:
     # 배포 sync 경로 밖의 named volume 이어야 한다. 배포 파이프라인이 배포 디렉토리를 매번
     # 덮어쓰므로 그 안에 두면 배포마다 사진이 사라진다. docker compose down -v 도 이 볼륨을 지운다.

@@ -41,9 +41,19 @@ class AlertPushMessageFactoryTest {
             }
         }
 
-        // 센서 지표 5종 × 방향 2종 + 물 부족(LOW 뿐). 같은 문구가 겹치면 사용자가 무엇이
-        // 문제인지 구분할 수 없다.
-        assertThat(bodies).hasSize(11).doesNotHaveDuplicates();
+        // 센서 지표 5종 × 방향 2종 + 설비 알림 2종(각 한 방향). 같은 문구가 겹치면 사용자가
+        // 무엇이 문제인지 구분할 수 없다.
+        assertThat(bodies).hasSize(12).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void drainageTrayAsksForEmptying() {
+        PushMessage message = messageFactory.create(
+                event(AlertMetricType.DRAINAGE_TRAY, AlertDeviation.HIGH, "로지")
+        );
+
+        assertThat(message.title()).isEqualTo("배수트레이를 비워주세요");
+        assertThat(message.body()).isEqualTo("로지의 배수트레이에 물이 찼어요. 넘치지 않도록 비워 주세요.");
     }
 
     @Test
@@ -56,11 +66,16 @@ class AlertPushMessageFactoryTest {
         assertThat(message.body()).isEqualTo("로지의 원활한 급수를 위해 스테이션에 물을 보충해 주세요.");
     }
 
-    /** 물 부족 보고는 불리언이라 LOW 로만 열린다. HIGH 는 여는 쪽의 버그다. */
+    /**
+     * 설비 알림은 한 방향으로만 열린다 — 물 부족은 불리언이라 LOW, 트레이는 넘칠 때만
+     * 문제이므로 HIGH 다. 반대 방향은 여는 쪽의 버그다.
+     */
     private static List<AlertDeviation> supportedDeviations(AlertMetricType metricType) {
-        return metricType == AlertMetricType.STATION_WATER_LOW
-                ? List.of(AlertDeviation.LOW)
-                : List.of(AlertDeviation.values());
+        return switch (metricType) {
+            case STATION_WATER_LOW -> List.of(AlertDeviation.LOW);
+            case DRAINAGE_TRAY -> List.of(AlertDeviation.HIGH);
+            default -> List.of(AlertDeviation.values());
+        };
     }
 
     @Test

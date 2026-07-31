@@ -59,7 +59,7 @@ class AlertQueryServiceTest {
         alertQueryService = new AlertQueryService(
                 alertRepository,
                 plantRepository,
-                new AlertProperties(3, new BigDecimal("0.1"), 100),
+                new AlertProperties(3, new BigDecimal("0.1"), 100, 8),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
