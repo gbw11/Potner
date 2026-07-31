@@ -1,5 +1,5 @@
 /*
- * Potner 저수준 모터 컨트롤러 (ESP32 DevKit V1)
+ * Potner 저수준 모터 컨트롤러 (ESP32 DevKit V1 / DevKitC V4 공용)
  *
  * 젯슨이 못 하는 일만 여기서 합니다.
  *   - 엔코더 쿼드러처 디코딩: 초당 약 2,930카운트 x 2. 리눅스 파이썬으로는
@@ -15,9 +15,11 @@
 #include <Arduino.h>
 #include <ESP32Encoder.h>
 
-// ===== 핀 배치 (ESP32 DevKit V1 30핀) =====================================
+// ===== 핀 배치 (V1 30핀 · V4 38핀 모두 존재하는 핀만 사용) ================
 // GPIO 34~39는 입력 전용이라 엔코더에 딱 맞습니다. 출력 가능한 핀을 아낍니다.
 // GPIO 0, 2, 12, 15는 부팅 스트래핑 핀이라 절대 쓰지 마세요.
+// ★ V4 실크스크린에는 36·39 가 SENSOR_VP·SENSOR_VN 으로 인쇄돼 있습니다.
+//   배선할 때 GPIO 번호가 안 보인다고 다른 핀에 꽂지 마세요.
 constexpr int PIN_L_RPWM = 25;
 constexpr int PIN_L_LPWM = 26;
 constexpr int PIN_R_RPWM = 32;
@@ -29,9 +31,17 @@ constexpr int PIN_R_ENC_A = 36;
 constexpr int PIN_R_ENC_B = 39;
 
 // ===== 하드웨어 상수 =======================================================
+// ★ 이 셋은 potner_base.kinematics.DriveConfig 와 같아야 합니다.
+//   펌웨어는 카운트를 m/s 로 바꿔 PID를 돌리고, 젯슨은 같은 카운트로
+//   오도메트리를 만듭니다. 값이 어긋나면 "명령한 속도"와 "실제 속도"와
+//   "지도상 이동거리"가 셋 다 달라져서 원인을 찾기 어렵습니다.
+//   tests/test_firmware_constants.py 가 대조합니다.
 constexpr float COUNTS_PER_REV   = 1440.0f;  // FIT0403 출력축 (확정값)
-constexpr float WHEEL_DIAMETER_M = 0.065f;   // TODO 실측
+constexpr float WHEEL_DIAMETER_M = 0.075f;   // 확정 — 75mm 구동 바퀴
 constexpr float MAX_WHEEL_MPS    = 0.25f;
+
+// 브링업용 개루프 듀티 상한. PID를 거치지 않는 경로라 낮게 묶어둡니다.
+constexpr float MAX_OPEN_DUTY = 0.5f;
 
 constexpr int PWM_FREQ_HZ   = 20000;  // 가청 대역 밖
 constexpr int PWM_RESOLUTION = 10;    // 0~1023
@@ -68,6 +78,18 @@ struct Wheel {
 Wheel wheelL;
 Wheel wheelR;
 
+// 개루프는 브링업 전용입니다.
+//
+// 폐루프에서 엔코더가 안 읽히면 오차가 줄지 않아 적분항이 상한까지 차고,
+// 출력이 곧 100% 듀티가 됩니다. 즉 **엔코더 배선을 틀리면 바퀴가 전속으로
+// 돕니다.** 배선을 처음 맞출 때 이건 위험하므로, 엔코더와 무관하게 정해진
+// 듀티만 내보내는 경로를 따로 둡니다.
+enum ControlMode { MODE_CLOSED_LOOP, MODE_OPEN_LOOP };
+
+ControlMode mode = MODE_CLOSED_LOOP;
+float openDutyL = 0.0f;
+float openDutyR = 0.0f;
+
 uint32_t lastControlMs = 0;
 uint32_t lastFeedbackMs = 0;
 uint32_t lastCommandMs = 0;
@@ -100,11 +122,15 @@ float countsToMeters(int64_t counts) {
   return (counts / COUNTS_PER_REV) * PI * WHEEL_DIAMETER_M;
 }
 
-float updatePid(Wheel &wheel, int64_t count, float dt) {
+/* 엔코더로 실제 속도를 갱신합니다. 개루프에서도 호출합니다 — 바퀴가 도는데
+ * 카운트가 안 변하면 엔코더 배선 문제라는 걸 피드백으로 볼 수 있어야 합니다. */
+void updateMeasurement(Wheel &wheel, int64_t count, float dt) {
   float travelled = countsToMeters(count - wheel.prev_count);
   wheel.prev_count = count;
   wheel.measured_mps = travelled / dt;
+}
 
+float pidOutput(Wheel &wheel, float dt) {
   float error = wheel.target_mps - wheel.measured_mps;
   wheel.integral += error * dt;
 
@@ -124,6 +150,11 @@ void stopAll() {
   wheelR.target_mps = 0.0f;
   wheelL.integral = 0.0f;
   wheelR.integral = 0.0f;
+  openDutyL = 0.0f;
+  openDutyR = 0.0f;
+  // 개루프로 시험하다 손을 놓으면 폐루프로 돌아옵니다. 시험 모드가 남아
+  // 있는 채로 주행에 들어가면 PID 없이 굴러가게 됩니다.
+  mode = MODE_CLOSED_LOOP;
   applyPwm(CH_L_R, CH_L_L, 0.0f);
   applyPwm(CH_R_R, CH_R_L, 0.0f);
 }
@@ -143,18 +174,29 @@ void handleLine(const String &line) {
     return;
   }
 
-  if (payload.startsWith("V,")) {
-    int firstComma = payload.indexOf(',');
-    int secondComma = payload.indexOf(',', firstComma + 1);
-    if (secondComma < 0) return;
+  // 두 명령 모두 "L,R" 두 값을 받습니다. 파싱은 같고 해석만 다릅니다.
+  bool isVelocity = payload.startsWith("V,");
+  bool isDuty = payload.startsWith("D,");
+  if (!isVelocity && !isDuty) return;
 
-    float left = payload.substring(firstComma + 1, secondComma).toFloat();
-    float right = payload.substring(secondComma + 1).toFloat();
+  int firstComma = payload.indexOf(',');
+  int secondComma = payload.indexOf(',', firstComma + 1);
+  if (secondComma < 0) return;
 
+  float left = payload.substring(firstComma + 1, secondComma).toFloat();
+  float right = payload.substring(secondComma + 1).toFloat();
+
+  if (isVelocity) {
+    mode = MODE_CLOSED_LOOP;
     wheelL.target_mps = constrain(left, -MAX_WHEEL_MPS, MAX_WHEEL_MPS);
     wheelR.target_mps = constrain(right, -MAX_WHEEL_MPS, MAX_WHEEL_MPS);
-    lastCommandMs = millis();
+  } else {
+    // 브링업 전용. 듀티를 그대로 내보내므로 엔코더가 없어도 바퀴가 돕니다.
+    mode = MODE_OPEN_LOOP;
+    openDutyL = constrain(left, -MAX_OPEN_DUTY, MAX_OPEN_DUTY);
+    openDutyR = constrain(right, -MAX_OPEN_DUTY, MAX_OPEN_DUTY);
   }
+  lastCommandMs = millis();
 }
 
 void readSerial() {
@@ -224,8 +266,16 @@ void loop() {
     float dt = (now - lastControlMs) / 1000.0f;
     lastControlMs = now;
 
-    applyPwm(CH_L_R, CH_L_L, updatePid(wheelL, encLeft.getCount(), dt));
-    applyPwm(CH_R_R, CH_R_L, updatePid(wheelR, encRight.getCount(), dt));
+    updateMeasurement(wheelL, encLeft.getCount(), dt);
+    updateMeasurement(wheelR, encRight.getCount(), dt);
+
+    if (mode == MODE_OPEN_LOOP) {
+      applyPwm(CH_L_R, CH_L_L, openDutyL);
+      applyPwm(CH_R_R, CH_R_L, openDutyR);
+    } else {
+      applyPwm(CH_L_R, CH_L_L, pidOutput(wheelL, dt));
+      applyPwm(CH_R_R, CH_R_L, pidOutput(wheelR, dt));
+    }
   }
 
   if (now - lastFeedbackMs >= FEEDBACK_PERIOD_MS) {

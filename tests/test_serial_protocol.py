@@ -64,3 +64,16 @@ def test_인코딩과_디코딩이_같은_체크섬을_쓴다():
     payload = "O,1,2,3,4,5"
     line = proto._frame(payload).strip()
     assert proto.decode_feedback(line).left_ticks == 1
+
+
+def test_개루프_듀티_명령_형식():
+    """브링업 전용. 펌웨어의 D 파서와 형식이 같아야 합니다."""
+    payload = "D,0.1500,-0.1500"
+    assert proto.encode_duty(0.15, -0.15) == f"{payload}*{proto.checksum(payload):02X}\n"
+
+
+def test_듀티와_속도_명령의_접두어가_다르다():
+    """펌웨어가 접두어로 개루프/폐루프를 갈라냅니다. 같아지면 브링업용 시험
+    명령이 그대로 주행 명령으로 해석됩니다."""
+    assert proto.encode_duty(0.1, 0.1).startswith("D,")
+    assert proto.encode_velocity(0.1, 0.1).startswith("V,")

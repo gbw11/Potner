@@ -52,8 +52,30 @@ def encode_velocity(left_mps: float, right_mps: float) -> str:
     return _frame(f"V,{left_mps:.4f},{right_mps:.4f}")
 
 
+def encode_duty(left_duty: float, right_duty: float) -> str:
+    """개루프 듀티 명령을 만듭니다. **브링업 전용입니다.**
+
+    PID 를 거치지 않고 듀티를 그대로 모터 드라이버에 내보냅니다. 배선을 처음
+    맞출 때 씁니다.
+
+    폐루프(encode_velocity)로 먼저 시험하면 안 되는 이유가 있습니다. 엔코더가
+    안 읽히면 오차가 줄지 않아 적분항이 상한까지 차고 출력이 곧 100% 듀티가
+    됩니다. 즉 **엔코더 배선을 틀린 상태로 폐루프를 돌리면 바퀴가 전속으로
+    돕니다.** 개루프는 엔코더와 무관하므로 그 위험이 없습니다.
+
+    펌웨어가 ±MAX_OPEN_DUTY 로 한 번 더 걷어냅니다.
+
+    주행 경로에서는 쓰지 마세요. 속도 제어가 없어서 배터리 전압이 떨어지면
+    같은 듀티에도 느려지고, 좌우 모터 편차가 그대로 조향 오차가 됩니다.
+    """
+    return _frame(f"D,{left_duty:.4f},{right_duty:.4f}")
+
+
 def encode_stop() -> str:
-    """즉시 정지 명령을 만듭니다."""
+    """즉시 정지 명령을 만듭니다.
+
+    펌웨어는 이걸 받으면 개루프 시험 모드도 폐루프로 되돌립니다.
+    """
     return _frame("S")
 
 
