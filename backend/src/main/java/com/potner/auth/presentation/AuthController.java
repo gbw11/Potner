@@ -1,6 +1,8 @@
 package com.potner.auth.presentation;
 
 import com.potner.auth.application.AuthService;
+import com.potner.auth.dto.EmailAvailabilityRequest;
+import com.potner.auth.dto.EmailAvailabilityResponse;
 import com.potner.auth.dto.LoginRequest;
 import com.potner.auth.dto.SignupRequest;
 import com.potner.auth.dto.SignupResponse;
@@ -29,6 +31,22 @@ public class AuthController {
 
     public AuthController(AuthService authService) {
         this.authService = authService;
+    }
+
+    /**
+     * 가입 화면의 "중복확인" 을 받쳐 준다.
+     *
+     * <p>GET 이 아니라 POST 다. 이메일을 쿼리스트링에 실으면 nginx 접근 로그에 남는다.
+     *
+     * <p>이 응답은 보장이 아니다. 확인 직후 다른 사용자가 같은 주소로 가입할 수 있으므로 앱은
+     * 가입 API 의 409 {@code EMAIL_ALREADY_EXISTS} 처리를 그대로 유지해야 한다.
+     */
+    @PostMapping("/email-availability")
+    @Operation(summary = "이메일 사용 가능 여부 확인")
+    public EmailAvailabilityResponse checkEmailAvailability(
+            @Valid @RequestBody EmailAvailabilityRequest request
+    ) {
+        return authService.checkEmailAvailability(request);
     }
 
     @PostMapping("/signup")

@@ -2,6 +2,8 @@ package com.potner.auth.application;
 
 import com.potner.auth.domain.RefreshToken;
 import com.potner.auth.domain.RefreshTokenRepository;
+import com.potner.auth.dto.EmailAvailabilityRequest;
+import com.potner.auth.dto.EmailAvailabilityResponse;
 import com.potner.auth.dto.LoginRequest;
 import com.potner.auth.dto.SignupRequest;
 import com.potner.auth.dto.TokenResponse;
@@ -94,6 +96,28 @@ class AuthServiceTest {
                 () -> authService.signup(new SignupRequest("member@example.com", "password1", "potner")),
                 ErrorCode.EMAIL_ALREADY_EXISTS
         );
+    }
+
+    @Test
+    void emailAvailabilityNormalizesBeforeLookup() {
+        when(appUserRepository.existsByEmailIgnoreCase("member@example.com")).thenReturn(false);
+
+        EmailAvailabilityResponse response = authService.checkEmailAvailability(
+                new EmailAvailabilityRequest(" MEMBER@EXAMPLE.COM "));
+
+        // 가입과 같은 정규화를 써야 여기서 통과한 주소가 가입에서 409 로 막히지 않는다.
+        assertThat(response.email()).isEqualTo("member@example.com");
+        assertThat(response.available()).isTrue();
+    }
+
+    @Test
+    void emailAvailabilityReportsTakenEmail() {
+        when(appUserRepository.existsByEmailIgnoreCase("member@example.com")).thenReturn(true);
+
+        EmailAvailabilityResponse response = authService.checkEmailAvailability(
+                new EmailAvailabilityRequest("member@example.com"));
+
+        assertThat(response.available()).isFalse();
     }
 
     @Test
