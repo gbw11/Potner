@@ -13,15 +13,11 @@ class HomePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
-    final liveHome = ref.watch(homeControllerProvider);
-    final hasLiveDashboard =
-        liveHome.status == HomeStatus.loaded && liveHome.dashboard != null;
-    final home = hasLiveDashboard ? liveHome : _stitchPreviewHomeState();
-    final homeNickname = hasLiveDashboard ? user?.nickname : '제니';
+    final home = ref.watch(homeControllerProvider);
     final header = _HomeHeader(
       onAlerts: () => context.go('/alerts'),
       onMy: () => context.go('/my'),
-      hasUnreadAlerts: liveHome.unreadAlertCount > 0,
+      hasUnreadAlerts: home.unreadAlertCount > 0,
     );
 
     Widget withHeader(Widget child) {
@@ -54,7 +50,7 @@ class HomePage extends ConsumerWidget {
           ),
           HomeStatus.loaded => _DashboardView(
             header: header,
-            nickname: homeNickname,
+            nickname: user?.nickname,
             state: home,
             onRefresh: () =>
                 ref.read(homeControllerProvider.notifier).refresh(),
@@ -63,8 +59,7 @@ class HomePage extends ConsumerWidget {
             onRegisterPlant: () => context.go('/plants/register'),
             onRegisterDevice: () => context.go('/devices/register'),
             onPlantDetail: () {
-              // 프리뷰 상태의 가짜 식물로 이동하지 않도록 실제 데이터만 쓴다.
-              final plantId = liveHome.dashboard?.plant.id;
+              final plantId = home.dashboard?.plant.id;
               if (plantId != null) {
                 context.go('/plants/$plantId');
               }
@@ -82,62 +77,6 @@ class HomePage extends ConsumerWidget {
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text('$feature 기능은 다음 작업에서 연결합니다.')));
   }
-}
-
-HomeState _stitchPreviewHomeState() {
-  final measuredAt = DateTime.now().toUtc();
-  final plant = HomePlant(
-    id: 'stitch-rose',
-    name: '로지',
-    adoptedDate: DateTime(2026, 1, 1),
-    thumbnailUrl: 'assets/images/home/stitch_rose_photo.jpg',
-    imageUrl: 'assets/images/home/stitch_rose_hero.jpg',
-  );
-
-  return HomeState(
-    status: HomeStatus.loaded,
-    plants: [plant],
-    selectedPlantId: plant.id,
-    dashboard: HomeDashboard(
-      plant: plant,
-      mood: const HomeMood(
-        grade: 'VERY_GOOD',
-        headline: '아주 좋아요!',
-        detail: '햇살도 물도 딱 좋아요 :)',
-      ),
-      sensors: [
-        HomeSensorReading(
-          type: HomeSensorType.soilMoisture,
-          unit: 'PERCENT',
-          value: 56,
-          measuredAt: measuredAt,
-          status: HomeSensorStatus.normal,
-        ),
-        HomeSensorReading(
-          type: HomeSensorType.illuminance,
-          unit: 'LUX',
-          value: 1250,
-          measuredAt: measuredAt,
-          status: HomeSensorStatus.notApplicable,
-        ),
-        HomeSensorReading(
-          type: HomeSensorType.temperature,
-          unit: 'CELSIUS',
-          value: 24.8,
-          measuredAt: measuredAt,
-          status: HomeSensorStatus.normal,
-        ),
-        HomeSensorReading(
-          type: HomeSensorType.humidity,
-          unit: 'PERCENT',
-          value: 58,
-          measuredAt: measuredAt,
-          status: HomeSensorStatus.normal,
-        ),
-      ],
-      latestPhotoUrl: 'assets/images/home/stitch_rose_photo.jpg',
-    ),
-  );
 }
 
 class _HomeHeader extends StatelessWidget {
@@ -1357,13 +1296,80 @@ class _EmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _HomeStateView(
+    return ListView(
       key: const Key('home_empty'),
-      icon: Icons.local_florist_outlined,
-      title: nickname == null ? '첫 식물을 등록해 주세요' : '$nickname님의 첫 식물을 등록해 주세요',
-      message: '식물을 등록하면 현재 환경과 성장 기록을 홈에서 한눈에 확인할 수 있어요.',
-      actionLabel: '내 식물 등록하기',
-      onAction: onRegisterPlant,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+      children: [
+        Text(
+          nickname == null ? '안녕하세요!' : '안녕하세요, $nickname님!',
+          key: const Key('home_greeting'),
+          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+            color: const Color(0xFF2D2D2D),
+            fontSize: 30,
+            height: 1.2,
+            letterSpacing: -0.7,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 28),
+        Container(
+          padding: const EdgeInsets.fromLTRB(24, 38, 24, 28),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 112,
+                height: 112,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE5F2DF),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.local_florist_outlined,
+                  size: 54,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(height: 26),
+              Text(
+                '아직 등록된 식물이 없어요',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: AppColors.text,
+                  fontSize: 23,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '첫 식물을 등록하면 식물의 현재 환경과\n성장 기록을 홈에서 한눈에 확인할 수 있어요.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: AppColors.textMuted,
+                  height: 1.55,
+                ),
+              ),
+              const SizedBox(height: 28),
+              FilledButton.icon(
+                key: const Key('home_empty_register_plant'),
+                onPressed: onRegisterPlant,
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                label: const Text('내 식물 등록하기'),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -5,6 +5,7 @@ import 'package:potner_app/features/home/domain/home_dashboard.dart';
 
 void main() {
   test('HomeApi maps the backend home responses', () async {
+    Map<String, dynamic>? capturedPhotoQuery;
     final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1/'));
     dio.interceptors.add(
       InterceptorsWrapper(
@@ -15,7 +16,8 @@ void main() {
                 {
                   'plantId': 'plant-1',
                   'name': '로지',
-                  'adoptedDate': '2026-01-10',
+                  'adoptedDate': null,
+                  'createdAt': '2026-01-10T09:30:00',
                   'representativePhoto': {
                     'thumbnailUrl': 'https://images.test/rose-thumb.jpg',
                     'originalUrl': 'https://images.test/rose.jpg',
@@ -40,18 +42,23 @@ void main() {
                 },
               ],
             },
-            'plants/plant-1/photos' => {
-              'photos': [
-                {
-                  'thumbnailUrl': 'https://images.test/old.jpg',
-                  'originalUrl': 'https://images.test/old-original.jpg',
-                },
-                {
-                  'thumbnailUrl': 'https://images.test/latest.jpg',
-                  'originalUrl': 'https://images.test/latest-original.jpg',
-                },
-              ],
-            },
+            'plants/plant-1/photos' => () {
+              capturedPhotoQuery = Map<String, dynamic>.from(
+                options.queryParameters,
+              );
+              return {
+                'photos': [
+                  {
+                    'thumbnailUrl': 'https://images.test/old.jpg',
+                    'originalUrl': 'https://images.test/old-original.jpg',
+                  },
+                  {
+                    'thumbnailUrl': 'https://images.test/latest.jpg',
+                    'originalUrl': 'https://images.test/latest-original.jpg',
+                  },
+                ],
+              };
+            }(),
             'alerts' => {'unreadCount': 2},
             _ => throw StateError('Unexpected path: ${options.path}'),
           };
@@ -74,12 +81,15 @@ void main() {
     final unreadCount = await api.getUnreadAlertCount();
 
     expect(plants.single.name, '로지');
+    expect(plants.single.adoptedDate, isNull);
+    expect(plants.single.createdAt, DateTime(2026, 1, 10, 9, 30));
     expect(plants.single.imageUrl, 'https://images.test/rose.jpg');
     expect(mood.headline, '아주 좋아요!');
     expect(sensors.single.type, HomeSensorType.illuminance);
     expect(sensors.single.status, HomeSensorStatus.notApplicable);
     expect(sensors.single.measuredAt, DateTime.utc(2026, 7, 30, 3));
     expect(latestPhoto, 'https://images.test/latest.jpg');
+    expect(capturedPhotoQuery?['from'], '2026-01-10');
     expect(unreadCount, 2);
   });
 }

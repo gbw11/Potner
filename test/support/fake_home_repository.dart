@@ -32,10 +32,16 @@ class FakeHomeRepository implements HomeRepository {
 }
 
 final sampleHomePlants = [
-  HomePlant(id: 'plant-rose', name: '로지', adoptedDate: DateTime(2026, 1, 10)),
+  HomePlant(
+    id: 'plant-rose',
+    name: '로지',
+    createdAt: DateTime(2026, 1, 10),
+    adoptedDate: DateTime(2026, 1, 10),
+  ),
   HomePlant(
     id: 'plant-monstera',
     name: '몬스테라',
+    createdAt: DateTime(2026, 2, 12),
     adoptedDate: DateTime(2026, 2, 12),
   ),
 ];

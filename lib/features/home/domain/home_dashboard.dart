@@ -6,14 +6,16 @@ class HomePlant {
   const HomePlant({
     required this.id,
     required this.name,
-    required this.adoptedDate,
+    required this.createdAt,
+    this.adoptedDate,
     this.thumbnailUrl,
     this.imageUrl,
   });
 
   final String id;
   final String name;
-  final DateTime adoptedDate;
+  final DateTime createdAt;
+  final DateTime? adoptedDate;
   final String? thumbnailUrl;
   final String? imageUrl;
 }
