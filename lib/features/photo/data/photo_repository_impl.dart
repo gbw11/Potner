@@ -14,6 +14,19 @@ class PhotoRepositoryImpl implements PhotoRepository {
   final PhotoApi _api;
 
   @override
+  Future<void> uploadRepresentativePhoto({
+    required String plantId,
+    required String filePath,
+    required String fileName,
+  }) {
+    return _api.uploadRepresentativePhoto(
+      plantId: plantId,
+      filePath: filePath,
+      fileName: fileName,
+    );
+  }
+
+  @override
   Future<List<PlantPhoto>> getPhotos({
     required String plantId,
     required DateTime from,
