@@ -486,8 +486,12 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
 어떻게 아는가)가 미정입니다.
 
 **스테이션은 서버에 생겼습니다(17절).** 등록(스테이션 코드)·좌표·물 부족 알림까지 있습니다.
-배수트레이 알림은 범위에서 뺐습니다 — 물 부족만 전달하기로 결정했습니다. 디자인의
-"배수트레이를 비워주세요" 화면은 앱에서 함께 빼야 합니다.
+배수트레이 알림은 **센서 없이 누적 급수량으로** 만들었습니다(`DRAINAGE_TRAY`). 급수마다
+`device_command.dispensed_ml` 이 쌓이므로 수위 센서를 붙이지 않았습니다 — **장치 쪽 작업이
+없습니다.** 임계값은 고정 ml 이 아니라 `recommended_watering_ml × ALERT_DRAINAGE_TRAY_WATERING_MULTIPLIER`
+(기본 8회분)입니다. 트레이는 총 배수량으로 차므로 회당 급수량 차이는 무관하지만 트레이 용량은
+화분 크기에 비례하기 때문입니다. 사용자가 앱에서 비웠음을 알리면
+(`POST /api/v1/plants/{plantId}/drainage-tray/emptied`) 그 시각이 다음 누적의 기준점이 됩니다.
 
 **장치가 필요한 자격증명이 두 개인데 전달 경로가 없습니다.** 센서용 mosquitto 계정과 사진
 업로드용 `uploadToken`입니다. 후자는 로봇 등록 응답으로 나오지만 그걸 장치에 넣는 것은 현재

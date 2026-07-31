@@ -80,4 +80,26 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, St
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
+
+    /**
+     * 어느 시점 이후 실제 급수량 합계다. 배수트레이 판정이 "마지막으로 비운 뒤 얼마나 줬는지"를
+     * 이 값으로 본다.
+     *
+     * <p>{@code since} 가 없으면(한 번도 비우지 않았으면) 전체 기간을 합산해야 하므로 호출자가
+     * 아주 과거 시각을 넘긴다. 상한을 두지 않는 이유는 트레이가 미래에 차는 일은 없기 때문이다.
+     *
+     * @return 급수 기록이 없으면 {@code null}. 0 과 구분된다
+     */
+    @Query("""
+            SELECT SUM(c.dispensedMl)
+              FROM DeviceCommand c
+             WHERE c.plantId = :plantId
+               AND c.commandType = com.potner.command.domain.DeviceCommandType.WATER
+               AND c.dispensedMl IS NOT NULL
+               AND c.reportedAt > :since
+            """)
+    BigDecimal sumDispensedMlAfter(
+            @Param("plantId") String plantId,
+            @Param("since") LocalDateTime since
+    );
 }

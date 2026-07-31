@@ -20,6 +20,15 @@ public interface AlertRepository extends JpaRepository<Alert, String> {
     Optional<Alert> findByIdAndUserId(String id, String userId);
 
     /**
+     * 가장 최근에 해제된 알림이다. 배수트레이가 "마지막으로 비운 시각" 을 이 값으로 얻는다 —
+     * 비움 기록 테이블을 따로 두지 않고 해제 시각을 그대로 쓴다.
+     */
+    Optional<Alert> findFirstByPlantIdAndMetricTypeAndResolvedAtIsNotNullOrderByResolvedAtDesc(
+            String plantId,
+            AlertMetricType metricType
+    );
+
+    /**
      * 그날 어떤 이상이 있었는지 모을 때 쓴다. 일기 생성이 근거로 삼는다.
      *
      * <p>{@code occurredAt} 은 UTC 라 서비스 타임존 하루의 경계를 호출자가 계산해 넘긴다.

@@ -98,9 +98,12 @@ public class PlantDaySummaryReader {
      * 그대로 넣으면 모델이 일기에 부탁을 섞는다. 여기서는 무슨 상태였는지만 말한다.
      */
     private static String describe(Alert alert) {
-        // 물 부족은 측정값·기준이 없어 "기준보다 낮았다" 문형이 맞지 않는다. 문장을 통째로 준다.
+        // 설비 상태 알림은 "기준보다 낮았다" 문형이 맞지 않는다. 문장을 통째로 준다.
         if (alert.getMetricType() == AlertMetricType.STATION_WATER_LOW) {
             return "급수 스테이션의 물이 부족했다";
+        }
+        if (alert.getMetricType() == AlertMetricType.DRAINAGE_TRAY) {
+            return "배수트레이에 물이 찼다";
         }
         return metricLabel(alert.getMetricType()) + " " + deviationLabel(alert.getDeviation());
     }
@@ -113,8 +116,8 @@ public class PlantDaySummaryReader {
             case DAILY_LIGHT -> "하루 누적 광량이";
             case PHOTOPERIOD -> "일조 시간이";
             // describe 가 먼저 걸러 여기 오지 않는다. 컴파일 총망라를 위해서만 존재한다.
-            case STATION_WATER_LOW -> throw new IllegalArgumentException(
-                    "STATION_WATER_LOW is described as a full sentence");
+            case STATION_WATER_LOW, DRAINAGE_TRAY -> throw new IllegalArgumentException(
+                    "Facility alerts are described as a full sentence: " + metricType);
         };
     }
 
