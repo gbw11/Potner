@@ -58,6 +58,9 @@ void main() {
   testWidgets(
     'home dashboard shows the signed-in user empty state without plants',
     (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -74,6 +77,25 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('home_empty')), findsOneWidget);
+      expect(find.byKey(const Key('home_robot_status_button')), findsOneWidget);
+      expect(find.text('휴식 중'), findsNothing);
+
+      final alertCenter = tester.getCenter(
+        find.byKey(const Key('home_alerts_button')),
+      );
+      final statusCenter = tester.getCenter(
+        find.byKey(const Key('home_robot_status_button')),
+      );
+      final profileCenter = tester.getCenter(
+        find.byKey(const Key('home_my_button')),
+      );
+      expect(alertCenter.dx, lessThan(statusCenter.dx));
+      expect(statusCenter.dx, lessThan(profileCenter.dx));
+
+      await tester.tap(find.byKey(const Key('home_robot_status_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('휴식 중'), findsOneWidget);
+
       expect(find.text('안녕하세요, 포트너님!'), findsOneWidget);
       expect(find.text('아직 등록된 식물이 없어요'), findsOneWidget);
       expect(
