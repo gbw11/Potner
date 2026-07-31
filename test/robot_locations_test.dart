@@ -62,9 +62,16 @@ Future<FakeDeviceRepository> _pumpToLocations(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('menu_item_devices')));
   await tester.pumpAndSettle();
 
-  await tester.ensureVisible(
-    find.byKey(const Key('robot_locations_robot-1')),
+  final robotListScrollable = find.descendant(
+    of: find.byKey(const Key('robot_list')),
+    matching: find.byType(Scrollable),
   );
+  await tester.scrollUntilVisible(
+    find.byKey(const Key('robot_locations_robot-1')),
+    180,
+    scrollable: robotListScrollable,
+  );
+  await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('robot_locations_robot-1')));
   await tester.pumpAndSettle();
   return deviceRepository;
@@ -94,9 +101,7 @@ void main() {
   ) async {
     final deviceRepository = await _pumpToLocations(tester);
 
-    await tester.ensureVisible(
-      find.byKey(const Key('register_location_home')),
-    );
+    await tester.ensureVisible(find.byKey(const Key('register_location_home')));
     await tester.tap(find.byKey(const Key('register_location_home')));
     await tester.pumpAndSettle();
 
@@ -112,9 +117,7 @@ void main() {
   testWidgets('saves a pose after validating the yaw range', (tester) async {
     final deviceRepository = await _pumpToLocations(tester);
 
-    await tester.ensureVisible(
-      find.byKey(const Key('edit_pose_waterStation')),
-    );
+    await tester.ensureVisible(find.byKey(const Key('edit_pose_waterStation')));
     await tester.tap(find.byKey(const Key('edit_pose_waterStation')));
     await tester.pumpAndSettle();
 

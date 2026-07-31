@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
+import 'package:potner_app/features/arrival/application/arrival_debug_controller.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
@@ -86,6 +88,10 @@ class DeviceManagementPage extends ConsumerWidget {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                     children: [
+                      if (kDebugMode) ...[
+                        const _ArrivalDebugPanel(),
+                        const SizedBox(height: 16),
+                      ],
                       for (final robot in items) ...[
                         _RobotCard(robot: robot),
                         const SizedBox(height: 16),
@@ -94,6 +100,94 @@ class DeviceManagementPage extends ConsumerWidget {
                   ),
                 ),
         ),
+      ),
+    );
+  }
+}
+
+class _ArrivalDebugPanel extends ConsumerWidget {
+  const _ArrivalDebugPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(arrivalDebugControllerProvider);
+    final controller = ref.read(arrivalDebugControllerProvider.notifier);
+    final isSuccess = state.phase == ArrivalDebugPhase.success;
+    final isFailure = state.phase == ArrivalDebugPhase.failure;
+    final statusColor = isSuccess
+        ? AppColors.primary
+        : isFailure
+        ? AppColors.error
+        : AppColors.textMuted;
+
+    return Container(
+      key: const Key('arrival_debug_panel'),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.home_work_outlined, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                '귀가 통신 테스트',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            state.message,
+            key: const Key('arrival_debug_status'),
+            style: TextStyle(color: statusColor, height: 1.4),
+          ),
+          if (state.lastEventId != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'eventId: ${state.lastEventId}',
+              key: const Key('arrival_debug_event_id'),
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  key: const Key('arrival_debug_start'),
+                  onPressed: state.canStart ? controller.startWelcome : null,
+                  icon: const Icon(Icons.directions_walk_rounded),
+                  label: const Text('마중 시작'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('arrival_debug_cancel'),
+                  onPressed: state.canCancel ? controller.cancelWelcome : null,
+                  icon: const Icon(Icons.home_rounded),
+                  label: const Text('취소·HOME'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '디버그 빌드에서만 표시됩니다.',
+            textAlign: TextAlign.right,
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+          ),
+        ],
       ),
     );
   }
