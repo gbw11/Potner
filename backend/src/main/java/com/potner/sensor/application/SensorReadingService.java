@@ -37,7 +37,7 @@ public class SensorReadingService {
 
     @Transactional
     public SensorReadingSaveResult save(SensorTelemetryMessage message) {
-        IotDevice device = iotDeviceRepository.findByDeviceUid(message.deviceId()).orElse(null);
+        IotDevice device = iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull(message.deviceId()).orElse(null);
         if (device == null) {
             return SensorReadingSaveResult.DEVICE_NOT_FOUND;
         }
@@ -90,7 +90,7 @@ public class SensorReadingService {
      */
     @Transactional(readOnly = true)
     public Optional<String> findAssignedPlantId(String deviceUid) {
-        return iotDeviceRepository.findByDeviceUid(deviceUid)
+        return iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull(deviceUid)
                 .map(IotDevice::getRobot)
                 .flatMap(robot -> assignmentRepository
                         .findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(robot.getId()))

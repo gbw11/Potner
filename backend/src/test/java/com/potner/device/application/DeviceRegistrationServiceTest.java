@@ -84,8 +84,8 @@ class DeviceRegistrationServiceTest {
     void registeredRobotHasNoDeviceOrAssignmentYet() {
         AppUser user = mock(AppUser.class);
         when(appUserRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(robotRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(false);
-        when(iotDeviceRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(false);
+        when(robotRepository.existsByDeviceUidAndReleasedAtIsNull(DEVICE_UID)).thenReturn(false);
+        when(iotDeviceRepository.existsByDeviceUidAndReleasedAtIsNull(DEVICE_UID)).thenReturn(false);
         when(robotRepository.save(any(Robot.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -110,8 +110,8 @@ class DeviceRegistrationServiceTest {
     void uploadTokenIsStoredAsHashOnly() {
         AppUser user = mock(AppUser.class);
         when(appUserRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(robotRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(false);
-        when(iotDeviceRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(false);
+        when(robotRepository.existsByDeviceUidAndReleasedAtIsNull(DEVICE_UID)).thenReturn(false);
+        when(iotDeviceRepository.existsByDeviceUidAndReleasedAtIsNull(DEVICE_UID)).thenReturn(false);
         ArgumentCaptor<Robot> saved = ArgumentCaptor.forClass(Robot.class);
         when(robotRepository.save(saved.capture()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -132,7 +132,7 @@ class DeviceRegistrationServiceTest {
         Robot robot = Robot.register(mock(AppUser.class), DEVICE_UID, "거실 로봇");
         DeviceUploadToken hasher = new DeviceUploadToken();
         robot.replaceUploadTokenHash(hasher.hash("old-token"));
-        when(robotRepository.findByIdAndUserId(ROBOT_ID, USER_ID)).thenReturn(Optional.of(robot));
+        when(robotRepository.findByIdAndUserIdAndReleasedAtIsNull(ROBOT_ID, USER_ID)).thenReturn(Optional.of(robot));
 
         String reissued = deviceRegistrationService.reissueUploadToken(USER_ID, ROBOT_ID).uploadToken();
 
@@ -145,7 +145,7 @@ class DeviceRegistrationServiceTest {
     void deviceUidTakenByAnotherRobotIsRejected() {
         AppUser user = mock(AppUser.class);
         when(appUserRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(robotRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(true);
+        when(robotRepository.existsByDeviceUidAndReleasedAtIsNull(DEVICE_UID)).thenReturn(true);
 
         assertBusinessError(
                 () -> deviceRegistrationService.registerRobot(
@@ -162,8 +162,8 @@ class DeviceRegistrationServiceTest {
         // MQTT 토픽 세그먼트로 쓰이므로 겹치면 어느 장치의 측정값인지 가릴 수 없다.
         AppUser user = mock(AppUser.class);
         when(appUserRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(robotRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(false);
-        when(iotDeviceRepository.existsByDeviceUid(DEVICE_UID)).thenReturn(true);
+        when(robotRepository.existsByDeviceUidAndReleasedAtIsNull(DEVICE_UID)).thenReturn(false);
+        when(iotDeviceRepository.existsByDeviceUidAndReleasedAtIsNull(DEVICE_UID)).thenReturn(true);
 
         assertBusinessError(
                 () -> deviceRegistrationService.registerRobot(
@@ -176,7 +176,7 @@ class DeviceRegistrationServiceTest {
 
     @Test
     void anotherUsersRobotIsNotFoundWhenRegisteringIotDevice() {
-        when(robotRepository.findByIdAndUserId(ROBOT_ID, USER_ID)).thenReturn(Optional.empty());
+        when(robotRepository.findByIdAndUserIdAndReleasedAtIsNull(ROBOT_ID, USER_ID)).thenReturn(Optional.empty());
 
         assertBusinessError(
                 () -> deviceRegistrationService.registerIotDevice(
@@ -279,7 +279,7 @@ class DeviceRegistrationServiceTest {
 
     @Test
     void robotListIsEmptyWithoutExtraQueriesWhenNothingRegistered() {
-        when(robotRepository.findAllByUserIdOrderByNameAsc(USER_ID)).thenReturn(List.of());
+        when(robotRepository.findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(USER_ID)).thenReturn(List.of());
 
         assertThat(deviceRegistrationService.getRobots(USER_ID).robots()).isEmpty();
         verify(iotDeviceRepository, never()).findAllByRobotIdOrderByDeviceTypeAsc(any());
@@ -291,11 +291,59 @@ class DeviceRegistrationServiceTest {
                 .thenReturn(Optional.of(plant));
     }
 
+    @Test
+    void releaseFreesTheRobotItsDevicesAndTheActiveAssignment() {
+        Robot robot = givenOwnedRobot();
+        com.potner.device.domain.IotDevice pi = mock(com.potner.device.domain.IotDevice.class);
+        com.potner.device.domain.IotDevice jetson = mock(com.potner.device.domain.IotDevice.class);
+        when(iotDeviceRepository.findAllByRobotIdOrderByDeviceTypeAsc(ROBOT_ID))
+                .thenReturn(List.of(pi, jetson));
+        PlantDeviceAssignment assignment = mock(PlantDeviceAssignment.class);
+        when(assignmentRepository.findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(ROBOT_ID))
+                .thenReturn(Optional.of(assignment));
+
+        deviceRegistrationService.releaseRobot(USER_ID, ROBOT_ID);
+
+        // 로봇만 해제하고 하위 장치를 남기면 그 uid 로 새 등록이 막힌 채 유령이 된다.
+        // 배정을 남기면 해제된 로봇이 식물에 묶인 채 명령 대상이 된다. 셋은 한 몸이다.
+        LocalDateTime expectedNow = LocalDateTime.ofInstant(NOW, ZoneOffset.UTC);
+        verify(robot).release(expectedNow);
+        verify(pi).release(expectedNow);
+        verify(jetson).release(expectedNow);
+        verify(assignment).unassign(expectedNow);
+    }
+
+    @Test
+    void releaseWorksWithoutAnActiveAssignment() {
+        // 배정 전에 등록만 하고 해제하는 경우다. 배정이 없다고 해제가 막히면 안 된다.
+        Robot robot = givenOwnedRobot();
+        when(iotDeviceRepository.findAllByRobotIdOrderByDeviceTypeAsc(ROBOT_ID)).thenReturn(List.of());
+        when(assignmentRepository.findFirstByRobotIdAndUnassignedAtIsNullOrderByAssignedAtDesc(ROBOT_ID))
+                .thenReturn(Optional.empty());
+
+        deviceRegistrationService.releaseRobot(USER_ID, ROBOT_ID);
+
+        verify(robot).release(LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void releasingAnUnknownOrAlreadyReleasedRobotIsNotFound() {
+        // 소유자 조회가 해제된 로봇을 제외하므로 두 번째 해제도 404 다. 남의 로봇과 구분되지
+        // 않는 것이 의도다 — 존재 여부를 숨긴다.
+        when(robotRepository.findByIdAndUserIdAndReleasedAtIsNull(ROBOT_ID, USER_ID))
+                .thenReturn(Optional.empty());
+
+        assertBusinessError(
+                () -> deviceRegistrationService.releaseRobot(USER_ID, ROBOT_ID),
+                ErrorCode.ROBOT_NOT_FOUND
+        );
+    }
+
     private Robot givenOwnedRobot() {
         Robot robot = mock(Robot.class);
         org.mockito.Mockito.lenient().when(robot.getId()).thenReturn(ROBOT_ID);
         org.mockito.Mockito.lenient().when(robot.getDeviceUid()).thenReturn(DEVICE_UID);
-        when(robotRepository.findByIdAndUserId(ROBOT_ID, USER_ID)).thenReturn(Optional.of(robot));
+        when(robotRepository.findByIdAndUserIdAndReleasedAtIsNull(ROBOT_ID, USER_ID)).thenReturn(Optional.of(robot));
         return robot;
     }
 

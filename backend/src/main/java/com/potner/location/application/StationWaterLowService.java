@@ -71,7 +71,7 @@ public class StationWaterLowService {
 
     @Transactional
     public WaterLowUpdateResult report(String deviceUid, boolean waterLow, LocalDateTime reportedAt) {
-        IotDevice device = iotDeviceRepository.findByDeviceUid(deviceUid).orElse(null);
+        IotDevice device = iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull(deviceUid).orElse(null);
         if (device == null) {
             return WaterLowUpdateResult.DEVICE_NOT_FOUND;
         }

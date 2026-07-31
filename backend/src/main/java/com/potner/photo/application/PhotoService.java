@@ -307,7 +307,7 @@ public class PhotoService {
         if (uploadToken == null || uploadToken.isBlank()) {
             throw new BusinessException(ErrorCode.INVALID_DEVICE_TOKEN);
         }
-        return robotRepository.findByUploadTokenHash(uploadTokenIssuer.hash(uploadToken))
+        return robotRepository.findByUploadTokenHashAndReleasedAtIsNull(uploadTokenIssuer.hash(uploadToken))
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_DEVICE_TOKEN));
     }
 

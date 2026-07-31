@@ -69,7 +69,7 @@ class RobotStateServiceTest {
 
     @Test
     void unknownDeviceIsReportedWithoutTouchingAnything() {
-        when(iotDeviceRepository.findByDeviceUid("jetson-99")).thenReturn(Optional.empty());
+        when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull("jetson-99")).thenReturn(Optional.empty());
 
         assertThat(robotStateService.recordState("jetson-99", RobotState.IDLE))
                 .isEqualTo(RobotStateUpdateResult.DEVICE_NOT_FOUND);
@@ -88,7 +88,7 @@ class RobotStateServiceTest {
     private IotDevice device(Robot robot) {
         IotDevice device = mock(IotDevice.class);
         org.mockito.Mockito.lenient().when(device.getRobot()).thenReturn(robot);
-        when(iotDeviceRepository.findByDeviceUid("jetson-01")).thenReturn(Optional.of(device));
+        when(iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull("jetson-01")).thenReturn(Optional.of(device));
         return device;
     }
 }

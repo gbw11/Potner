@@ -28,8 +28,13 @@ public class IotDevice {
     @JoinColumn(name = "robot_id", nullable = false)
     private Robot robot;
 
-    @Column(name = "device_uid", length = 100, nullable = false, unique = true)
+    /** 유일성은 활성 행만 값을 갖는 {@code active_device_uid} 생성 컬럼에 걸려 있다. */
+    @Column(name = "device_uid", length = 100, nullable = false)
     private String deviceUid;
+
+    /** 해제 시각. 로봇 해제와 함께 채워진다. NULL 이면 활성이다. */
+    @Column(name = "released_at")
+    private LocalDateTime releasedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "device_type", length = 30, nullable = false)
@@ -63,6 +68,17 @@ public class IotDevice {
         device.deviceType = deviceType;
         device.connectionStatus = IotDeviceConnectionStatus.OFFLINE;
         return device;
+    }
+
+    /** 로봇 해제와 함께 불린다. 이미 해제된 행은 처음 해제 시각을 유지한다. */
+    public void release(LocalDateTime releasedAt) {
+        if (this.releasedAt == null) {
+            this.releasedAt = releasedAt;
+        }
+    }
+
+    public LocalDateTime getReleasedAt() {
+        return releasedAt;
     }
 
     public void recordHeartbeat(LocalDateTime receivedAt) {

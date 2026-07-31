@@ -40,9 +40,19 @@ public class Robot {
     /**
      * 사용자가 로봇 스티커에서 읽어 입력하는 값이다. MQTT 토픽 세그먼트, 페이로드 deviceId,
      * Mosquitto 계정명과 같아야 하므로 등록 후에는 바꾸지 않는다.
+     *
+     * <p>유일성은 이 컬럼이 아니라 활성 행만 값을 갖는 {@code active_device_uid} 생성 컬럼에
+     * 걸려 있다. 해제된 행은 이력이라 같은 코드가 여러 번 나타날 수 있다.
      */
-    @Column(name = "device_uid", length = 100, nullable = false, unique = true)
+    @Column(name = "device_uid", length = 100, nullable = false)
     private String deviceUid;
+
+    /**
+     * 해제 시각. NULL 이면 활성이다. 물리 삭제 대신 이 값을 채운다 — 측정 이력이 RESTRICT 로
+     * 참조하고 있어 지울 수 없고, 지워서도 안 된다(이전 주인의 기록이다).
+     */
+    @Column(name = "released_at")
+    private LocalDateTime releasedAt;
 
     /**
      * 업로드 토큰의 SHA-256 해시다. 장치는 사용자 JWT 를 가질 수 없어 별도 자격이 필요하다.
@@ -93,6 +103,20 @@ public class Robot {
         robot.deviceUid = deviceUid;
         robot.name = name;
         return robot;
+    }
+
+    /**
+     * 로봇을 해제한다. 같은 코드로 다른 계정이 새로 등록할 수 있게 된다. 이미 해제된 행은
+     * 처음 해제 시각을 유지한다.
+     */
+    public void release(LocalDateTime releasedAt) {
+        if (this.releasedAt == null) {
+            this.releasedAt = releasedAt;
+        }
+    }
+
+    public LocalDateTime getReleasedAt() {
+        return releasedAt;
     }
 
     public void rename(String name) {

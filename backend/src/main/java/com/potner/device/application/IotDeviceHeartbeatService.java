@@ -23,7 +23,7 @@ public class IotDeviceHeartbeatService {
 
     @Transactional
     public HeartbeatUpdateResult recordHeartbeat(String deviceUid) {
-        IotDevice device = iotDeviceRepository.findByDeviceUid(deviceUid).orElse(null);
+        IotDevice device = iotDeviceRepository.findByDeviceUidAndReleasedAtIsNull(deviceUid).orElse(null);
         if (device == null) {
             return HeartbeatUpdateResult.DEVICE_NOT_FOUND;
         }
