@@ -1,5 +1,8 @@
 package com.potner.command.config;
 
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
@@ -41,6 +44,33 @@ public record DeviceCommandProperties(
          * <p>끄면 진행 중인 체인도 다음 회신에서 멈춘다. 오작동하는 로봇을 세울 때 서버
          * 재배포 없이 이 값만 내리면 된다.
          */
-        boolean autoWaterEnabled
+        boolean autoWaterEnabled,
+
+        /**
+         * 하루 목표 광량을 채우도록 로봇을 햇빛 자리로 보내고, 채우면 그늘(대기 장소)로
+         * 되돌린다.
+         */
+        boolean autoSunlightEnabled,
+
+        /**
+         * 햇빛 자리로 보내는 시간대(서비스 타임존, 시)다. 창 밖에서는 보내지 않고, 창이 닫히면
+         * 목표 미달이어도 되돌린다 — 해가 없는 자리에 세워 둘 이유가 없다.
+         */
+        @Min(0) @Max(23) int sunlightWindowStartHour,
+
+        @Min(1) @Max(24) int sunlightWindowEndHour,
+
+        /**
+         * 사용자가 직접 이동시킨 로봇을 자동 재배치가 존중하는 시간(분)이다.
+         *
+         * <p>이게 없으면 사용자가 마중 자리로 부른 로봇을 다음 검사 주기에 서버가 도로
+         * 끌고 간다.
+         */
+        @Positive int manualPlacementHoldMinutes
 ) {
+
+    @AssertTrue(message = "sunlight window start must be before end")
+    public boolean isSunlightWindowValid() {
+        return sunlightWindowStartHour < sunlightWindowEndHour;
+    }
 }

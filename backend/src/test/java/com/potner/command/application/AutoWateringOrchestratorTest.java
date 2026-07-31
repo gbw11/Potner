@@ -62,7 +62,7 @@ class AutoWateringOrchestratorTest {
                 profileRepository,
                 assignmentRepository,
                 locationRepository,
-                new DeviceCommandProperties(120, 30, 30, autoWaterEnabled)
+                new DeviceCommandProperties(120, 30, 30, autoWaterEnabled, true, 8, 17, 60)
         );
     }
 
