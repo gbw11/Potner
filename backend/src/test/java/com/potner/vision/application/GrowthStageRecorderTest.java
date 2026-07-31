@@ -49,6 +49,7 @@ class GrowthStageRecorderTest {
     /** 참조 데이터의 sort_order 다. 영양생장기(40)가 발아기(5)보다 앞선다. */
     private static final int GERMINATION_ORDER = 5;
     private static final int VEGETATIVE_ORDER = 40;
+    private static final int FLOWERING_ORDER = 70;
 
     @Mock
     private PhotoGrowthAnalysisRepository analysisRepository;
@@ -66,15 +67,23 @@ class GrowthStageRecorderTest {
     private PlantGrowthProfileRepository profileRepository;
 
     @Mock
+    private com.potner.bloom.application.BloomService bloomService;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     private GrowthStageRecorder recorder(boolean autoAdvanceEnabled) {
+        return recorder(autoAdvanceEnabled, true);
+    }
+
+    private GrowthStageRecorder recorder(boolean autoAdvanceEnabled, boolean autoBloomEnabled) {
         return new GrowthStageRecorder(
                 analysisRepository,
                 plantRepository,
                 lifeStageRepository,
                 requirementRepository,
                 profileRepository,
+                bloomService,
                 eventPublisher,
                 new VisionProperties(
                         true,
@@ -84,7 +93,9 @@ class GrowthStageRecorderTest {
                         new BigDecimal("0.25"),
                         640,
                         new BigDecimal("0.60"),
-                        autoAdvanceEnabled
+                        autoAdvanceEnabled,
+                        autoBloomEnabled,
+                        7
                 ),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
@@ -206,6 +217,63 @@ class GrowthStageRecorderTest {
         assertThat(result).isEqualTo(GrowthStageDetectionResult.REQUIREMENT_NOT_FOUND);
         verify(plant, never()).changeLifeStage(any(), any());
         verify(eventPublisher, never()).publishEvent(any(GrowthStageAdvancedEvent.class));
+    }
+
+    @Test
+    void recordsABloomEvenWhenTheStageDoesNotAdvance() {
+        // 사용자가 이미 단계를 개화기로 올려 두었다. 승급은 NOT_PROGRESSED 지만 새로 핀 꽃은
+        // 기록되어야 한다 — 개화 기록과 단계 승급은 별개라는 결정을 여기서 잠근다.
+        givenPlantAtStage(FLOWERING_ORDER);
+        givenTargetStage(DetectedGrowthStage.FLOWERING, FLOWERING_ORDER);
+        when(analysisRepository
+                .findFirstByPlantIdAndDetectedStageIsNotNullAndConfidenceGreaterThanEqualOrderByAnalyzedAtDesc(
+                        eq(PLANT_ID), any()))
+                .thenReturn(Optional.empty());
+
+        GrowthStageDetectionResult result = recorder(true)
+                .record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.FLOWERING, "0.88"));
+
+        assertThat(result).isEqualTo(GrowthStageDetectionResult.NOT_PROGRESSED);
+        verify(bloomService).recordFromDevice(USER_ID, PLANT_ID, "로지", 7);
+    }
+
+    @Test
+    void doesNotRecordABloomWhileFloweringContinues() {
+        // 개화는 몇 주씩 이어진다. 직전 확신 판정이 이미 개화면 계속 피어 있는 것이지 새 개화가
+        // 아니다. 매일 기록이 쌓이면 안 된다.
+        givenPlantAtStage(FLOWERING_ORDER);
+        givenTargetStage(DetectedGrowthStage.FLOWERING, FLOWERING_ORDER);
+        PhotoGrowthAnalysis previous = org.mockito.Mockito.mock(PhotoGrowthAnalysis.class);
+        when(previous.getDetectedStage()).thenReturn(DetectedGrowthStage.FLOWERING);
+        when(analysisRepository
+                .findFirstByPlantIdAndDetectedStageIsNotNullAndConfidenceGreaterThanEqualOrderByAnalyzedAtDesc(
+                        eq(PLANT_ID), any()))
+                .thenReturn(Optional.of(previous));
+
+        recorder(true).record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.FLOWERING, "0.88"));
+
+        verify(bloomService, never()).recordFromDevice(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void doesNotRecordABloomForNonFloweringDetections() {
+        givenPlantAtStage(GERMINATION_ORDER);
+        givenTargetStage(DetectedGrowthStage.VEGETATIVE, VEGETATIVE_ORDER);
+
+        recorder(false).record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.VEGETATIVE, "0.91"));
+
+        verify(bloomService, never()).recordFromDevice(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void doesNotRecordABloomWhenAutoBloomIsOff() {
+        givenPlantAtStage(FLOWERING_ORDER);
+        givenTargetStage(DetectedGrowthStage.FLOWERING, FLOWERING_ORDER);
+
+        recorder(true, false)
+                .record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.FLOWERING, "0.88"));
+
+        verify(bloomService, never()).recordFromDevice(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     private GrowthStageClassification undetermined() {

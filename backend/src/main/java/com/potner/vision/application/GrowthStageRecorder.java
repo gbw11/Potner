@@ -1,5 +1,6 @@
 package com.potner.vision.application;
 
+import com.potner.bloom.application.BloomService;
 import com.potner.plant.domain.Plant;
 import com.potner.plant.domain.PlantGrowthProfile;
 import com.potner.plant.domain.PlantGrowthProfileRepository;
@@ -52,6 +53,7 @@ public class GrowthStageRecorder {
     private final PlantLifeStageRepository lifeStageRepository;
     private final SpeciesGrowthRequirementRepository requirementRepository;
     private final PlantGrowthProfileRepository profileRepository;
+    private final BloomService bloomService;
     private final ApplicationEventPublisher eventPublisher;
     private final VisionProperties properties;
     private final Clock clock;
@@ -62,6 +64,7 @@ public class GrowthStageRecorder {
             PlantLifeStageRepository lifeStageRepository,
             SpeciesGrowthRequirementRepository requirementRepository,
             PlantGrowthProfileRepository profileRepository,
+            BloomService bloomService,
             ApplicationEventPublisher eventPublisher,
             VisionProperties properties,
             Clock clock
@@ -71,6 +74,7 @@ public class GrowthStageRecorder {
         this.lifeStageRepository = lifeStageRepository;
         this.requirementRepository = requirementRepository;
         this.profileRepository = profileRepository;
+        this.bloomService = bloomService;
         this.eventPublisher = eventPublisher;
         this.properties = properties;
         this.clock = clock;
@@ -106,6 +110,10 @@ public class GrowthStageRecorder {
             save(photoId, plantId, detected, confidence, classification, false, now);
             return GrowthStageDetectionResult.PLANT_NOT_FOUND;
         }
+
+        // 개화 기록은 단계 승급과 별개다. 사용자가 이미 단계를 개화기로 올려 두었어도
+        // (아래에서 NOT_PROGRESSED 가 되어도) 새로 핀 꽃은 기록되어야 한다.
+        maybeRecordBloom(plant, detected);
 
         PlantLifeStage target = lifeStageRepository
                 .findByCodeAndActiveTrue(detected.lifeStageCode())
@@ -157,6 +165,40 @@ public class GrowthStageRecorder {
                 target.getName()
         ));
         return GrowthStageDetectionResult.ADVANCED;
+    }
+
+    /**
+     * 개화 판정이면 개화 기록을 남긴다.
+     *
+     * <p>"새로 피었는지" 는 직전 <strong>확신 판정</strong>과 비교해 정한다. 개화는 몇 주씩
+     * 이어지므로 매일 찍히는 개화 판정을 그대로 남기면 기록이 날마다 쌓인다. 직전 확신 판정이
+     * 이미 개화면 계속 피어 있는 것이다. 그 비교로 못 거르는 판정 왕복(개화 ↔ 영양생장)은
+     * {@code BloomService#recordFromDevice} 의 냉각 기간이 거른다.
+     *
+     * <p>현재 사진의 판정을 저장하기 <strong>전에</strong> 불러야 한다. 저장 후에는 자기 자신이
+     * 직전 판정으로 잡혀 어떤 개화도 새 개화가 아니게 된다.
+     *
+     * <p>자동 승급이 함께 켜져 있고 이 사진으로 단계도 올라가면 승급 푸시와 개화 푸시가 같이
+     * 나갈 수 있다. 서로 다른 사실(단계가 바뀌었다 / 꽃이 폈다)이라 합치지 않는다.
+     */
+    private void maybeRecordBloom(Plant plant, DetectedGrowthStage detected) {
+        if (detected != DetectedGrowthStage.FLOWERING || !properties.autoBloomEnabled()) {
+            return;
+        }
+        boolean alreadyFlowering = analysisRepository
+                .findFirstByPlantIdAndDetectedStageIsNotNullAndConfidenceGreaterThanEqualOrderByAnalyzedAtDesc(
+                        plant.getId(), properties.minConfidence())
+                .map(previous -> previous.getDetectedStage() == DetectedGrowthStage.FLOWERING)
+                .orElse(false);
+        if (alreadyFlowering) {
+            return;
+        }
+        bloomService.recordFromDevice(
+                plant.getUser().getId(),
+                plant.getId(),
+                plant.getNickname(),
+                properties.bloomCooldownDays()
+        );
     }
 
     /**

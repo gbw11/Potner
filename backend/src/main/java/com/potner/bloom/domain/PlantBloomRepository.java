@@ -23,6 +23,9 @@ public interface PlantBloomRepository extends JpaRepository<PlantBloom, String> 
     /** 오늘 꽃이 폈는지 본다. 표정 판정이 쓰며 그날 하루 내내 유지된다. */
     boolean existsByPlantIdAndBloomDate(String plantId, LocalDate bloomDate);
 
+    /** 최근 개화가 있었는지 본다. 자동 개화 기록의 냉각 기간 판정이 쓴다. 수동 기록도 센다. */
+    boolean existsByPlantIdAndBloomDateGreaterThanEqual(String plantId, LocalDate fromInclusive);
+
     /**
      * 사용자 개화 기록 목록이다. 개화한 날 기준 최신순이며, 같은 날 두 송이가 피었을 때
      * 순서가 흔들리지 않도록 생성 시각과 식별자로 순서를 확정한다.

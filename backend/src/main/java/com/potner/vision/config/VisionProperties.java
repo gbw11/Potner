@@ -68,6 +68,24 @@ public record VisionProperties(
          * {@code minConfidence} 를 확정한 뒤에 켠다. 꺼져 있어도 판정과 저장은 그대로 돌아가
          * 그동안 정확도를 관찰할 수 있다.
          */
-        boolean autoAdvanceEnabled
+        boolean autoAdvanceEnabled,
+
+        /**
+         * 개화 판정으로 개화 기록을 자동으로 남길지 여부다.
+         *
+         * <p>{@code autoAdvanceEnabled} 와 달리 <strong>기본값이 켜짐이다.</strong> 단계 승급은
+         * 되돌릴 수단이 없지만 개화 기록은 삭제 API 가 있어 오탐을 사용자가 정리할 수 있고,
+         * {@code minConfidence} 와 재개화 냉각으로 걸러진 것만 남는다.
+         */
+        boolean autoBloomEnabled,
+
+        /**
+         * 자동 개화 기록의 재기록 냉각 기간(일)이다.
+         *
+         * <p>연속 개화는 직전 판정과의 비교로 걸러지지만, 촬영 각도에 따라 판정이 개화 ↔ 영양생장
+         * 사이를 오가면 그때마다 "새 개화" 가 된다. 최근 이 기간 안에 개화 기록(수동 포함)이
+         * 있으면 자동 기록을 건너뛴다.
+         */
+        @Positive int bloomCooldownDays
 ) {
 }
