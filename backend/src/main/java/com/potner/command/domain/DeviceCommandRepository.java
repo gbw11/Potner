@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, String> {
 
@@ -15,6 +16,16 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, St
             String plantId,
             LocalDateTime from,
             LocalDateTime to
+    );
+
+    /**
+     * 마지막으로 성공한 이동 명령이다. 자동 재배치가 로봇의 현재 위치를 추정하는 근거다 —
+     * 로봇은 위치를 보고하지 않으므로, 마지막으로 도착 확인된 목적지가 최선의 추정이다.
+     */
+    Optional<DeviceCommand> findFirstByPlantIdAndCommandTypeAndStatusOrderByIssuedAtDesc(
+            String plantId,
+            DeviceCommandType commandType,
+            DeviceCommandStatus status
     );
 
     /**

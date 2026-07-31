@@ -48,6 +48,10 @@ public class DeviceCommand {
     private DeviceCommandType commandType;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "initiator", length = 10, nullable = false)
+    private CommandInitiator initiator;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 10, nullable = false)
     private DeviceCommandStatus status;
 
@@ -86,6 +90,7 @@ public class DeviceCommand {
             String robotId,
             String deviceUid,
             DeviceCommandType commandType,
+            CommandInitiator initiator,
             BigDecimal requestedMl,
             RobotLocationType destination,
             Integer runSeconds,
@@ -97,6 +102,7 @@ public class DeviceCommand {
         command.robotId = robotId;
         command.deviceUid = deviceUid;
         command.commandType = commandType;
+        command.initiator = initiator;
         command.status = DeviceCommandStatus.ISSUED;
         command.requestedMl = requestedMl;
         command.destination = destination;
@@ -148,6 +154,10 @@ public class DeviceCommand {
 
     public String getDeviceUid() {
         return deviceUid;
+    }
+
+    public CommandInitiator getInitiator() {
+        return initiator;
     }
 
     public DeviceCommandType getCommandType() {
