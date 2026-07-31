@@ -9,8 +9,14 @@ import java.time.LocalDateTime;
  * 로봇 요약이다.
  *
  * <p>{@code connectionStatus}와 {@code lastSeenAt}은 저장된 컬럼이 아니라 하위 장치 상태에서
- * 계산한 값이다. {@code batteryPercent}와 {@code firmwareVersion}은 로봇 고유 데이터이며
- * 수집 연동 전까지 비어 있다.
+ * 계산한 값이다.
+ *
+ * <p>{@code batteryPercent}는 젯슨의 {@code status/battery} 로 수집한다. 한 번도 받지 못했으면
+ * {@code null} 이다.
+ *
+ * <p><strong>{@code firmwareVersion}은 항상 {@code null} 이다.</strong> 장치가 펌웨어 버전을
+ * 보내는 토픽이 아직 없어 채울 값이 없다. 필드와 컬럼을 남겨 두는 것은 그 토픽이 생길 때
+ * 마이그레이션과 앱 수정을 함께 하지 않게 하기 위해서다.
  */
 public record RobotSummaryResponse(
         String robotId,
