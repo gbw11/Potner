@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
@@ -45,7 +46,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         centerTitle: true,
         leading: BackButton(
           key: const Key('profile_page_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/my'),
+          onPressed: () =>
+              returnFromSharedPage(context, fallbackLocation: '/my'),
         ),
       ),
       body: SafeArea(
@@ -87,9 +89,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                           // 테마가 버튼을 전폭으로 잡으므로 Row 안에서는 크기를 좁힌다.
                           style: FilledButton.styleFrom(
                             minimumSize: const Size(64, 40),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
                           ),
                           onPressed: _isSaving ? null : _saveNickname,
                           child: _isSaving
@@ -134,7 +134,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                     shadowColor: AppColors.primary.withValues(alpha: 0.08),
                     child: InkWell(
                       key: const Key('profile_plant_count'),
-                      onTap: () => context.go('/my/plants'),
+                      onTap: () => context.go(
+                        withPreviousNavigationLocation(context, '/my/plants'),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.all(18),
                         child: Row(
@@ -186,7 +188,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   const SizedBox(height: 26),
                   FilledButton(
                     key: const Key('profile_change_password'),
-                    onPressed: () => context.go('/my/password'),
+                    onPressed: () => context.go(
+                      withPreviousNavigationLocation(context, '/my/password'),
+                    ),
                     child: const Text('비밀번호 변경'),
                   ),
                 ],
@@ -234,9 +238,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '닉네임을 변경하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '닉네임을 변경하지 못했습니다.'))),
         );
     } finally {
       if (mounted) {

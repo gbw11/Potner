@@ -97,7 +97,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('device_token_done')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('home_page')), findsOneWidget);
+      expect(find.byKey(const Key('menu_page')), findsOneWidget);
     },
   );
 

@@ -2,9 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:potner_app/core/api/api_exception.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/widgets/form_error.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
@@ -58,7 +58,7 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
         centerTitle: true,
         leading: BackButton(
           key: const Key('plant_registration_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/'),
+          onPressed: () => returnFromSharedPage(context, fallbackLocation: '/'),
         ),
       ),
       body: SafeArea(
@@ -430,7 +430,7 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
             ..showSnackBar(
               SnackBar(content: Text('${plant.name} 등록은 완료했지만 사진을 올리지 못했어요.')),
             );
-          context.go('/');
+          returnFromSharedPage(context, fallbackLocation: '/');
           return;
         }
       }
@@ -442,7 +442,7 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text('${plant.name} 등록을 완료했어요!')));
-      context.go('/');
+      returnFromSharedPage(context, fallbackLocation: '/');
     } catch (error) {
       if (!mounted) {
         return;

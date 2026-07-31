@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 import 'package:potner_app/features/sensor/data/sensor_repository_impl.dart';
@@ -90,9 +90,10 @@ class _EnvironmentDashboardPageState
         centerTitle: true,
         leading: BackButton(
           key: const Key('environment_back'),
-          onPressed: () => context.canPop()
-              ? context.pop()
-              : context.go('/plants/${widget.plantId}'),
+          onPressed: () => returnFromSharedPage(
+            context,
+            fallbackLocation: '/plants/${widget.plantId}',
+          ),
         ),
       ),
       body: SafeArea(
@@ -461,11 +462,7 @@ class _LineChartPainter extends CustomPainter {
 
     // 축 라벨(최소·최대)
     _paintLabel(canvas, _trimNumber(maxValue), Offset(0, 0));
-    _paintLabel(
-      canvas,
-      _trimNumber(minValue),
-      Offset(0, size.height - 12),
-    );
+    _paintLabel(canvas, _trimNumber(minValue), Offset(0, size.height - 12));
   }
 
   void _paintLabel(Canvas canvas, String text, Offset offset) {
@@ -608,9 +605,7 @@ class _DailyLightSection extends StatelessWidget {
                         Expanded(
                           child: Text(
                             '${day.lightDate.month}/${day.lightDate.day}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                         ),
                         _StatusChip(

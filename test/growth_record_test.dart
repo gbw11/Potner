@@ -15,14 +15,19 @@ import 'support/fake_diary_repository.dart';
 import 'support/fake_home_repository.dart';
 import 'support/fake_plant_repository.dart';
 
-Future<FakeBloomRepository> _pumpToGrowthHub(WidgetTester tester) async {
+Future<FakeBloomRepository> _pumpToGrowthHub(
+  WidgetTester tester, {
+  FakePlantRepository? plantRepository,
+}) async {
   final bloomRepository = FakeBloomRepository();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         authRepositoryProvider.overrideWithValue(_FakeAuthRepository()),
         homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
-        plantRepositoryProvider.overrideWithValue(FakePlantRepository()),
+        plantRepositoryProvider.overrideWithValue(
+          plantRepository ?? FakePlantRepository(),
+        ),
         diaryRepositoryProvider.overrideWithValue(FakeDiaryRepository()),
         bloomRepositoryProvider.overrideWithValue(bloomRepository),
       ],
@@ -96,6 +101,59 @@ void main() {
 
     expect(bloomRepository.deletedBloomIds, ['bloom-1']);
     expect(find.byKey(const Key('bloom_card_bloom-1')), findsNothing);
+  });
+
+  testWidgets('bloom list guides users without registered plants', (
+    tester,
+  ) async {
+    await _pumpToGrowthHub(
+      tester,
+      plantRepository: FakePlantRepository(myPlants: const []),
+    );
+
+    await tester.tap(find.byKey(const Key('growth_hub_blooms')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('식물을 등록하면 꽃이 피어난 특별한 순간을 볼 수 있어요'), findsOneWidget);
+    expect(find.byKey(const Key('bloom_register_plant')), findsOneWidget);
+    expect(find.byKey(const Key('bloom_record_button')), findsNothing);
+  });
+
+  testWidgets('growth comparison guides users without registered plants', (
+    tester,
+  ) async {
+    await _pumpToGrowthHub(
+      tester,
+      plantRepository: FakePlantRepository(myPlants: const []),
+    );
+
+    await tester.tap(find.byKey(const Key('growth_hub_compare')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('식물을 등록하면 성장 사진을 나란히 비교할 수 있어요.'), findsOneWidget);
+    expect(
+      find.byKey(const Key('growth_comparison_register_plant')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('diary and photo log show icons without registered plants', (
+    tester,
+  ) async {
+    await _pumpToGrowthHub(
+      tester,
+      plantRepository: FakePlantRepository(myPlants: const []),
+    );
+
+    await tester.tap(find.byKey(const Key('growth_hub_diary')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('diary_empty_icon')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('diary_calendar_back')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('growth_hub_photos')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('photo_log_empty_icon')), findsOneWidget);
   });
 
   testWidgets('diary detail shows the status report', (tester) async {

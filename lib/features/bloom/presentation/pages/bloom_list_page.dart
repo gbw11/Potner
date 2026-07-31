@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/bloom/data/bloom_repository_impl.dart';
 import 'package:potner_app/features/bloom/domain/bloom_models.dart';
@@ -18,6 +19,9 @@ class BloomListPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final blooms = ref.watch(bloomsProvider);
+    final plants = ref.watch(myPlantsProvider);
+    final hasPlants =
+        plants.whenOrNull(data: (items) => items.isNotEmpty) == true;
 
     return Scaffold(
       appBar: AppBar(
@@ -26,17 +30,19 @@ class BloomListPage extends ConsumerWidget {
         leading: BackButton(
           key: const Key('bloom_list_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/growth'),
+              returnFromSharedPage(context, fallbackLocation: '/growth'),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        key: const Key('bloom_record_button'),
-        onPressed: () => _openRecordSheet(context, ref),
-        icon: const Icon(Icons.local_florist_rounded),
-        label: const Text('개화 기록하기'),
-      ),
+      floatingActionButton: hasPlants
+          ? FloatingActionButton.extended(
+              key: const Key('bloom_record_button'),
+              onPressed: () => _openRecordSheet(context, ref),
+              icon: const Icon(Icons.local_florist_rounded),
+              label: const Text('개화 기록하기'),
+            )
+          : null,
       body: SafeArea(
-        child: blooms.when(
+        child: plants.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) => Center(
             child: Padding(
@@ -45,58 +51,119 @@ class BloomListPage extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    plantErrorMessage(error, '개화 기록을 불러오지 못했습니다.'),
+                    plantErrorMessage(error, '식물 목록을 불러오지 못했습니다.'),
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: AppColors.textMuted),
                   ),
                   const SizedBox(height: 16),
                   FilledButton.tonal(
                     key: const Key('bloom_list_retry'),
-                    onPressed: () => ref.invalidate(bloomsProvider),
+                    onPressed: () => ref.invalidate(myPlantsProvider),
                     child: const Text('다시 시도'),
                   ),
                 ],
               ),
             ),
           ),
-          data: (items) => items.isEmpty
-              ? const Center(
+          data: (plantItems) => plantItems.isEmpty
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.all(28),
+                    padding: const EdgeInsets.all(28),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.filter_vintage_outlined,
                           size: 52,
                           color: AppColors.primarySoft,
                         ),
-                        SizedBox(height: 14),
-                        Text(
-                          '아직 기록된 개화가 없어요.\n꽃이 피어난 특별한 날을 남겨 보세요!',
+                        const SizedBox(height: 14),
+                        const Text(
+                          '식물을 등록하면 꽃이 피어난 특별한 순간을 볼 수 있어요',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: AppColors.textMuted,
                             height: 1.5,
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          key: const Key('bloom_register_plant'),
+                          onPressed: () => context.go(
+                            withCurrentNavigationOrigin(
+                              context,
+                              '/plants/register',
+                            ),
+                          ),
+                          child: const Text('내 식물 등록하기'),
+                        ),
                       ],
                     ),
                   ),
                 )
-              : RefreshIndicator(
-                  onRefresh: () => ref.refresh(bloomsProvider.future),
-                  child: ListView(
-                    key: const Key('bloom_list'),
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 96),
-                    children: [
-                      for (final bloom in items) ...[
-                        _BloomCard(bloom: bloom),
-                        const SizedBox(height: 14),
-                      ],
-                    ],
+              : blooms.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (error, _) => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            plantErrorMessage(error, '개화 기록을 불러오지 못했습니다.'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: AppColors.textMuted),
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.tonal(
+                            key: const Key('bloom_records_retry'),
+                            onPressed: () => ref.invalidate(bloomsProvider),
+                            child: const Text('다시 시도'),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
+                  data: (items) => items.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(28),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.filter_vintage_outlined,
+                                  size: 52,
+                                  color: AppColors.primarySoft,
+                                ),
+                                SizedBox(height: 14),
+                                Text(
+                                  '아직 기록된 개화가 없어요.\n꽃이 피어난 특별한 날을 남겨 보세요!',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: AppColors.textMuted,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: () => ref.refresh(bloomsProvider.future),
+                          child: ListView(
+                            key: const Key('bloom_list'),
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 96),
+                            children: [
+                              for (final bloom in items) ...[
+                                _BloomCard(bloom: bloom),
+                                const SizedBox(height: 14),
+                              ],
+                            ],
+                          ),
+                        ),
                 ),
         ),
       ),
@@ -104,9 +171,9 @@ class BloomListPage extends ConsumerWidget {
   }
 
   Future<void> _openRecordSheet(BuildContext context, WidgetRef ref) async {
-    final plants = await ref.read(myPlantsProvider.future).catchError(
-      (_) => <MyPlant>[],
-    );
+    final plants = await ref
+        .read(myPlantsProvider.future)
+        .catchError((_) => <MyPlant>[]);
     if (!context.mounted) {
       return;
     }
@@ -265,9 +332,7 @@ class _BloomCard extends ConsumerWidget {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '기록을 삭제하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '기록을 삭제하지 못했습니다.'))),
         );
     } finally {
       ref.invalidate(bloomsProvider);
@@ -429,9 +494,7 @@ class _RecordBloomSheetState extends ConsumerState<_RecordBloomSheet> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '개화를 기록하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '개화를 기록하지 못했습니다.'))),
         );
     }
   }

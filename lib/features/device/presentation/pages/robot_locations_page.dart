@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
@@ -30,7 +31,7 @@ class RobotLocationsPage extends ConsumerWidget {
         leading: BackButton(
           key: const Key('robot_locations_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/devices'),
+              context.go(withCurrentNavigationOrigin(context, '/devices')),
         ),
       ),
       body: SafeArea(
@@ -205,9 +206,7 @@ class _LocationCard extends ConsumerWidget {
               alignment: Alignment.centerRight,
               child: FilledButton.tonal(
                 key: Key('register_location_${type.name}'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(100, 40),
-                ),
+                style: FilledButton.styleFrom(minimumSize: const Size(100, 40)),
                 onPressed: () => _register(context, ref),
                 child: const Text('등록'),
               ),
@@ -301,9 +300,7 @@ class _LocationCard extends ConsumerWidget {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '위치를 등록하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '위치를 등록하지 못했습니다.'))),
         );
     } finally {
       ref.invalidate(robotLocationsProvider(robotId));
@@ -345,9 +342,7 @@ class _LocationCard extends ConsumerWidget {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '좌표를 저장하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '좌표를 저장하지 못했습니다.'))),
         );
     } finally {
       ref.invalidate(robotLocationsProvider(robotId));
@@ -409,9 +404,7 @@ class _StationCodeDialogState extends State<_StationCodeDialog> {
           onPressed: () {
             final code = _controller.text.trim();
             if (!_codePattern.hasMatch(code)) {
-              setState(
-                () => _error = '코드는 영문·숫자로 시작하고 영문·숫자·하이픈·밑줄만 쓸 수 있어요.',
-              );
+              setState(() => _error = '코드는 영문·숫자로 시작하고 영문·숫자·하이픈·밑줄만 쓸 수 있어요.');
               return;
             }
             Navigator.of(context).pop(code);
@@ -484,9 +477,7 @@ class _PoseDialogState extends State<_PoseDialog> {
               const SizedBox(width: 10),
               Expanded(child: _numberField(_y, 'y', const Key('pose_y'))),
               const SizedBox(width: 10),
-              Expanded(
-                child: _numberField(_yaw, 'yaw', const Key('pose_yaw')),
-              ),
+              Expanded(child: _numberField(_yaw, 'yaw', const Key('pose_yaw'))),
             ],
           ),
           if (_error != null) ...[
@@ -521,9 +512,7 @@ class _PoseDialogState extends State<_PoseDialog> {
         decimal: true,
         signed: true,
       ),
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]')),
-      ],
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]'))],
       decoration: InputDecoration(labelText: label, isDense: true),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/navigation/app_menu_button.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
@@ -43,8 +44,9 @@ class MyPage extends ConsumerWidget {
                   Text(
                     user?.nickname ?? '',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineMedium
-                        ?.copyWith(color: AppColors.text),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.headlineMedium?.copyWith(color: AppColors.text),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -59,13 +61,23 @@ class MyPage extends ConsumerWidget {
                         key: const Key('my_profile'),
                         icon: Icons.person_outline_rounded,
                         label: '내 정보',
-                        onTap: () => context.go('/my/profile'),
+                        onTap: () => context.go(
+                          withNavigationOrigin(
+                            '/my/profile',
+                            AppNavigationOrigin.my,
+                          ),
+                        ),
                       ),
                       _Tile(
                         key: const Key('my_plants'),
                         icon: Icons.local_florist_outlined,
                         label: '나의 식물',
-                        onTap: () => context.go('/plants'),
+                        onTap: () => context.go(
+                          withNavigationOrigin(
+                            '/plants',
+                            AppNavigationOrigin.my,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -76,19 +88,34 @@ class MyPage extends ConsumerWidget {
                         key: const Key('my_care_settings'),
                         icon: Icons.eco_outlined,
                         label: '케어 설정',
-                        onTap: () => context.go('/plants'),
+                        onTap: () => context.go(
+                          withNavigationOrigin(
+                            '/plant-selection/care',
+                            AppNavigationOrigin.my,
+                          ),
+                        ),
                       ),
                       _Tile(
                         key: const Key('my_devices'),
                         icon: Icons.settings_outlined,
                         label: '장치 관리',
-                        onTap: () => context.go('/devices'),
+                        onTap: () => context.go(
+                          withNavigationOrigin(
+                            '/devices',
+                            AppNavigationOrigin.my,
+                          ),
+                        ),
                       ),
                       _Tile(
                         key: const Key('my_notification_settings'),
                         icon: Icons.notifications_active_outlined,
                         label: '알림 설정',
-                        onTap: () => context.go('/my/notifications'),
+                        onTap: () => context.go(
+                          withNavigationOrigin(
+                            '/my/notifications',
+                            AppNavigationOrigin.my,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -110,7 +137,12 @@ class MyPage extends ConsumerWidget {
                         icon: Icons.person_remove_outlined,
                         label: '회원 탈퇴',
                         destructive: true,
-                        onTap: () => context.go('/my/withdraw'),
+                        onTap: () => context.go(
+                          withNavigationOrigin(
+                            '/my/withdraw',
+                            AppNavigationOrigin.my,
+                          ),
+                        ),
                       ),
                     ],
                   ),
