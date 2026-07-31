@@ -46,6 +46,15 @@ void main() {
 
     expect(find.text('내 식물 등록하기'), findsOneWidget);
     expect(find.text('새로운 식물 친구를 소개해 주세요!'), findsOneWidget);
+    expect(find.byKey(const Key('plant_photo_button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('plant_photo_button')));
+    await tester.pumpAndSettle();
+    expect(find.text('식물 사진 등록'), findsOneWidget);
+    expect(find.byKey(const Key('plant_photo_camera')), findsOneWidget);
+    expect(find.byKey(const Key('plant_photo_gallery')), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const Key('plant_name')), '바질이');
 
