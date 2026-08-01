@@ -5,6 +5,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val nativeApiBaseUrl =
+    providers.gradleProperty("API_BASE_URL")
+        .orElse(providers.environmentVariable("API_BASE_URL"))
+        .getOrElse("http://10.0.2.2:8080/api/v1")
+val escapedNativeApiBaseUrl =
+    nativeApiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+
 android {
     namespace = "com.potner.app"
     compileSdk = flutter.compileSdkVersion
@@ -23,6 +30,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        buildConfigField("String", "API_BASE_URL", "\"$escapedNativeApiBaseUrl\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
@@ -42,4 +54,10 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
+    testImplementation("junit:junit:4.13.2")
 }

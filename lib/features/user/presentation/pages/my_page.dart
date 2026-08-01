@@ -117,6 +117,17 @@ class MyPage extends ConsumerWidget {
                           ),
                         ),
                       ),
+                      _Tile(
+                        key: const Key('my_arrival_settings'),
+                        icon: Icons.location_on_outlined,
+                        label: '귀가 감지 설정',
+                        onTap: () => context.go(
+                          withNavigationOrigin(
+                            '/my/arrival',
+                            AppNavigationOrigin.my,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),

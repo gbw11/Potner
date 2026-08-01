@@ -6,6 +6,7 @@ import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
 import 'package:potner_app/features/device/presentation/pages/robot_locations_page.dart';
+import 'package:potner_app/features/arrival/presentation/arrival_setting_page.dart';
 import 'package:potner_app/features/alert/presentation/pages/alerts_page.dart';
 import 'package:potner_app/features/bloom/presentation/pages/bloom_list_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_calendar_page.dart';
@@ -198,6 +199,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     path: 'notifications',
                     builder: (context, state) =>
                         const NotificationSettingsPage(),
+                  ),
+                  GoRoute(
+                    path: 'arrival',
+                    builder: (context, state) => const ArrivalSettingPage(),
                   ),
                 ],
               ),
