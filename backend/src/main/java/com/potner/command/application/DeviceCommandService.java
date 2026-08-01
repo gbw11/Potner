@@ -1,6 +1,7 @@
 package com.potner.command.application;
 
 import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
@@ -87,7 +88,7 @@ public class DeviceCommandService {
     @Transactional
     public DeviceCommandResponse issue(String userId, String plantId, IssueDeviceCommandRequest request) {
         requireOwnedPlant(userId, plantId);
-        return doIssue(plantId, request, CommandInitiator.USER);
+        return doIssue(plantId, request, CommandInitiator.USER, null);
     }
 
     /**
@@ -97,16 +98,21 @@ public class DeviceCommandService {
      * 이미 끝난 트랜잭션에 합류하면 여기서 저장한 명령 행이 커밋되지 않는다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public DeviceCommandResponse issueAuto(String plantId, IssueDeviceCommandRequest request) {
+    public DeviceCommandResponse issueAuto(
+            String plantId,
+            IssueDeviceCommandRequest request,
+            CommandPurpose purpose
+    ) {
         plantRepository.findByIdAndStatusNot(plantId, PlantStatus.DELETED)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLANT_NOT_FOUND));
-        return doIssue(plantId, request, CommandInitiator.AUTO);
+        return doIssue(plantId, request, CommandInitiator.AUTO, purpose);
     }
 
     private DeviceCommandResponse doIssue(
             String plantId,
             IssueDeviceCommandRequest request,
-            CommandInitiator initiator
+            CommandInitiator initiator,
+            CommandPurpose purpose
     ) {
         DeviceCommandType type = request.type();
         requireFieldsMatchType(request);
@@ -144,6 +150,7 @@ public class DeviceCommandService {
                 device.getDeviceUid(),
                 type,
                 initiator,
+                purpose,
                 requestedMl,
                 destination == null ? null : destination.getLocationType(),
                 runSeconds,

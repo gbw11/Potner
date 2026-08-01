@@ -121,6 +121,29 @@ potner:
     sunlight-window-end-hour: ${DEVICE_COMMAND_SUNLIGHT_WINDOW_END_HOUR:17}
     # 사용자가 직접 이동시킨 로봇은 이 시간(분) 동안 자동 재배치가 건드리지 않는다.
     manual-placement-hold-minutes: ${DEVICE_COMMAND_MANUAL_PLACEMENT_HOLD_MINUTES:60}
+    # 하루 한 장 성장 사진 자동 촬영. 꺼지면 포토 로그·타임랩스·생장 단계 판정·자동 개화가
+    # 모두 함께 멈춘다 — 사진 업로드가 그 전부의 유일한 입구다.
+    auto-capture-enabled: ${DEVICE_COMMAND_AUTO_CAPTURE_ENABLED:true}
+    capture-check-interval-seconds: ${DEVICE_COMMAND_CAPTURE_CHECK_INTERVAL_SECONDS:1800}
+    # 촬영 시간대(서비스 타임존). 어두우면 사진이 쓸모없고 생장 단계 추론이 오탐을 낸다.
+    # 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
+    capture-window-start-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_START_HOUR:10}
+    capture-window-end-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_END_HOUR:16}
+    # 토양 과습이면 스테이션으로 데려가 송풍으로 말린다. 자동 급수의 대칭이다.
+    auto-drying-enabled: ${DEVICE_COMMAND_AUTO_DRYING_ENABLED:true}
+    # 송풍 1회는 짧고 흙이 마르는 데는 시간이 걸린다. 짧게 두면 수분이 반응하기 전에 또 돌려
+    # 과건조가 된다.
+    drying-check-interval-seconds: ${DEVICE_COMMAND_DRYING_CHECK_INTERVAL_SECONDS:600}
+    # 정상 종료는 과습 알림이 닫히는 것이다. 이 값은 수분 센서 고장으로 팬이 끝없이 도는 것을
+    # 막는 안전장치다.
+    max-auto-drying-runs-per-day: ${DEVICE_COMMAND_MAX_AUTO_DRYING_RUNS_PER_DAY:6}
+  arrival:
+    # GREETING 도착 뒤 사용자를 기다리는 시간과 이동·대기·HOME 복귀를 합친 전체 상한이다.
+    welcome-wait-seconds: ${ARRIVAL_WELCOME_WAIT_SECONDS:120}
+    total-timeout-seconds: ${ARRIVAL_TOTAL_TIMEOUT_SECONDS:300}
+    # WELCOME_START의 OK는 GREETING 도착을 뜻하므로 대기 시간을 포함하지 않는다.
+    command-timeout-seconds: ${ARRIVAL_COMMAND_TIMEOUT_SECONDS:120}
+    timeout-check-interval-seconds: ${ARRIVAL_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
   device:
     # 배터리 잔량을 보고하도록 정한 장치다. robot.battery_percent 가 컬럼 하나라 두 장치가
     # 보내면 서로 덮어쓴다. 배터리 센서가 라즈베리로 옮겨가면 RASPBERRY_PI 로 바꾼다.
@@ -160,6 +183,10 @@ potner:
     sample-size: ${ALERT_SAMPLE_SIZE:3}
     hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}
     max-page-size: ${ALERT_MAX_PAGE_SIZE:100}
+    # 배수트레이 알림 임계값 = 식물별 권장 급수량 × 이 배수. 고정 ml 이 아닌 이유는 트레이 용량이
+    # 화분 크기에 따라 다르기 때문이다. 사실상 "급수 몇 회마다 비우기" 다.
+    # 시연에서 즉석으로 보여주려면 1 로 낮춘다 — 급수 한 번에 알림이 뜬다.
+    drainage-tray-watering-multiplier: ${ALERT_DRAINAGE_TRAY_WATERING_MULTIPLIER:8}
   photo:
     # 배포 sync 경로 밖의 named volume 이어야 한다. 배포 파이프라인이 배포 디렉토리를 매번
     # 덮어쓰므로 그 안에 두면 배포마다 사진이 사라진다. docker compose down -v 도 이 볼륨을 지운다.

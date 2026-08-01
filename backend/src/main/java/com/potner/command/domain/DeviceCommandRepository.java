@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+// CommandPurpose 는 같은 패키지라 import 가 필요 없다.
 
 public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, String> {
 
@@ -26,6 +27,31 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, St
             String plantId,
             DeviceCommandType commandType,
             DeviceCommandStatus status
+    );
+
+    /** 자동 말리기의 하루 가동 상한을 센다. 이력을 세므로 서버가 재시작해도 상한이 유지된다. */
+    long countByPlantIdAndCommandTypeAndPurposeAndIssuedAtAfter(
+            String plantId,
+            DeviceCommandType commandType,
+            CommandPurpose purpose,
+            LocalDateTime since
+    );
+
+    /**
+     * 최근 이 체인이 건드린 식물들이다.
+     *
+     * <p>말리기가 끝난 로봇을 대기 장소로 되돌릴 때 쓴다. 과습이 풀리면 알림이 닫히는데, 해제는
+     * 이벤트를 내지 않으므로 "이제 정상인데 아직 스테이션에 있는" 로봇을 이 목록에서 찾는다.
+     */
+    @Query("""
+            SELECT DISTINCT c.plantId
+              FROM DeviceCommand c
+             WHERE c.purpose = :purpose
+               AND c.issuedAt > :since
+            """)
+    List<String> findPlantIdsByPurposeSince(
+            @Param("purpose") CommandPurpose purpose,
+            @Param("since") LocalDateTime since
     );
 
     /**
@@ -79,5 +105,27 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, St
             @Param("plantId") String plantId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
+    );
+
+    /**
+     * 어느 시점 이후 실제 급수량 합계다. 배수트레이 판정이 "마지막으로 비운 뒤 얼마나 줬는지"를
+     * 이 값으로 본다.
+     *
+     * <p>{@code since} 가 없으면(한 번도 비우지 않았으면) 전체 기간을 합산해야 하므로 호출자가
+     * 아주 과거 시각을 넘긴다. 상한을 두지 않는 이유는 트레이가 미래에 차는 일은 없기 때문이다.
+     *
+     * @return 급수 기록이 없으면 {@code null}. 0 과 구분된다
+     */
+    @Query("""
+            SELECT SUM(c.dispensedMl)
+              FROM DeviceCommand c
+             WHERE c.plantId = :plantId
+               AND c.commandType = com.potner.command.domain.DeviceCommandType.WATER
+               AND c.dispensedMl IS NOT NULL
+               AND c.reportedAt > :since
+            """)
+    BigDecimal sumDispensedMlAfter(
+            @Param("plantId") String plantId,
+            @Param("since") LocalDateTime since
     );
 }

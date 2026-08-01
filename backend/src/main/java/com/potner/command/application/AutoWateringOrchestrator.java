@@ -5,6 +5,7 @@ import com.potner.alert.domain.AlertDeviation;
 import com.potner.alert.domain.AlertMetricType;
 import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.IssueDeviceCommandRequest;
@@ -89,7 +90,8 @@ public class AutoWateringOrchestrator {
                 return;
             }
             commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
-                    DeviceCommandType.NAVIGATE, RobotLocationType.WATER_STATION, null));
+                    DeviceCommandType.NAVIGATE, RobotLocationType.WATER_STATION, null),
+                    CommandPurpose.WATERING);
             log.info("Auto watering run started: plantId={}", event.plantId());
         } catch (BusinessException exception) {
             // 배정 없음, 위치 미설정, 앞선 명령 대기 중 등. 시작을 못 한 이유가 로그로 남아야
@@ -104,10 +106,17 @@ public class AutoWateringOrchestrator {
         }
     }
 
-    /** 자동 명령의 회신이 반영되면 다음 단계를 잇는다. */
+    /**
+     * 급수 체인 명령의 회신이 반영되면 다음 단계를 잇는다.
+     *
+     * <p>{@code purpose} 로 좁히는 것이 중요하다. 촬영·말리기 체인도 같은 스테이션 이동을 쓰므로,
+     * 종류와 목적지만 보면 촬영하러 도착한 로봇에 급수 명령이 나간다.
+     */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCommandCompleted(DeviceCommandCompletedEvent event) {
-        if (event.initiator() != CommandInitiator.AUTO || !properties.autoWaterEnabled()) {
+        if (event.initiator() != CommandInitiator.AUTO
+                || event.purpose() != CommandPurpose.WATERING
+                || !properties.autoWaterEnabled()) {
             return;
         }
         if (event.status() != DeviceCommandStatus.OK) {
@@ -142,13 +151,14 @@ public class AutoWateringOrchestrator {
         if (event.commandType() == DeviceCommandType.NAVIGATE
                 && event.destination() == RobotLocationType.WATER_STATION) {
             commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
-                    DeviceCommandType.WATER, null, null));
+                    DeviceCommandType.WATER, null, null), CommandPurpose.WATERING);
             log.info("Auto watering run: arrived at station, watering: plantId={}", event.plantId());
             return;
         }
         if (event.commandType() == DeviceCommandType.WATER) {
             commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
-                    DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null));
+                    DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null),
+                    CommandPurpose.WATERING);
             log.info("Auto watering run: watered, returning home: plantId={}", event.plantId());
             return;
         }
@@ -156,7 +166,7 @@ public class AutoWateringOrchestrator {
                 && event.destination() == RobotLocationType.HOME) {
             log.info("Auto watering run completed: plantId={}", event.plantId());
         }
-        // 그 외 조합(자동 CAPTURE/FAN 등)은 이 체인이 발행하지 않으므로 없다. 생기면 무시한다.
+        // 그 외 조합은 이 체인이 발행하지 않으므로 없다. 생기면 무시한다.
     }
 
     /**

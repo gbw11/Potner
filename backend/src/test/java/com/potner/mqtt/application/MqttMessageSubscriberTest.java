@@ -1,5 +1,6 @@
 package com.potner.mqtt.application;
 
+import com.potner.arrival.application.ArrivalResultMessageProcessor;
 import com.potner.command.application.CommandResultMessageProcessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ class MqttMessageSubscriberTest {
     private HeartbeatMessageProcessor heartbeatProcessor;
     private RobotStateMessageProcessor robotStateProcessor;
     private BatteryMessageProcessor batteryProcessor;
+    private ArrivalResultMessageProcessor arrivalResultProcessor;
     private CommandResultMessageProcessor commandResultProcessor;
     private WaterLowMessageProcessor waterLowProcessor;
     private MqttMessageSubscriber subscriber;
@@ -38,6 +40,7 @@ class MqttMessageSubscriberTest {
         heartbeatProcessor = mock(HeartbeatMessageProcessor.class);
         robotStateProcessor = mock(RobotStateMessageProcessor.class);
         batteryProcessor = mock(BatteryMessageProcessor.class);
+        arrivalResultProcessor = mock(ArrivalResultMessageProcessor.class);
         commandResultProcessor = mock(CommandResultMessageProcessor.class);
         waterLowProcessor = mock(WaterLowMessageProcessor.class);
         subscriber = new MqttMessageSubscriber(
@@ -45,8 +48,29 @@ class MqttMessageSubscriberTest {
                 heartbeatProcessor,
                 robotStateProcessor,
                 batteryProcessor,
+                arrivalResultProcessor,
                 commandResultProcessor,
                 waterLowProcessor
+        );
+    }
+
+    @Test
+    void delegatesArrivalResultTopicsBeforeGenericCommandResults() {
+        Message<String> message = new GenericMessage<>(
+                "{\"status\":\"OK\"}",
+                Map.of(MqttHeaders.RECEIVED_TOPIC,
+                        "potner/device/jetson-01/result/welcome_start")
+        );
+
+        subscriber.receive(message);
+
+        verify(arrivalResultProcessor).process(
+                "potner/device/jetson-01/result/welcome_start",
+                "{\"status\":\"OK\"}"
+        );
+        verify(commandResultProcessor, never()).process(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
         );
     }
 

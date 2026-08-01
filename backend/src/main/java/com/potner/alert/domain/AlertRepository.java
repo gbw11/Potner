@@ -19,6 +19,27 @@ public interface AlertRepository extends JpaRepository<Alert, String> {
 
     Optional<Alert> findByIdAndUserId(String id, String userId);
 
+    /** 지금 이 상태인 식물을 한 번에 찾는다. 자동 말리기가 과습 식물을 고르는 데 쓴다. */
+    List<Alert> findAllByMetricTypeAndDeviationAndResolvedAtIsNull(
+            AlertMetricType metricType,
+            AlertDeviation deviation
+    );
+
+    boolean existsByPlantIdAndMetricTypeAndDeviationAndResolvedAtIsNull(
+            String plantId,
+            AlertMetricType metricType,
+            AlertDeviation deviation
+    );
+
+    /**
+     * 가장 최근에 해제된 알림이다. 배수트레이가 "마지막으로 비운 시각" 을 이 값으로 얻는다 —
+     * 비움 기록 테이블을 따로 두지 않고 해제 시각을 그대로 쓴다.
+     */
+    Optional<Alert> findFirstByPlantIdAndMetricTypeAndResolvedAtIsNotNullOrderByResolvedAtDesc(
+            String plantId,
+            AlertMetricType metricType
+    );
+
     /**
      * 그날 어떤 이상이 있었는지 모을 때 쓴다. 일기 생성이 근거로 삼는다.
      *

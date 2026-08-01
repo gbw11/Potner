@@ -5,6 +5,7 @@ import com.potner.alert.domain.AlertDeviation;
 import com.potner.alert.domain.AlertMetricType;
 import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.IssueDeviceCommandRequest;
@@ -62,7 +63,7 @@ class AutoWateringOrchestratorTest {
                 profileRepository,
                 assignmentRepository,
                 locationRepository,
-                new DeviceCommandProperties(120, 30, 30, autoWaterEnabled, true, 8, 17, 60)
+                new DeviceCommandProperties(120, 30, 30, autoWaterEnabled, true, 8, 17, 60, true, 10, 16, true, 600, 6)
         );
     }
 
@@ -74,7 +75,7 @@ class AutoWateringOrchestratorTest {
 
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
-        verify(commandService).issueAuto(eq(PLANT_ID), request.capture());
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.NAVIGATE);
         assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.WATER_STATION);
     }
@@ -85,7 +86,7 @@ class AutoWateringOrchestratorTest {
         orchestrator(true).onAlertOpened(alert(AlertMetricType.SOIL_MOISTURE, AlertDeviation.HIGH));
         orchestrator(true).onAlertOpened(alert(AlertMetricType.TEMPERATURE, AlertDeviation.LOW));
 
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -100,7 +101,7 @@ class AutoWateringOrchestratorTest {
                 DeviceCommandStatus.OK
         ));
 
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -113,7 +114,7 @@ class AutoWateringOrchestratorTest {
 
         orchestrator(true).onAlertOpened(soilMoistureLowAlert());
 
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -123,14 +124,14 @@ class AutoWateringOrchestratorTest {
 
         orchestrator(true).onAlertOpened(soilMoistureLowAlert());
 
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
     void swallowsIssueFailuresSoTheAlertPipelineIsNotAffected() {
         // 앞선 명령 대기 중(409) 등. 예외가 리스너 밖으로 나가면 알림 파이프라인 로그가 오염된다.
         givenPlantReadyToWater(false);
-        when(commandService.issueAuto(eq(PLANT_ID), any()))
+        when(commandService.issueAuto(eq(PLANT_ID), any(), any()))
                 .thenThrow(new BusinessException(ErrorCode.DEVICE_COMMAND_ALREADY_PENDING));
 
         orchestrator(true).onAlertOpened(soilMoistureLowAlert());
@@ -147,7 +148,7 @@ class AutoWateringOrchestratorTest {
 
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
-        verify(commandService).issueAuto(eq(PLANT_ID), request.capture());
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.WATER);
     }
 
@@ -162,7 +163,7 @@ class AutoWateringOrchestratorTest {
 
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
-        verify(commandService).issueAuto(eq(PLANT_ID), request.capture());
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.NAVIGATE);
         assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.HOME);
     }
@@ -176,7 +177,7 @@ class AutoWateringOrchestratorTest {
                 DeviceCommandStatus.OK
         ));
 
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -190,7 +191,22 @@ class AutoWateringOrchestratorTest {
                 DeviceCommandStatus.ERROR
         ));
 
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
+    }
+
+    @Test
+    void otherChainsArrivalAtTheStationDoesNotTriggerWatering() {
+        // 촬영·말리기 체인도 같은 스테이션 이동을 쓴다. purpose 로 좁히지 않으면 촬영하러
+        // 도착한 로봇에 급수 명령이 나간다.
+        orchestrator(true).onCommandCompleted(completed(
+                DeviceCommandType.NAVIGATE,
+                CommandInitiator.AUTO,
+                CommandPurpose.CAPTURE,
+                RobotLocationType.WATER_STATION,
+                DeviceCommandStatus.OK
+        ));
+
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -204,7 +220,7 @@ class AutoWateringOrchestratorTest {
                 DeviceCommandStatus.OK
         ));
 
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     private AlertOpenedEvent soilMoistureLowAlert() {
@@ -221,7 +237,18 @@ class AutoWateringOrchestratorTest {
             RobotLocationType destination,
             DeviceCommandStatus status
     ) {
-        return new DeviceCommandCompletedEvent(REQUEST_ID, PLANT_ID, type, initiator, destination, status);
+        return completed(type, initiator, CommandPurpose.WATERING, destination, status);
+    }
+
+    private DeviceCommandCompletedEvent completed(
+            DeviceCommandType type,
+            CommandInitiator initiator,
+            CommandPurpose purpose,
+            RobotLocationType destination,
+            DeviceCommandStatus status
+    ) {
+        return new DeviceCommandCompletedEvent(
+                REQUEST_ID, PLANT_ID, type, initiator, purpose, destination, status);
     }
 
     private void givenPlantReadyToWater(boolean stationWaterLow) {

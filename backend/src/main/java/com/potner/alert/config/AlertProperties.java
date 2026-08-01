@@ -22,7 +22,18 @@ import java.math.BigDecimal;
 public record AlertProperties(
         @Positive int sampleSize,
         @NotNull @DecimalMin("0.0") @DecimalMax("0.5") BigDecimal hysteresisRatio,
-        @Positive int maxPageSize
+        @Positive int maxPageSize,
+
+        /**
+         * 배수트레이 알림 임계값 = 식물별 권장 급수량 × 이 배수.
+         *
+         * <p>고정 ml 이 아닌 이유는 트레이 용량이 화분 크기에 따라 다르기 때문이다. 권장 급수량이
+         * 화분 크기의 대리 지표라서 그 값에 곱한다. 사실상 "급수 몇 회마다 비우기" 라서 실측 후
+         * 조정하기 쉽다.
+         *
+         * <p>시연에서 즉석으로 보여주려면 1 로 낮춘다 — 급수 한 번에 알림이 뜬다.
+         */
+        @Positive int drainageTrayWateringMultiplier
 ) {
 
     /**

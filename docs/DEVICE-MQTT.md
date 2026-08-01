@@ -119,6 +119,8 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/result/capture       촬영 결과 회신     파이만 (16절)
   potner/device/<device_uid>/result/fan           송풍 결과 회신     파이만 (16절)
   potner/device/<device_uid>/result/navigate      이동 결과 회신     젯슨만 (16절)
+  potner/device/<device_uid>/result/welcome_start 귀가 마중 도착 회신 젯슨만
+  potner/device/<device_uid>/result/welcome_cancel 귀가 취소 회신     젯슨만
 
 서버 → 장치
   potner/device/<device_uid>/command/expression   디스플레이 표정    젯슨이 구독
@@ -126,6 +128,8 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/command/capture      촬영 명령          파이가 구독 (16절)
   potner/device/<device_uid>/command/fan          송풍 명령          파이가 구독 (16절)
   potner/device/<device_uid>/command/navigate     이동 명령          젯슨이 구독 (16절)
+  potner/device/<device_uid>/command/welcome_start 귀가 마중 시작     젯슨이 구독
+  potner/device/<device_uid>/command/welcome_cancel 귀가 마중 취소    젯슨이 구독
 ```
 
 **결과 회신은 반드시 `result/` 아래여야 합니다.** `command/water/result` 처럼 `command/` 아래에
@@ -478,16 +482,22 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
 1. **젯슨: `command/navigate` 수신 + `result/navigate` 반향** (16절 계약). 도착이 `OK` 회신으로
    확인돼야 서버가 다음 명령(급수)을 이어 보낼 수 있습니다.
 2. **라즈베리: `command/fan` 수신 + `result/fan` 반향** (16절 계약). 팬 하드웨어 제어
-   (`cli.fan`)는 이미 있고 MQTT 리스너만 없습니다.
+   (`cli.fan`)는 이미 있고 MQTT 리스너만 없습니다. **서버는 자동 말리기까지 붙었습니다** —
+   토양수분 HIGH 알림이 열리면 스테이션으로 데려가 송풍을 반복하고, 마르면 되돌립니다
+   (`AutoDryingScheduler`). 이 수신이 없으면 이동만 하고 송풍 단계에서 타임아웃으로 멈춥니다.
 3. **라즈베리: 결과 토픽 두 줄 수정** (16절 경고).
 
-남은 기획 질문은 하나입니다 — **`GREETING`은 서버가 시킵니까, 로봇이 자율로 합니까?**
-마중 위치(17절)를 서버가 갖고 있으니 서버가 시키는 쪽이 결정과 일관되지만, 트리거(귀가를
-어떻게 아는가)가 미정입니다.
+`GREETING`도 서버 명령으로 결정됐습니다. GPS 전에는 앱의 디버그 버튼이
+`POST /api/v1/arrival/events`를 호출하고, 이후 Android Geofence가 같은 API를 호출합니다.
+서버는 저장된 `GREETING`/`HOME` 좌표를 `welcome_start`에 담아 젯슨에 보냅니다.
 
 **스테이션은 서버에 생겼습니다(17절).** 등록(스테이션 코드)·좌표·물 부족 알림까지 있습니다.
-배수트레이 알림은 범위에서 뺐습니다 — 물 부족만 전달하기로 결정했습니다. 디자인의
-"배수트레이를 비워주세요" 화면은 앱에서 함께 빼야 합니다.
+배수트레이 알림은 **센서 없이 누적 급수량으로** 만들었습니다(`DRAINAGE_TRAY`). 급수마다
+`device_command.dispensed_ml` 이 쌓이므로 수위 센서를 붙이지 않았습니다 — **장치 쪽 작업이
+없습니다.** 임계값은 고정 ml 이 아니라 `recommended_watering_ml × ALERT_DRAINAGE_TRAY_WATERING_MULTIPLIER`
+(기본 8회분)입니다. 트레이는 총 배수량으로 차므로 회당 급수량 차이는 무관하지만 트레이 용량은
+화분 크기에 비례하기 때문입니다. 사용자가 앱에서 비웠음을 알리면
+(`POST /api/v1/plants/{plantId}/drainage-tray/emptied`) 그 시각이 다음 누적의 기준점이 됩니다.
 
 **장치가 필요한 자격증명이 두 개인데 전달 경로가 없습니다.** 센서용 mosquitto 계정과 사진
 업로드용 `uploadToken`입니다. 후자는 로봇 등록 응답으로 나오지만 그걸 장치에 넣는 것은 현재
@@ -859,6 +869,43 @@ capture_result_topic: potner/device/raspberry-01/result/capture
   보냅니다. 실패는 `ERROR` + `error` 문구(예: DOCKING_FAILED, NAVIGATION_FAILED), 이동 중
   새 명령은 `BUSY` 입니다.
 - 자율 임무는 꺼야 합니다(12절). 서버 명령만이 이동의 트리거입니다.
+
+### 귀가 마중 명령 — 서버 → 젯슨
+
+GPS 전에는 앱의 디버그 버튼, GPS 적용 뒤에는 Android Geofence가 같은 API와 MQTT 계약을
+사용합니다. `requestId`는 `eventId`와 같고 QoS 1 중복 수신에도 같은 이동을 다시 시작하지
+않아야 합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/welcome_start
+{"eventId":"<uuid>","visitId":"<uuid>","requestId":"<eventId와 같음>",
+ "destination":"GREETING","x":1.25,"y":-0.48,"yaw":1.5708,
+ "returnDestination":"HOME","returnX":0.10,"returnY":0.20,"returnYaw":0.0,
+ "waitSeconds":120,"totalTimeoutSeconds":300,"publishedAt":"..."}
+
+젯슨 → 서버   potner/device/<device_uid>/result/welcome_start
+{"messageId":"<새 uuid>","deviceId":"jetson-01","requestId":"<그대로 반향>",
+ "status":"OK"}
+```
+
+`welcome_start`의 `OK`는 **GREETING 좌표 도착**을 뜻합니다. 젯슨은 도착 뒤 사람을 인식하면
+인사하고 HOME으로 복귀합니다. 사람이 보이지 않으면 `waitSeconds` 뒤 복귀하고,
+`totalTimeoutSeconds`를 넘기면 기다리지 않고 HOME 복귀를 시작합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/welcome_cancel
+{"eventId":"<새 uuid>","visitId":"<start와 같음>","requestId":"<eventId와 같음>",
+ "returnDestination":"HOME","returnX":0.10,"returnY":0.20,"returnYaw":0.0,
+ "publishedAt":"..."}
+
+젯슨 → 서버   potner/device/<device_uid>/result/welcome_cancel
+{"messageId":"<새 uuid>","deviceId":"jetson-01","requestId":"<그대로 반향>",
+ "status":"OK"}
+```
+
+취소 `OK`는 **HOME 좌표 도착**을 뜻합니다. 이동 실패는 `ERROR`, 다른 방문이나 다른 임무를
+수행 중이라 시작하지 못하면 `BUSY`입니다. 실패에는 `error`와 기계 판독용 `code`를 함께
+보낼 수 있습니다.
 
 ### 송풍 명령 — 서버 → 라즈베리 (수신 구현 필요)
 

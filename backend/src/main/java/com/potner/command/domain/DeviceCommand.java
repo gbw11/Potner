@@ -51,6 +51,11 @@ public class DeviceCommand {
     @Column(name = "initiator", length = 10, nullable = false)
     private CommandInitiator initiator;
 
+    /** 자동 체인 구분이다. 사용자 명령은 {@code null}. DB CHECK 가 그 짝을 강제한다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "purpose", length = 20)
+    private CommandPurpose purpose;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 10, nullable = false)
     private DeviceCommandStatus status;
@@ -91,6 +96,7 @@ public class DeviceCommand {
             String deviceUid,
             DeviceCommandType commandType,
             CommandInitiator initiator,
+            CommandPurpose purpose,
             BigDecimal requestedMl,
             RobotLocationType destination,
             Integer runSeconds,
@@ -103,6 +109,7 @@ public class DeviceCommand {
         command.deviceUid = deviceUid;
         command.commandType = commandType;
         command.initiator = initiator;
+        command.purpose = purpose;
         command.status = DeviceCommandStatus.ISSUED;
         command.requestedMl = requestedMl;
         command.destination = destination;
@@ -158,6 +165,10 @@ public class DeviceCommand {
 
     public CommandInitiator getInitiator() {
         return initiator;
+    }
+
+    public CommandPurpose getPurpose() {
+        return purpose;
     }
 
     public DeviceCommandType getCommandType() {

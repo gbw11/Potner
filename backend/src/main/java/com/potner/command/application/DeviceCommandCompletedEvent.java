@@ -1,6 +1,7 @@
 package com.potner.command.application;
 
 import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.location.domain.RobotLocationType;
@@ -20,6 +21,10 @@ public record DeviceCommandCompletedEvent(
         String plantId,
         DeviceCommandType commandType,
         CommandInitiator initiator,
+
+        /** 어느 자동 체인의 단계인지. 사용자 명령은 {@code null} 이라 어떤 체인도 이어받지 않는다. */
+        CommandPurpose purpose,
+
         RobotLocationType destination,
         DeviceCommandStatus status
 ) {

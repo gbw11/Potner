@@ -76,7 +76,7 @@ class SunlightRelocationSchedulerTest {
                 commandRepository,
                 aggregationService,
                 commandService,
-                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60),
+                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, true, 10, 16, true, 600, 6),
                 new SensorQueryProperties("+09:00", 30, 7, 90),
                 Clock.fixed(now, ZoneOffset.UTC)
         );
@@ -94,7 +94,7 @@ class SunlightRelocationSchedulerTest {
         assertThat(moved).isEqualTo(1);
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
-        verify(commandService).issueAuto(eq(PLANT_ID), request.capture());
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.NAVIGATE);
         assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.SUNLIGHT);
     }
@@ -111,7 +111,7 @@ class SunlightRelocationSchedulerTest {
 
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
-        verify(commandService).issueAuto(eq(PLANT_ID), request.capture());
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.HOME);
     }
 
@@ -127,7 +127,7 @@ class SunlightRelocationSchedulerTest {
 
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
-        verify(commandService).issueAuto(eq(PLANT_ID), request.capture());
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.HOME);
     }
 
@@ -142,7 +142,7 @@ class SunlightRelocationSchedulerTest {
         int moved = scheduler(AFTER_WINDOW).relocateOnce();
 
         assertThat(moved).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -154,7 +154,7 @@ class SunlightRelocationSchedulerTest {
         givenLastNavigate(autoNavigate(RobotLocationType.HOME));
 
         assertThat(scheduler(IN_WINDOW).relocateOnce()).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -168,7 +168,7 @@ class SunlightRelocationSchedulerTest {
                 .thenReturn(true);
 
         assertThat(scheduler(IN_WINDOW).relocateOnce()).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -181,7 +181,7 @@ class SunlightRelocationSchedulerTest {
         givenLastNavigate(manual);
 
         assertThat(scheduler(IN_WINDOW).relocateOnce()).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -205,7 +205,7 @@ class SunlightRelocationSchedulerTest {
         when(profileRepository.findByPlantId(PLANT_ID)).thenReturn(Optional.of(profile));
 
         assertThat(scheduler(IN_WINDOW).relocateOnce()).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     private void givenAssignedPlant() {

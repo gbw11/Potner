@@ -129,6 +129,33 @@ public class Alert {
         );
     }
 
+    /**
+     * 배수트레이 비움 알림을 연다.
+     *
+     * <p>센서가 아니라 누적 급수량으로 판정하지만 측정값과 기준이 실제로 있으므로 세 값을 모두
+     * 채운다. 앱이 "1,200 / 2,800ml" 같은 진행 상황을 보여줄 수 있다.
+     *
+     * <p>방향은 항상 {@code HIGH} 다 — 트레이는 넘칠 때만 문제가 된다. 하한은 0 이다.
+     */
+    public static Alert openDrainageTray(
+            String userId,
+            String plantId,
+            BigDecimal accumulatedMl,
+            BigDecimal thresholdMl,
+            LocalDateTime occurredAt
+    ) {
+        return new Alert(
+                userId,
+                plantId,
+                AlertMetricType.DRAINAGE_TRAY,
+                AlertDeviation.HIGH,
+                accumulatedMl,
+                BigDecimal.ZERO,
+                thresholdMl,
+                occurredAt
+        );
+    }
+
     /** 정상 범위로 복귀했을 때 활성 상태를 종료한다. 이미 해제된 Alert는 변경하지 않는다. */
     public void resolve(LocalDateTime resolvedAt) {
         if (this.resolvedAt == null) {

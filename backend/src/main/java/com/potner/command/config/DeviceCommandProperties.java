@@ -66,11 +66,54 @@ public record DeviceCommandProperties(
          * <p>이게 없으면 사용자가 마중 자리로 부른 로봇을 다음 검사 주기에 서버가 도로
          * 끌고 간다.
          */
-        @Positive int manualPlacementHoldMinutes
+        @Positive int manualPlacementHoldMinutes,
+
+        /**
+         * 하루 한 장 성장 사진을 자동으로 촬영한다.
+         *
+         * <p>이게 꺼지면 사진이 한 장도 쌓이지 않아 포토 로그·타임랩스·생장 단계 판정·자동
+         * 개화 기록이 모두 함께 멈춘다. 사진 업로드가 그 전부의 유일한 입구다.
+         */
+        boolean autoCaptureEnabled,
+
+        /**
+         * 촬영 시도 시간대(서비스 타임존, 시)다.
+         *
+         * <p>낮으로 한정하는 이유가 둘이다. 어두우면 사진이 쓸모없고, 생장 단계 추론이 어두운
+         * 사진에서 오탐을 낸다.
+         */
+        @Min(0) @Max(23) int captureWindowStartHour,
+
+        @Min(1) @Max(24) int captureWindowEndHour,
+
+        /**
+         * 토양 과습이면 스테이션으로 데려가 송풍으로 말린다. 자동 급수의 대칭이다.
+         */
+        boolean autoDryingEnabled,
+
+        /**
+         * 말리기 재검사 주기(초)다. 송풍 1회는 짧고, 흙이 마르는 데는 시간이 걸린다. 너무 짧게
+         * 두면 수분이 반응하기 전에 또 돌려 과건조가 된다.
+         */
+        @Positive int dryingCheckIntervalSeconds,
+
+        /**
+         * 하루 자동 송풍 가동 횟수 상한이다.
+         *
+         * <p>정상 종료는 과습 알림이 닫히는 것이다. 이 값은 수분 센서가 고장 나 높은 값을 계속
+         * 보낼 때 팬이 끝없이 도는 것을 막는 안전장치다. 물리 장치를 반복 구동하는 자동화에는
+         * 스스로 멈추는 지점이 있어야 한다.
+         */
+        @Positive int maxAutoDryingRunsPerDay
 ) {
 
     @AssertTrue(message = "sunlight window start must be before end")
     public boolean isSunlightWindowValid() {
         return sunlightWindowStartHour < sunlightWindowEndHour;
+    }
+
+    @AssertTrue(message = "capture window start must be before end")
+    public boolean isCaptureWindowValid() {
+        return captureWindowStartHour < captureWindowEndHour;
     }
 }
