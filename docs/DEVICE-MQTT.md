@@ -482,7 +482,9 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
 1. **젯슨: `command/navigate` 수신 + `result/navigate` 반향** (16절 계약). 도착이 `OK` 회신으로
    확인돼야 서버가 다음 명령(급수)을 이어 보낼 수 있습니다.
 2. **라즈베리: `command/fan` 수신 + `result/fan` 반향** (16절 계약). 팬 하드웨어 제어
-   (`cli.fan`)는 이미 있고 MQTT 리스너만 없습니다.
+   (`cli.fan`)는 이미 있고 MQTT 리스너만 없습니다. **서버는 자동 말리기까지 붙었습니다** —
+   토양수분 HIGH 알림이 열리면 스테이션으로 데려가 송풍을 반복하고, 마르면 되돌립니다
+   (`AutoDryingScheduler`). 이 수신이 없으면 이동만 하고 송풍 단계에서 타임아웃으로 멈춥니다.
 3. **라즈베리: 결과 토픽 두 줄 수정** (16절 경고).
 
 `GREETING`도 서버 명령으로 결정됐습니다. GPS 전에는 앱의 디버그 버튼이

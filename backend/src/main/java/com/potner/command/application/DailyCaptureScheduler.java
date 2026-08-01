@@ -1,7 +1,8 @@
 package com.potner.command.application;
 
 import com.potner.command.config.DeviceCommandProperties;
-import com.potner.command.domain.DeviceCommandRepository;
+import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.IssueDeviceCommandRequest;
@@ -9,6 +10,7 @@ import com.potner.common.error.BusinessException;
 import com.potner.device.domain.AssignedDeviceView;
 import com.potner.device.domain.IotDeviceType;
 import com.potner.device.domain.PlantDeviceAssignmentRepository;
+import com.potner.location.domain.RobotLocationType;
 import com.potner.photo.domain.PhotoSource;
 import com.potner.photo.domain.PlantPhotoRepository;
 import com.potner.plant.domain.PlantStatus;
@@ -17,6 +19,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -39,8 +43,14 @@ import java.util.concurrent.TimeUnit;
  * <p>시간대를 낮으로 한정하는 이유가 둘이다. 어두우면 사진이 쓸모없고, 생장 단계 추론이 어두운
  * 사진에서 오탐을 낸다. 끝 시각은 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
  *
- * <p>이동 중에는 찍지 않는다. 자동 급수나 햇빛 재배치로 로봇이 움직이는 중이면 흔들리거나
- * 엉뚱한 각도가 나온다. 다음 주기에 자리를 잡은 뒤 찍는다.
+ * <p><strong>카메라가 스테이션에 고정되어 있어 촬영도 이동이 앞선다.</strong> 식물은 젯슨에
+ * 실려 다니므로, 로봇을 스테이션으로 보내지 않고 촬영하면 빈 스테이션 사진이 남는다.
+ * 급수와 같은 모양의 체인이다 — 이동 → 촬영 → 복귀.
+ *
+ * <p>급수하러 간 김에 겸사겸사 찍지 않는다. 급수는 며칠에 한 번이라 그 주기에 묶으면 타임랩스
+ * 프레임 간격이 들쭉날쭉해진다. 사진은 매일 같은 간격이어야 성장이 보인다.
+ *
+ * <p>다른 체인이 로봇을 쓰고 있으면 이번 주기는 넘긴다({@link RobotBusyGuard}).
  */
 @Component
 public class DailyCaptureScheduler {
@@ -49,7 +59,7 @@ public class DailyCaptureScheduler {
 
     private final PlantDeviceAssignmentRepository assignmentRepository;
     private final PlantPhotoRepository photoRepository;
-    private final DeviceCommandRepository commandRepository;
+    private final RobotBusyGuard busyGuard;
     private final DeviceCommandService commandService;
     private final DeviceCommandProperties properties;
     private final SensorQueryProperties sensorQueryProperties;
@@ -58,7 +68,7 @@ public class DailyCaptureScheduler {
     public DailyCaptureScheduler(
             PlantDeviceAssignmentRepository assignmentRepository,
             PlantPhotoRepository photoRepository,
-            DeviceCommandRepository commandRepository,
+            RobotBusyGuard busyGuard,
             DeviceCommandService commandService,
             DeviceCommandProperties properties,
             SensorQueryProperties sensorQueryProperties,
@@ -66,7 +76,7 @@ public class DailyCaptureScheduler {
     ) {
         this.assignmentRepository = assignmentRepository;
         this.photoRepository = photoRepository;
-        this.commandRepository = commandRepository;
+        this.busyGuard = busyGuard;
         this.commandService = commandService;
         this.properties = properties;
         this.sensorQueryProperties = sensorQueryProperties;
@@ -118,21 +128,63 @@ public class DailyCaptureScheduler {
         if (photoRepository.existsByPlantIdAndSourceAndPhotoDate(plantId, PhotoSource.DEVICE, today)) {
             return false;
         }
-        // 앞선 촬영 명령이 아직 회신을 기다린다. 지금 또 보내면 409 다.
-        if (commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                plantId, DeviceCommandType.CAPTURE, DeviceCommandStatus.ISSUED)) {
-            return false;
-        }
-        // 이동 중이면 흔들리거나 엉뚱한 각도가 나온다. 자리를 잡은 다음 주기에 찍는다.
-        if (commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                plantId, DeviceCommandType.NAVIGATE, DeviceCommandStatus.ISSUED)) {
+        // 급수나 말리기가 로봇을 쓰고 있다. 끝나면 다음 주기에 다시 본다.
+        if (busyGuard.isBusy(plantId)) {
             return false;
         }
 
+        // 카메라가 스테이션에 있으므로 먼저 데려간다. 도착 회신이 오면 체인이 촬영을 잇는다.
         commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
-                DeviceCommandType.CAPTURE, null, null));
-        log.info("Daily capture issued: plantId={}, date={}", plantId, today);
+                DeviceCommandType.NAVIGATE, RobotLocationType.WATER_STATION, null),
+                CommandPurpose.CAPTURE);
+        log.info("Daily capture run started: plantId={}, date={}", plantId, today);
         return true;
+    }
+
+    /**
+     * 촬영 체인의 다음 단계를 잇는다. 급수 체인과 같은 모양이라 판단 기준도 같다 —
+     * {@code purpose} 로 자기 체인만 이어받는다.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onCommandCompleted(DeviceCommandCompletedEvent event) {
+        if (event.initiator() != CommandInitiator.AUTO
+                || event.purpose() != CommandPurpose.CAPTURE
+                || !properties.autoCaptureEnabled()) {
+            return;
+        }
+        if (event.status() != DeviceCommandStatus.OK) {
+            log.warn(
+                    "Daily capture run stopped: plantId={}, type={}, status={}",
+                    event.plantId(), event.commandType(), event.status()
+            );
+            return;
+        }
+        try {
+            continueChain(event);
+        } catch (RuntimeException exception) {
+            log.warn("Daily capture run could not continue: plantId={}", event.plantId(), exception);
+        }
+    }
+
+    private void continueChain(DeviceCommandCompletedEvent event) {
+        if (event.commandType() == DeviceCommandType.NAVIGATE
+                && event.destination() == RobotLocationType.WATER_STATION) {
+            commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
+                    DeviceCommandType.CAPTURE, null, null), CommandPurpose.CAPTURE);
+            log.info("Daily capture run: arrived at station, capturing: plantId={}", event.plantId());
+            return;
+        }
+        if (event.commandType() == DeviceCommandType.CAPTURE) {
+            commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
+                    DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null),
+                    CommandPurpose.CAPTURE);
+            log.info("Daily capture run: captured, returning home: plantId={}", event.plantId());
+            return;
+        }
+        if (event.commandType() == DeviceCommandType.NAVIGATE
+                && event.destination() == RobotLocationType.HOME) {
+            log.info("Daily capture run completed: plantId={}", event.plantId());
+        }
     }
 
     /** 날짜 경계는 서비스 타임존 기준이다. UTC 로 끊으면 하루가 9시간 밀린다. */
