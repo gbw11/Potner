@@ -144,6 +144,10 @@ potner:
     # WELCOME_START의 OK는 GREETING 도착을 뜻하므로 대기 시간을 포함하지 않는다.
     command-timeout-seconds: ${ARRIVAL_COMMAND_TIMEOUT_SECONDS:120}
     timeout-check-interval-seconds: ${ARRIVAL_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
+    # 백그라운드 Work 재시도가 너무 늦게 도착해 로봇을 갑자기 움직이는 것을 막는다.
+    event-max-age-seconds: ${ARRIVAL_EVENT_MAX_AGE_SECONDS:600}
+    # 휴대전화 시계가 조금 빠른 경우는 허용하되 큰 시각 오류는 명령 발행 전에 거절한다.
+    future-event-skew-seconds: ${ARRIVAL_FUTURE_EVENT_SKEW_SECONDS:300}
   device:
     # 배터리 잔량을 보고하도록 정한 장치다. robot.battery_percent 가 컬럼 하나라 두 장치가
     # 보내면 서로 덮어쓴다. 배터리 센서가 라즈베리로 옮겨가면 RASPBERRY_PI 로 바꾼다.

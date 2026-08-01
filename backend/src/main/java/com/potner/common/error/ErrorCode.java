@@ -37,6 +37,8 @@ public enum ErrorCode {
     ARRIVAL_EVENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Arrival event not found", "귀가 이벤트를 찾을 수 없습니다."),
     ARRIVAL_VISIT_NOT_FOUND(HttpStatus.CONFLICT, "Arrival visit not found", "취소할 귀가 방문을 찾을 수 없습니다."),
     ARRIVAL_MULTIPLE_ROBOTS(HttpStatus.CONFLICT, "Multiple arrival robots", "귀가 로봇이 한 대보다 많아 자동으로 선택할 수 없습니다."),
+    STALE_EVENT(HttpStatus.BAD_REQUEST, "Stale event", "유효시간이 지난 귀가 이벤트입니다."),
+    INVALID_EVENT_TIME(HttpStatus.BAD_REQUEST, "Invalid event time", "귀가 이벤트 시각이 현재보다 지나치게 미래입니다."),
     WATERING_AMOUNT_NOT_CONFIGURED(HttpStatus.BAD_REQUEST, "Watering amount not configured", "케어 설정에 급수량이 없습니다. 물의 양을 먼저 설정해 주세요."),
     INVALID_DEVICE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid device token", "유효하지 않은 장치 토큰입니다."),
     INVALID_PHOTO(HttpStatus.BAD_REQUEST, "Invalid photo", "이미지 파일이 아닙니다."),
