@@ -40,11 +40,13 @@ void main() {
     );
     final api = ArrivalApi(dio);
 
-    final receipt = await api.sendDebugEvent(
+    final receipt = await api.sendEvent(
       ArrivalEventCall(
         eventId: 'event-01',
         visitId: 'visit-01',
         eventType: ArrivalEventType.approach,
+        source: ArrivalEventSource.debugButton,
+        geofenceId: 'DEBUG_BUTTON',
         occurredAt: DateTime.utc(2026, 7, 31, 5),
       ),
     );

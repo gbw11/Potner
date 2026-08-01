@@ -81,11 +81,13 @@ class ArrivalDebugController extends Notifier<ArrivalDebugState> {
     );
 
     try {
-      final receipt = await _repository.sendDebugEvent(
+      final receipt = await _repository.sendEvent(
         ArrivalEventCall(
           eventId: eventId,
           visitId: visitId,
           eventType: type,
+          source: ArrivalEventSource.debugButton,
+          geofenceId: 'DEBUG_BUTTON',
           occurredAt: DateTime.now(),
         ),
       );

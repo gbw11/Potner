@@ -1,5 +1,14 @@
 enum ArrivalEventType { approach, cancel }
 
+enum ArrivalEventSource { debugButton, androidGeofence }
+
+extension ArrivalEventSourceWire on ArrivalEventSource {
+  String get wireName => switch (this) {
+    ArrivalEventSource.debugButton => 'DEBUG_BUTTON',
+    ArrivalEventSource.androidGeofence => 'ANDROID_GEOFENCE',
+  };
+}
+
 extension ArrivalEventTypeWire on ArrivalEventType {
   String get wireName => switch (this) {
     ArrivalEventType.approach => 'APPROACH',
@@ -56,11 +65,15 @@ class ArrivalEventCall {
     required this.eventId,
     required this.visitId,
     required this.eventType,
+    required this.source,
+    required this.geofenceId,
     required this.occurredAt,
   });
 
   final String eventId;
   final String visitId;
   final ArrivalEventType eventType;
+  final ArrivalEventSource source;
+  final String geofenceId;
   final DateTime occurredAt;
 }

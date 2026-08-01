@@ -14,8 +14,8 @@ class ArrivalRepositoryImpl implements ArrivalRepository {
   final ArrivalApi _api;
 
   @override
-  Future<ArrivalEventReceipt> sendDebugEvent(ArrivalEventCall event) {
-    return _api.sendDebugEvent(event);
+  Future<ArrivalEventReceipt> sendEvent(ArrivalEventCall event) {
+    return _api.sendEvent(event);
   }
 
   @override

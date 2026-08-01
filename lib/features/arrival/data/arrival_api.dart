@@ -7,7 +7,7 @@ class ArrivalApi {
 
   final Dio _dio;
 
-  Future<ArrivalEventReceipt> sendDebugEvent(ArrivalEventCall event) async {
+  Future<ArrivalEventReceipt> sendEvent(ArrivalEventCall event) async {
     try {
       final response = await _dio.post<Object?>(
         'arrival/events',
@@ -15,8 +15,8 @@ class ArrivalApi {
           'eventId': event.eventId,
           'visitId': event.visitId,
           'eventType': event.eventType.wireName,
-          'source': 'DEBUG_BUTTON',
-          'geofenceId': 'DEBUG_BUTTON',
+          'source': event.source.wireName,
+          'geofenceId': event.geofenceId,
           'occurredAt': event.occurredAt.toUtc().toIso8601String(),
         },
       );

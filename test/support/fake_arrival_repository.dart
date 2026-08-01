@@ -8,7 +8,7 @@ class FakeArrivalRepository implements ArrivalRepository {
   String? resultError;
 
   @override
-  Future<ArrivalEventReceipt> sendDebugEvent(ArrivalEventCall event) async {
+  Future<ArrivalEventReceipt> sendEvent(ArrivalEventCall event) async {
     calls.add(event);
     _events[event.eventId] = event;
     return ArrivalEventReceipt(
