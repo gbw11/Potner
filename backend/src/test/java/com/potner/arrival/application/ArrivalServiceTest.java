@@ -76,7 +76,7 @@ class ArrivalServiceTest {
                 robotRepository,
                 iotDeviceRepository,
                 locationRepository,
-                new ArrivalProperties(120, 300, 120, 30),
+                new ArrivalProperties(120, 300, 120, 30, 600, 300),
                 eventPublisher,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
@@ -122,6 +122,47 @@ class ArrivalServiceTest {
         verify(robotRepository, never())
                 .findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(any());
         verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void eventOlderThanConfiguredMaximumIsRejectedBeforeRobotLookup() {
+        ArrivalEventRequest stale = approachAt(
+                OffsetDateTime.ofInstant(NOW.minusSeconds(601), ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.process(USER_ID, stale))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.STALE_EVENT);
+        verify(robotRepository, never())
+                .findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void eventTooFarInTheFutureIsRejectedBeforeRobotLookup() {
+        ArrivalEventRequest future = approachAt(
+                OffsetDateTime.ofInstant(NOW.plusSeconds(301), ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.process(USER_ID, future))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_EVENT_TIME);
+        verify(robotRepository, never())
+                .findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void duplicateEventRemainsIdempotentEvenAfterItsTimestampGetsOld() {
+        when(arrivalEventRepository.existsById(EVENT_ID.toString())).thenReturn(true);
+
+        ArrivalEventResponse response = service.process(
+                USER_ID,
+                approachAt(OffsetDateTime.ofInstant(NOW.minusSeconds(601), ZoneOffset.UTC)));
+
+        assertThat(response.status()).isEqualTo("DUPLICATE_IGNORED");
+        verify(robotRepository, never())
+                .findAllByUserIdAndReleasedAtIsNullOrderByNameAsc(any());
     }
 
     @Test
@@ -196,13 +237,17 @@ class ArrivalServiceTest {
     }
 
     private ArrivalEventRequest approach() {
+        return approachAt(OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC));
+    }
+
+    private ArrivalEventRequest approachAt(OffsetDateTime occurredAt) {
         return new ArrivalEventRequest(
                 EVENT_ID,
                 VISIT_ID,
                 ArrivalEventType.APPROACH,
                 ArrivalEventSource.DEBUG_BUTTON,
                 "DEBUG_BUTTON",
-                OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC)
+                occurredAt
         );
     }
 

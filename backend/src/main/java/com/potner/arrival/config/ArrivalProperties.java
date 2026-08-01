@@ -10,7 +10,9 @@ public record ArrivalProperties(
         @Positive int welcomeWaitSeconds,
         @Positive int totalTimeoutSeconds,
         @Positive int commandTimeoutSeconds,
-        @Positive int timeoutCheckIntervalSeconds
+        @Positive int timeoutCheckIntervalSeconds,
+        @Positive int eventMaxAgeSeconds,
+        @Positive int futureEventSkewSeconds
 ) {
     public ArrivalProperties {
         if (totalTimeoutSeconds <= welcomeWaitSeconds) {
