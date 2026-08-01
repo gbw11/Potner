@@ -76,7 +76,7 @@ class SunlightRelocationSchedulerTest {
                 commandRepository,
                 aggregationService,
                 commandService,
-                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60),
+                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, true, 10, 16),
                 new SensorQueryProperties("+09:00", 30, 7, 90),
                 Clock.fixed(now, ZoneOffset.UTC)
         );

@@ -121,6 +121,14 @@ potner:
     sunlight-window-end-hour: ${DEVICE_COMMAND_SUNLIGHT_WINDOW_END_HOUR:17}
     # 사용자가 직접 이동시킨 로봇은 이 시간(분) 동안 자동 재배치가 건드리지 않는다.
     manual-placement-hold-minutes: ${DEVICE_COMMAND_MANUAL_PLACEMENT_HOLD_MINUTES:60}
+    # 하루 한 장 성장 사진 자동 촬영. 꺼지면 포토 로그·타임랩스·생장 단계 판정·자동 개화가
+    # 모두 함께 멈춘다 — 사진 업로드가 그 전부의 유일한 입구다.
+    auto-capture-enabled: ${DEVICE_COMMAND_AUTO_CAPTURE_ENABLED:true}
+    capture-check-interval-seconds: ${DEVICE_COMMAND_CAPTURE_CHECK_INTERVAL_SECONDS:1800}
+    # 촬영 시간대(서비스 타임존). 어두우면 사진이 쓸모없고 생장 단계 추론이 오탐을 낸다.
+    # 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
+    capture-window-start-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_START_HOUR:10}
+    capture-window-end-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_END_HOUR:16}
   arrival:
     # GREETING 도착 뒤 사용자를 기다리는 시간과 이동·대기·HOME 복귀를 합친 전체 상한이다.
     welcome-wait-seconds: ${ARRIVAL_WELCOME_WAIT_SECONDS:120}
