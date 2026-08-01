@@ -129,6 +129,13 @@ potner:
     # 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
     capture-window-start-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_START_HOUR:10}
     capture-window-end-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_END_HOUR:16}
+  arrival:
+    # GREETING 도착 뒤 사용자를 기다리는 시간과 이동·대기·HOME 복귀를 합친 전체 상한이다.
+    welcome-wait-seconds: ${ARRIVAL_WELCOME_WAIT_SECONDS:120}
+    total-timeout-seconds: ${ARRIVAL_TOTAL_TIMEOUT_SECONDS:300}
+    # WELCOME_START의 OK는 GREETING 도착을 뜻하므로 대기 시간을 포함하지 않는다.
+    command-timeout-seconds: ${ARRIVAL_COMMAND_TIMEOUT_SECONDS:120}
+    timeout-check-interval-seconds: ${ARRIVAL_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
   device:
     # 배터리 잔량을 보고하도록 정한 장치다. robot.battery_percent 가 컬럼 하나라 두 장치가
     # 보내면 서로 덮어쓴다. 배터리 센서가 라즈베리로 옮겨가면 RASPBERRY_PI 로 바꾼다.
