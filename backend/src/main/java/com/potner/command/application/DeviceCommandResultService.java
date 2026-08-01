@@ -83,6 +83,7 @@ public class DeviceCommandResultService {
                 command.getPlantId(),
                 command.getCommandType(),
                 command.getInitiator(),
+                command.getPurpose(),
                 command.getDestination(),
                 command.getStatus()
         ));

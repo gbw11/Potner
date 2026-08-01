@@ -1,6 +1,7 @@
 package com.potner.command.application;
 
 import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
@@ -53,6 +54,7 @@ class DeviceCommandResultServiceTest {
                 "plant-1", "robot-1", PI_UID,
                 DeviceCommandType.WATER,
                 CommandInitiator.USER,
+                CommandPurpose.WATERING,
                 new BigDecimal("350.00"),
                 null,
                 null,

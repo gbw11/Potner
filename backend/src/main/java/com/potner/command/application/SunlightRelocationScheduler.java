@@ -2,6 +2,7 @@ package com.potner.command.application;
 
 import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
@@ -158,7 +159,8 @@ public class SunlightRelocationScheduler {
 
         if (atSunlight && (fulfilled || !inWindow)) {
             commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
-                    DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null));
+                    DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null),
+                    CommandPurpose.RELOCATION);
             log.info(
                     "Sunlight relocation: returning home: plantId={}, fulfilled={}, inWindow={}",
                     plantId, fulfilled, inWindow
@@ -167,7 +169,8 @@ public class SunlightRelocationScheduler {
         }
         if (!atSunlight && !fulfilled && inWindow) {
             commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
-                    DeviceCommandType.NAVIGATE, RobotLocationType.SUNLIGHT, null));
+                    DeviceCommandType.NAVIGATE, RobotLocationType.SUNLIGHT, null),
+                    CommandPurpose.RELOCATION);
             log.info("Sunlight relocation: moving to sunlight: plantId={}", plantId);
             return true;
         }

@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+// CommandPurpose 는 같은 패키지라 import 가 필요 없다.
 
 public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, String> {
 
@@ -26,6 +27,31 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, St
             String plantId,
             DeviceCommandType commandType,
             DeviceCommandStatus status
+    );
+
+    /** 자동 말리기의 하루 가동 상한을 센다. 이력을 세므로 서버가 재시작해도 상한이 유지된다. */
+    long countByPlantIdAndCommandTypeAndPurposeAndIssuedAtAfter(
+            String plantId,
+            DeviceCommandType commandType,
+            CommandPurpose purpose,
+            LocalDateTime since
+    );
+
+    /**
+     * 최근 이 체인이 건드린 식물들이다.
+     *
+     * <p>말리기가 끝난 로봇을 대기 장소로 되돌릴 때 쓴다. 과습이 풀리면 알림이 닫히는데, 해제는
+     * 이벤트를 내지 않으므로 "이제 정상인데 아직 스테이션에 있는" 로봇을 이 목록에서 찾는다.
+     */
+    @Query("""
+            SELECT DISTINCT c.plantId
+              FROM DeviceCommand c
+             WHERE c.purpose = :purpose
+               AND c.issuedAt > :since
+            """)
+    List<String> findPlantIdsByPurposeSince(
+            @Param("purpose") CommandPurpose purpose,
+            @Param("since") LocalDateTime since
     );
 
     /**

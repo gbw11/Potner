@@ -1,7 +1,8 @@
 package com.potner.command.application;
 
 import com.potner.command.config.DeviceCommandProperties;
-import com.potner.command.domain.DeviceCommandRepository;
+import com.potner.command.domain.CommandInitiator;
+import com.potner.command.domain.CommandPurpose;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.IssueDeviceCommandRequest;
@@ -10,6 +11,7 @@ import com.potner.common.error.ErrorCode;
 import com.potner.device.domain.AssignedDeviceView;
 import com.potner.device.domain.IotDeviceType;
 import com.potner.device.domain.PlantDeviceAssignmentRepository;
+import com.potner.location.domain.RobotLocationType;
 import com.potner.photo.domain.PhotoSource;
 import com.potner.photo.domain.PlantPhotoRepository;
 import com.potner.plant.domain.PlantStatus;
@@ -33,6 +35,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,6 +44,7 @@ class DailyCaptureSchedulerTest {
 
     private static final String PLANT_ID = "20000000-0000-0000-0000-0000000000bb";
     private static final String OTHER_PLANT_ID = "20000000-0000-0000-0000-0000000000cc";
+    private static final String REQUEST_ID = "40000000-0000-0000-0000-0000000000dd";
 
     /** 한국 시간 12:00 — 촬영 창(10~16시) 안이다. */
     private static final Instant NOON_KST = Instant.parse("2026-07-31T03:00:00Z");
@@ -53,36 +57,80 @@ class DailyCaptureSchedulerTest {
     private PlantPhotoRepository photoRepository;
 
     @Mock
-    private DeviceCommandRepository commandRepository;
+    private RobotBusyGuard busyGuard;
 
     @Mock
     private DeviceCommandService commandService;
 
     private DailyCaptureScheduler scheduler(Instant now) {
+        return scheduler(now, true);
+    }
+
+    private DailyCaptureScheduler scheduler(Instant now, boolean autoCaptureEnabled) {
         return new DailyCaptureScheduler(
                 assignmentRepository,
                 photoRepository,
-                commandRepository,
+                busyGuard,
                 commandService,
-                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, true, 10, 16),
+                new DeviceCommandProperties(
+                        120, 30, 30, true, true, 8, 17, 60, autoCaptureEnabled, 10, 16, true, 600, 6),
                 new SensorQueryProperties("+09:00", 30, 7, 90),
                 Clock.fixed(now, ZoneOffset.UTC)
         );
     }
 
     @Test
-    void issuesCaptureWhenTodayHasNoPhotoYet() {
+    void startsTheRunByNavigatingToTheStation() {
+        // 카메라가 스테이션에 고정이라 로봇을 데려가지 않으면 빈 스테이션 사진이 남는다.
         givenPlants(PLANT_ID);
         givenNoPhotoToday(PLANT_ID);
-        givenNoPendingCommands(PLANT_ID);
 
         assertThat(scheduler(NOON_KST).captureOnce()).isEqualTo(1);
 
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
-        verify(commandService).issueAuto(eq(PLANT_ID), request.capture());
-        assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.CAPTURE);
-        assertThat(request.getValue().destination()).isNull();
+        verify(commandService).issueAuto(
+                eq(PLANT_ID), request.capture(), eq(CommandPurpose.CAPTURE));
+        assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.NAVIGATE);
+        assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.WATER_STATION);
+    }
+
+    @Test
+    void arrivalTriggersCaptureThenReturnsHome() {
+        DailyCaptureScheduler scheduler = scheduler(NOON_KST);
+
+        scheduler.onCommandCompleted(completed(
+                DeviceCommandType.NAVIGATE, CommandPurpose.CAPTURE,
+                RobotLocationType.WATER_STATION, DeviceCommandStatus.OK));
+        scheduler.onCommandCompleted(completed(
+                DeviceCommandType.CAPTURE, CommandPurpose.CAPTURE, null, DeviceCommandStatus.OK));
+
+        ArgumentCaptor<IssueDeviceCommandRequest> request =
+                ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
+        verify(commandService, times(2)).issueAuto(
+                eq(PLANT_ID), request.capture(), eq(CommandPurpose.CAPTURE));
+        assertThat(request.getAllValues().get(0).type()).isEqualTo(DeviceCommandType.CAPTURE);
+        assertThat(request.getAllValues().get(1).type()).isEqualTo(DeviceCommandType.NAVIGATE);
+        assertThat(request.getAllValues().get(1).destination()).isEqualTo(RobotLocationType.HOME);
+    }
+
+    @Test
+    void doesNotContinueOtherChains() {
+        // 급수 체인의 스테이션 도착에 촬영을 붙이면 사용자가 시키지 않은 사진이 찍힌다.
+        scheduler(NOON_KST).onCommandCompleted(completed(
+                DeviceCommandType.NAVIGATE, CommandPurpose.WATERING,
+                RobotLocationType.WATER_STATION, DeviceCommandStatus.OK));
+
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
+    }
+
+    @Test
+    void failureStopsTheRun() {
+        scheduler(NOON_KST).onCommandCompleted(completed(
+                DeviceCommandType.NAVIGATE, CommandPurpose.CAPTURE,
+                RobotLocationType.WATER_STATION, DeviceCommandStatus.ERROR));
+
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
@@ -90,7 +138,6 @@ class DailyCaptureSchedulerTest {
         // UTC 로 끊으면 한국 시간 오전이 전날로 밀려 어제 사진이 있는지를 보게 된다.
         givenPlants(PLANT_ID);
         givenNoPhotoToday(PLANT_ID);
-        givenNoPendingCommands(PLANT_ID);
 
         scheduler(NOON_KST).captureOnce();
 
@@ -106,75 +153,57 @@ class DailyCaptureSchedulerTest {
                 PLANT_ID, PhotoSource.DEVICE, TODAY_KST)).thenReturn(true);
 
         assertThat(scheduler(NOON_KST).captureOnce()).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
-    void skipsWhileACaptureIsAwaitingItsResult() {
+    void yieldsWhenAnotherChainIsUsingTheRobot() {
+        // 급수나 말리기가 진행 중이다. 끝나면 다음 주기에 다시 본다.
         givenPlants(PLANT_ID);
         givenNoPhotoToday(PLANT_ID);
-        when(commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                PLANT_ID, DeviceCommandType.CAPTURE, DeviceCommandStatus.ISSUED)).thenReturn(true);
+        when(busyGuard.isBusy(PLANT_ID)).thenReturn(true);
 
         assertThat(scheduler(NOON_KST).captureOnce()).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
-    }
-
-    @Test
-    void skipsWhileTheRobotIsMoving() {
-        // 자동 급수나 햇빛 재배치로 이동 중이면 흔들리거나 엉뚱한 각도가 나온다.
-        givenPlants(PLANT_ID);
-        givenNoPhotoToday(PLANT_ID);
-        when(commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                PLANT_ID, DeviceCommandType.CAPTURE, DeviceCommandStatus.ISSUED)).thenReturn(false);
-        when(commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                PLANT_ID, DeviceCommandType.NAVIGATE, DeviceCommandStatus.ISSUED)).thenReturn(true);
-
-        assertThat(scheduler(NOON_KST).captureOnce()).isZero();
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
     void oneFailingPlantDoesNotBlockTheOthers() {
-        // 한 식물의 장치 문제가 다른 식물의 촬영을 막으면, 로봇 한 대가 고장 났을 때 전체
-        // 사진이 끊긴다.
+        // 로봇 한 대가 고장 났을 때 전체 사진이 끊기면 안 된다.
         givenPlants(PLANT_ID, OTHER_PLANT_ID);
         givenNoPhotoToday(PLANT_ID);
         givenNoPhotoToday(OTHER_PLANT_ID);
-        givenNoPendingCommands(PLANT_ID);
-        givenNoPendingCommands(OTHER_PLANT_ID);
-        when(commandService.issueAuto(eq(PLANT_ID), any()))
+        when(commandService.issueAuto(eq(PLANT_ID), any(), any()))
                 .thenThrow(new BusinessException(ErrorCode.COMMAND_DEVICE_NOT_FOUND));
 
         assertThat(scheduler(NOON_KST).captureOnce()).isEqualTo(1);
-        verify(commandService).issueAuto(eq(OTHER_PLANT_ID), any());
+        verify(commandService).issueAuto(eq(OTHER_PLANT_ID), any(), any());
     }
 
     @Test
     void doesNotCaptureOutsideTheDaylightWindow() {
         // 한국 시간 22:00. 어두운 사진은 쓸모없고 생장 단계 추론이 오탐을 낸다.
-        // 창 밖에서는 대상 조회조차 하지 않는다.
         scheduler(Instant.parse("2026-07-31T13:00:00Z")).capture();
 
         verify(assignmentRepository, never()).findActiveAssignedDevices(any(), any());
-        verify(commandService, never()).issueAuto(anyString(), any());
+        verify(commandService, never()).issueAuto(anyString(), any(), any());
     }
 
     @Test
     void disabledFlagStopsCaptureEntirely() {
-        DailyCaptureScheduler disabled = new DailyCaptureScheduler(
-                assignmentRepository,
-                photoRepository,
-                commandRepository,
-                commandService,
-                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, false, 10, 16),
-                new SensorQueryProperties("+09:00", 30, 7, 90),
-                Clock.fixed(NOON_KST, ZoneOffset.UTC)
-        );
-
-        disabled.capture();
+        scheduler(NOON_KST, false).capture();
 
         verify(assignmentRepository, never()).findActiveAssignedDevices(any(), any());
+    }
+
+    private DeviceCommandCompletedEvent completed(
+            DeviceCommandType type,
+            CommandPurpose purpose,
+            RobotLocationType destination,
+            DeviceCommandStatus status
+    ) {
+        return new DeviceCommandCompletedEvent(
+                REQUEST_ID, PLANT_ID, type, CommandInitiator.AUTO, purpose, destination, status);
     }
 
     private void givenPlants(String... plantIds) {
@@ -193,10 +222,5 @@ class DailyCaptureSchedulerTest {
     private void givenNoPhotoToday(String plantId) {
         lenient().when(photoRepository.existsByPlantIdAndSourceAndPhotoDate(
                 plantId, PhotoSource.DEVICE, TODAY_KST)).thenReturn(false);
-    }
-
-    private void givenNoPendingCommands(String plantId) {
-        lenient().when(commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                eq(plantId), any(), eq(DeviceCommandStatus.ISSUED))).thenReturn(false);
     }
 }

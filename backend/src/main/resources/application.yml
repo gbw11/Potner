@@ -129,6 +129,14 @@ potner:
     # 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
     capture-window-start-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_START_HOUR:10}
     capture-window-end-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_END_HOUR:16}
+    # 토양 과습이면 스테이션으로 데려가 송풍으로 말린다. 자동 급수의 대칭이다.
+    auto-drying-enabled: ${DEVICE_COMMAND_AUTO_DRYING_ENABLED:true}
+    # 송풍 1회는 짧고 흙이 마르는 데는 시간이 걸린다. 짧게 두면 수분이 반응하기 전에 또 돌려
+    # 과건조가 된다.
+    drying-check-interval-seconds: ${DEVICE_COMMAND_DRYING_CHECK_INTERVAL_SECONDS:600}
+    # 정상 종료는 과습 알림이 닫히는 것이다. 이 값은 수분 센서 고장으로 팬이 끝없이 도는 것을
+    # 막는 안전장치다.
+    max-auto-drying-runs-per-day: ${DEVICE_COMMAND_MAX_AUTO_DRYING_RUNS_PER_DAY:6}
   arrival:
     # GREETING 도착 뒤 사용자를 기다리는 시간과 이동·대기·HOME 복귀를 합친 전체 상한이다.
     welcome-wait-seconds: ${ARRIVAL_WELCOME_WAIT_SECONDS:120}
