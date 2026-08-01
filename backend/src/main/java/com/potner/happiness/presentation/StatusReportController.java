@@ -60,7 +60,9 @@ public class StatusReportController {
                     lightHours 는 임계 조도 이상을 받은 실측 시간이다. 광량은 하루가 끝난 뒤 새벽에
                     확정되므로 오늘 것은 null 이다.
 
-                    wateredMl 은 아직 항상 null 이다. 급수 기록 기능이 붙으면 채워진다.
+                    wateredMl 은 그날 실제로 나간 급수량의 합이다(device_command.dispensed_ml).
+                    급수 기록이 없으면 null 이며 0 과 구분된다 — 0 은 급수를 시도했으나 한 방울도
+                    안 나간 경우다.
                     """
     )
     public StatusReportResponse getStatusReport(
