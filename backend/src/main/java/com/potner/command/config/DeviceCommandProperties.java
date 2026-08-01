@@ -66,11 +66,34 @@ public record DeviceCommandProperties(
          * <p>이게 없으면 사용자가 마중 자리로 부른 로봇을 다음 검사 주기에 서버가 도로
          * 끌고 간다.
          */
-        @Positive int manualPlacementHoldMinutes
+        @Positive int manualPlacementHoldMinutes,
+
+        /**
+         * 하루 한 장 성장 사진을 자동으로 촬영한다.
+         *
+         * <p>이게 꺼지면 사진이 한 장도 쌓이지 않아 포토 로그·타임랩스·생장 단계 판정·자동
+         * 개화 기록이 모두 함께 멈춘다. 사진 업로드가 그 전부의 유일한 입구다.
+         */
+        boolean autoCaptureEnabled,
+
+        /**
+         * 촬영 시도 시간대(서비스 타임존, 시)다.
+         *
+         * <p>낮으로 한정하는 이유가 둘이다. 어두우면 사진이 쓸모없고, 생장 단계 추론이 어두운
+         * 사진에서 오탐을 낸다.
+         */
+        @Min(0) @Max(23) int captureWindowStartHour,
+
+        @Min(1) @Max(24) int captureWindowEndHour
 ) {
 
     @AssertTrue(message = "sunlight window start must be before end")
     public boolean isSunlightWindowValid() {
         return sunlightWindowStartHour < sunlightWindowEndHour;
+    }
+
+    @AssertTrue(message = "capture window start must be before end")
+    public boolean isCaptureWindowValid() {
+        return captureWindowStartHour < captureWindowEndHour;
     }
 }
