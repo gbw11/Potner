@@ -55,30 +55,59 @@ void main() {
     expect(homeRepository.requestedPlantIds, ['plant-rose', 'plant-monstera']);
   });
 
-  testWidgets('home dashboard shows the Stitch preview without plants', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          authRepositoryProvider.overrideWithValue(
-            _AuthenticatedHomeRepository(),
-          ),
-          homeRepositoryProvider.overrideWithValue(
-            FakeHomeRepository(plants: const [], dashboards: const {}),
-          ),
-        ],
-        child: const PotnerApp(),
-      ),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'home dashboard shows the signed-in user empty state without plants',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    expect(find.byKey(const Key('home_empty')), findsNothing);
-    expect(find.text('안녕하세요, 제니님!'), findsOneWidget);
-    expect(find.text('로지'), findsOneWidget);
-    expect(find.text('아주 좋아요!'), findsOneWidget);
-    expect(find.byKey(const Key('home_plant_selector')), findsOneWidget);
-  });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(
+              _AuthenticatedHomeRepository(),
+            ),
+            homeRepositoryProvider.overrideWithValue(
+              FakeHomeRepository(plants: const [], dashboards: const {}),
+            ),
+          ],
+          child: const PotnerApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('home_empty')), findsOneWidget);
+      expect(find.byKey(const Key('home_robot_status_button')), findsOneWidget);
+      expect(find.text('휴식 중'), findsNothing);
+
+      final alertCenter = tester.getCenter(
+        find.byKey(const Key('home_alerts_button')),
+      );
+      final statusCenter = tester.getCenter(
+        find.byKey(const Key('home_robot_status_button')),
+      );
+      final profileCenter = tester.getCenter(
+        find.byKey(const Key('home_my_button')),
+      );
+      expect(alertCenter.dx, lessThan(statusCenter.dx));
+      expect(statusCenter.dx, lessThan(profileCenter.dx));
+
+      await tester.tap(find.byKey(const Key('home_robot_status_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('휴식 중'), findsOneWidget);
+
+      expect(find.text('안녕하세요, 포트너님!'), findsOneWidget);
+      expect(find.text('아직 등록된 식물이 없어요'), findsOneWidget);
+      expect(
+        find.byKey(const Key('home_empty_register_plant')),
+        findsOneWidget,
+      );
+      expect(find.text('안녕하세요, 제니님!'), findsNothing);
+      expect(find.text('로지'), findsNothing);
+      expect(find.text('아주 좋아요!'), findsNothing);
+      expect(find.byKey(const Key('home_plant_selector')), findsNothing);
+    },
+  );
 }
 
 class _AuthenticatedHomeRepository implements AuthRepository {

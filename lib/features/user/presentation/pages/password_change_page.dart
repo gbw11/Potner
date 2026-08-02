@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/auth_validators.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
@@ -14,8 +14,7 @@ class PasswordChangePage extends ConsumerStatefulWidget {
   const PasswordChangePage({super.key});
 
   @override
-  ConsumerState<PasswordChangePage> createState() =>
-      _PasswordChangePageState();
+  ConsumerState<PasswordChangePage> createState() => _PasswordChangePageState();
 }
 
 class _PasswordChangePageState extends ConsumerState<PasswordChangePage> {
@@ -53,7 +52,7 @@ class _PasswordChangePageState extends ConsumerState<PasswordChangePage> {
         leading: BackButton(
           key: const Key('password_change_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/my/profile'),
+              returnFromSharedPage(context, fallbackLocation: '/my/profile'),
         ),
       ),
       body: SafeArea(
@@ -104,13 +103,11 @@ class _PasswordChangePageState extends ConsumerState<PasswordChangePage> {
                         controller: _currentController,
                         focusNode: _currentFocus,
                         visible: _currentVisible,
-                        onToggleVisibility: () => setState(
-                          () => _currentVisible = !_currentVisible,
-                        ),
+                        onToggleVisibility: () =>
+                            setState(() => _currentVisible = !_currentVisible),
                         textInputAction: TextInputAction.next,
                         onFieldSubmitted: (_) => _newFocus.requestFocus(),
-                        validator: (value) =>
-                            (value == null || value.isEmpty)
+                        validator: (value) => (value == null || value.isEmpty)
                             ? '현재 비밀번호를 입력해 주세요.'
                             : null,
                         onChanged: (_) => _clearFormError(),
@@ -139,9 +136,8 @@ class _PasswordChangePageState extends ConsumerState<PasswordChangePage> {
                         controller: _confirmController,
                         focusNode: _confirmFocus,
                         visible: _confirmVisible,
-                        onToggleVisibility: () => setState(
-                          () => _confirmVisible = !_confirmVisible,
-                        ),
+                        onToggleVisibility: () =>
+                            setState(() => _confirmVisible = !_confirmVisible),
                         textInputAction: TextInputAction.done,
                         validator: (value) =>
                             AuthValidators.passwordConfirmation(

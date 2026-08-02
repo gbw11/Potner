@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
+import 'package:potner_app/features/arrival/application/arrival_debug_controller.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
@@ -33,7 +36,7 @@ class DeviceManagementPage extends ConsumerWidget {
         centerTitle: true,
         leading: BackButton(
           key: const Key('device_management_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/'),
+          onPressed: () => returnFromSharedPage(context, fallbackLocation: '/'),
         ),
       ),
       body: SafeArea(
@@ -62,7 +65,21 @@ class DeviceManagementPage extends ConsumerWidget {
           ),
           data: (items) => items.isEmpty
               ? _EmptyRobots(
-                  onRegister: () => context.go('/devices/register'),
+                  onRegister: () {
+                    final registration = Uri.parse(
+                      withCurrentNavigationOrigin(context, '/devices/register'),
+                    );
+                    context.go(
+                      registration
+                          .replace(
+                            queryParameters: {
+                              ...registration.queryParameters,
+                              'completion': 'management',
+                            },
+                          )
+                          .toString(),
+                    );
+                  },
                 )
               : RefreshIndicator(
                   onRefresh: () => ref.refresh(robotsProvider.future),
@@ -71,6 +88,10 @@ class DeviceManagementPage extends ConsumerWidget {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                     children: [
+                      if (kDebugMode) ...[
+                        const _ArrivalDebugPanel(),
+                        const SizedBox(height: 16),
+                      ],
                       for (final robot in items) ...[
                         _RobotCard(robot: robot),
                         const SizedBox(height: 16),
@@ -79,6 +100,94 @@ class DeviceManagementPage extends ConsumerWidget {
                   ),
                 ),
         ),
+      ),
+    );
+  }
+}
+
+class _ArrivalDebugPanel extends ConsumerWidget {
+  const _ArrivalDebugPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(arrivalDebugControllerProvider);
+    final controller = ref.read(arrivalDebugControllerProvider.notifier);
+    final isSuccess = state.phase == ArrivalDebugPhase.success;
+    final isFailure = state.phase == ArrivalDebugPhase.failure;
+    final statusColor = isSuccess
+        ? AppColors.primary
+        : isFailure
+        ? AppColors.error
+        : AppColors.textMuted;
+
+    return Container(
+      key: const Key('arrival_debug_panel'),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.home_work_outlined, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                '귀가 통신 테스트',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            state.message,
+            key: const Key('arrival_debug_status'),
+            style: TextStyle(color: statusColor, height: 1.4),
+          ),
+          if (state.lastEventId != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'eventId: ${state.lastEventId}',
+              key: const Key('arrival_debug_event_id'),
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  key: const Key('arrival_debug_start'),
+                  onPressed: state.canStart ? controller.startWelcome : null,
+                  icon: const Icon(Icons.directions_walk_rounded),
+                  label: const Text('마중 시작'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('arrival_debug_cancel'),
+                  onPressed: state.canCancel ? controller.cancelWelcome : null,
+                  icon: const Icon(Icons.home_rounded),
+                  label: const Text('취소·HOME'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '디버그 빌드에서만 표시됩니다.',
+            textAlign: TextAlign.right,
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+          ),
+        ],
       ),
     );
   }
@@ -204,19 +313,27 @@ class _RobotCard extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    _ConnectionBadge(status: device.connectionStatus, dense: true),
+                    _ConnectionBadge(
+                      status: device.connectionStatus,
+                      dense: true,
+                    ),
                   ],
                 ),
               ),
           ],
           const Divider(height: 26),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
             children: [
               TextButton(
                 key: Key('robot_locations_${robot.robotId}'),
-                onPressed: () =>
-                    context.go('/devices/${robot.robotId}/locations'),
+                onPressed: () => context.go(
+                  withCurrentNavigationOrigin(
+                    context,
+                    '/devices/${robot.robotId}/locations',
+                  ),
+                ),
                 child: const Text('위치 설정'),
               ),
               TextButton(
@@ -227,13 +344,17 @@ class _RobotCard extends ConsumerWidget {
               if (assignedPlantId != null)
                 TextButton(
                   key: Key('unassign_${robot.robotId}'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                  ),
+                  style: TextButton.styleFrom(foregroundColor: AppColors.error),
                   onPressed: () =>
                       _confirmAndUnassign(context, ref, assignedPlantId),
                   child: const Text('배정 해제'),
                 ),
+              TextButton(
+                key: Key('delete_robot_${robot.robotId}'),
+                style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                onPressed: () => _confirmAndDelete(context, ref),
+                child: const Text('삭제'),
+              ),
             ],
           ),
         ],
@@ -258,9 +379,7 @@ class _RobotCard extends ConsumerWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('업로드 토큰 재발급'),
-        content: const Text(
-          '재발급 즉시 이전 토큰이 무효가 되어 라즈베리 설정도 함께 바꿔야 해요. 계속할까요?',
-        ),
+        content: const Text('재발급 즉시 이전 토큰이 무효가 되어 라즈베리 설정도 함께 바꿔야 해요. 계속할까요?'),
         actions: [
           TextButton(
             key: const Key('reissue_cancel'),
@@ -288,9 +407,7 @@ class _RobotCard extends ConsumerWidget {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '토큰을 재발급하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '토큰을 재발급하지 못했습니다.'))),
         );
       return;
     }
@@ -390,8 +507,60 @@ class _RobotCard extends ConsumerWidget {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
+          SnackBar(content: Text(plantErrorMessage(error, '배정을 해제하지 못했습니다.'))),
+        );
+    } finally {
+      ref.invalidate(robotsProvider);
+      ref.invalidate(homeControllerProvider);
+    }
+  }
+
+  Future<void> _confirmAndDelete(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('디바이스 삭제'),
+        content: Text(
+          '${robot.name}을(를) 삭제하면 연결된 장치와 식물 배정 정보를 더 이상 사용할 수 없어요. '
+          '정말 삭제할까요?',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('delete_robot_cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            key: const Key('delete_robot_confirm'),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    try {
+      await ref.read(deviceRepositoryProvider).deleteRobot(robot.robotId);
+      if (!context.mounted) {
+        return;
+      }
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('${robot.name}을(를) 삭제했어요.')));
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
           SnackBar(
-            content: Text(plantErrorMessage(error, '배정을 해제하지 못했습니다.')),
+            content: Text(plantErrorMessage(error, '디바이스를 삭제하지 못했습니다.')),
           ),
         );
     } finally {
@@ -410,8 +579,7 @@ class _ActivityChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(robotLiveStatusProvider(plantId));
     final label = status.whenOrNull(
-      data: (value) =>
-          value == null ? null : _stateLabel(value.currentState),
+      data: (value) => value == null ? null : _stateLabel(value.currentState),
     );
     if (label == null) {
       return const SizedBox.shrink();
@@ -517,7 +685,11 @@ class _ConnectionBadge extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.icon, required this.label, required this.value});
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   final IconData icon;
   final String label;

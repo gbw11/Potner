@@ -1,12 +1,17 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:potner_app/core/api/api_exception.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/auth/presentation/widgets/form_error.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
+import 'package:potner_app/features/photo/data/photo_repository_impl.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 import 'package:potner_app/features/plant/domain/plant_reference.dart';
+import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 
 /// 대분류·소분류·자람 수준 트리는 한 번의 조회로 모두 내려온다.
 final plantCategoryTreeProvider =
@@ -25,12 +30,16 @@ class PlantRegistrationPage extends ConsumerStatefulWidget {
 class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _imagePicker = ImagePicker();
 
   PlantCategoryOption? _category;
   PlantSpeciesOption? _species;
   GrowthStageOption? _stage;
   DateTime? _adoptedDate;
+  XFile? _selectedPhoto;
+  Uint8List? _selectedPhotoBytes;
   bool _isSubmitting = false;
+  bool _isPickingPhoto = false;
   String? _formError;
 
   @override
@@ -49,8 +58,7 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
         centerTitle: true,
         leading: BackButton(
           key: const Key('plant_registration_back'),
-          onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/'),
+          onPressed: () => returnFromSharedPage(context, fallbackLocation: '/'),
         ),
       ),
       body: SafeArea(
@@ -82,7 +90,11 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const _PhotoPlaceholder(),
+                _PhotoPicker(
+                  bytes: _selectedPhotoBytes,
+                  enabled: !_isSubmitting && !_isPickingPhoto,
+                  onTap: _showPhotoSourceSheet,
+                ),
                 const SizedBox(height: 10),
                 const Text(
                   '새로운 식물 친구를 소개해 주세요!',
@@ -146,9 +158,7 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: _buildCategoryField(categories),
-                            ),
+                            Expanded(child: _buildCategoryField(categories)),
                             const SizedBox(width: 12),
                             Expanded(child: _buildSpeciesField()),
                           ],
@@ -296,6 +306,83 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
     }
   }
 
+  Future<void> _showPhotoSourceSheet() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '식물 사진 등록',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                key: const Key('plant_photo_camera'),
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('카메라로 촬영'),
+                onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+              ),
+              ListTile(
+                key: const Key('plant_photo_gallery'),
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('앨범에서 선택'),
+                onTap: () =>
+                    Navigator.of(sheetContext).pop(ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (source != null && mounted) {
+      await _pickPhoto(source);
+    }
+  }
+
+  Future<void> _pickPhoto(ImageSource source) async {
+    setState(() => _isPickingPhoto = true);
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 2048,
+        maxHeight: 2048,
+      );
+      if (picked == null || !mounted) {
+        return;
+      }
+      final bytes = await picked.readAsBytes();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _selectedPhoto = picked;
+        _selectedPhotoBytes = bytes;
+        _formError = null;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('사진을 불러오지 못했습니다. 다시 시도해 주세요.')),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingPhoto = false);
+      }
+    }
+  }
+
   void _clearFormError() {
     if (_formError != null) {
       setState(() => _formError = null);
@@ -322,11 +409,40 @@ class _PlantRegistrationPageState extends ConsumerState<PlantRegistrationPage> {
       if (!mounted) {
         return;
       }
+      final photo = _selectedPhoto;
+      if (photo != null) {
+        try {
+          await ref
+              .read(photoRepositoryProvider)
+              .uploadRepresentativePhoto(
+                plantId: plant.plantId,
+                filePath: photo.path,
+                fileName: photo.name,
+              );
+        } catch (_) {
+          if (!mounted) {
+            return;
+          }
+          ref.invalidate(myPlantsProvider);
+          ref.invalidate(homeControllerProvider);
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(content: Text('${plant.name} 등록은 완료했지만 사진을 올리지 못했어요.')),
+            );
+          returnFromSharedPage(context, fallbackLocation: '/');
+          return;
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      ref.invalidate(myPlantsProvider);
       ref.invalidate(homeControllerProvider);
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text('${plant.name} 등록을 완료했어요!')));
-      context.go('/');
+      returnFromSharedPage(context, fallbackLocation: '/');
     } catch (error) {
       if (!mounted) {
         return;
@@ -409,28 +525,115 @@ class _FieldLabel extends StatelessWidget {
   }
 }
 
-class _PhotoPlaceholder extends StatelessWidget {
-  const _PhotoPlaceholder();
+class _PhotoPicker extends StatelessWidget {
+  const _PhotoPicker({
+    required this.bytes,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final Uint8List? bytes;
+  final bool enabled;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Container(
-        width: 148,
-        height: 148,
-        margin: const EdgeInsets.only(top: 12),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.outline, width: 1.4),
-          color: AppColors.surfaceLow,
-        ),
-        child: const Icon(
-          Icons.local_florist_outlined,
-          size: 54,
-          color: AppColors.primarySoft,
+      child: Semantics(
+        button: true,
+        label: bytes == null ? '식물 사진 등록' : '식물 사진 변경',
+        child: SizedBox(
+          key: const Key('plant_photo_picker'),
+          width: 156,
+          height: 156,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _DashedCirclePainter(color: AppColors.outline),
+                  child: ClipOval(
+                    child: bytes == null
+                        ? const ColoredBox(
+                            color: AppColors.surfaceLow,
+                            child: Icon(
+                              Icons.local_florist_outlined,
+                              size: 54,
+                              color: AppColors.primarySoft,
+                            ),
+                          )
+                        : Image.memory(
+                            bytes!,
+                            key: const Key('plant_photo_preview'),
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                          ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 2,
+                bottom: 2,
+                child: Material(
+                  color: AppColors.primary,
+                  shape: const CircleBorder(),
+                  elevation: 4,
+                  child: IconButton(
+                    key: const Key('plant_photo_button'),
+                    tooltip: bytes == null ? '식물 사진 등록' : '식물 사진 변경',
+                    onPressed: enabled ? onTap : null,
+                    color: Colors.white,
+                    iconSize: 22,
+                    icon: enabled
+                        ? const Icon(Icons.photo_camera)
+                        : const SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+class _DashedCirclePainter extends CustomPainter {
+  const _DashedCirclePainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    final radius = (size.shortestSide - paint.strokeWidth) / 2;
+    const dashRadians = 0.09;
+    const gapRadians = 0.055;
+    var start = 0.0;
+    while (start < 6.283185307179586) {
+      canvas.drawArc(
+        Rect.fromCircle(center: size.center(Offset.zero), radius: radius),
+        start,
+        dashRadians,
+        false,
+        paint,
+      );
+      start += dashRadians + gapRadians;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedCirclePainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 

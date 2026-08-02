@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/photo/domain/photo_models.dart';
 import 'package:potner_app/features/photo/presentation/photo_providers.dart';
@@ -32,7 +33,7 @@ class _GrowthComparisonPageState extends ConsumerState<GrowthComparisonPage> {
         leading: BackButton(
           key: const Key('growth_comparison_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/growth'),
+              returnFromSharedPage(context, fallbackLocation: '/growth'),
         ),
       ),
       body: SafeArea(
@@ -46,10 +47,39 @@ class _GrowthComparisonPageState extends ConsumerState<GrowthComparisonPage> {
           ),
           data: (items) {
             if (items.isEmpty) {
-              return const Center(
-                child: Text(
-                  '식물을 등록하면 성장 변화를 비교할 수 있어요.',
-                  style: TextStyle(color: AppColors.textMuted),
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.compare_arrows_rounded,
+                        size: 52,
+                        color: AppColors.primarySoft,
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        '식물을 등록하면 성장 사진을 나란히 비교할 수 있어요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        key: const Key('growth_comparison_register_plant'),
+                        onPressed: () => context.go(
+                          withCurrentNavigationOrigin(
+                            context,
+                            '/plants/register',
+                          ),
+                        ),
+                        child: const Text('내 식물 등록하기'),
+                      ),
+                    ],
+                  ),
                 ),
               );
             }
@@ -218,10 +248,7 @@ class _GrowthComparisonPageState extends ConsumerState<GrowthComparisonPage> {
                   Row(
                     children: [
                       Expanded(
-                        child: _DateFooter(
-                          label: '전',
-                          date: before.photoDate,
-                        ),
+                        child: _DateFooter(label: '전', date: before.photoDate),
                       ),
                       Expanded(
                         child: _DateFooter(label: '후', date: after.photoDate),

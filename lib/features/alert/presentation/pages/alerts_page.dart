@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/navigation/app_menu_button.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/alert/data/alert_repository_impl.dart';
@@ -22,6 +23,7 @@ class AlertsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final alerts = ref.watch(alertsProvider);
     final blooms = ref.watch(bloomsProvider);
+    final origin = AppNavigationOrigin.fromContext(context);
 
     return Scaffold(
       key: const Key('alerts_page'),
@@ -29,6 +31,13 @@ class AlertsPage extends ConsumerWidget {
         title: const Text('알림'),
         centerTitle: true,
         automaticallyImplyLeading: false,
+        leading: origin != null
+            ? BackButton(
+                key: const Key('alerts_back'),
+                onPressed: () =>
+                    returnFromSharedPage(context, fallbackLocation: '/'),
+              )
+            : null,
         actions: const [AppMenuButton(), SizedBox(width: 8)],
       ),
       body: SafeArea(
@@ -218,9 +227,7 @@ class _ActiveAlertCard extends ConsumerWidget {
         onTap: () => _markAlertRead(ref, alert),
         child: Container(
           decoration: const BoxDecoration(
-            border: Border(
-              left: BorderSide(color: AppColors.error, width: 4),
-            ),
+            border: Border(left: BorderSide(color: AppColors.error, width: 4)),
           ),
           padding: const EdgeInsets.all(16),
           child: Column(

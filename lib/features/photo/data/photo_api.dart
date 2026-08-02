@@ -7,6 +7,23 @@ class PhotoApi {
 
   final Dio _dio;
 
+  Future<void> uploadRepresentativePhoto({
+    required String plantId,
+    required String filePath,
+    required String fileName,
+  }) async {
+    try {
+      await _dio.post<Object?>(
+        'plants/$plantId/representative-photo',
+        data: FormData.fromMap({
+          'file': await MultipartFile.fromFile(filePath, filename: fileName),
+        }),
+      );
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   Future<List<PlantPhoto>> getPhotos({
     required String plantId,
     required DateTime from,

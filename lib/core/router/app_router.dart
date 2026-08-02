@@ -6,6 +6,7 @@ import 'package:potner_app/core/router/splash_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
 import 'package:potner_app/features/device/presentation/pages/robot_locations_page.dart';
+import 'package:potner_app/features/arrival/presentation/arrival_setting_page.dart';
 import 'package:potner_app/features/alert/presentation/pages/alerts_page.dart';
 import 'package:potner_app/features/bloom/presentation/pages/bloom_list_page.dart';
 import 'package:potner_app/features/diary/presentation/pages/diary_calendar_page.dart';
@@ -25,6 +26,7 @@ import 'package:potner_app/features/plant/presentation/pages/care_settings_page.
 import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_profile_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
+import 'package:potner_app/features/plant/presentation/pages/plant_selection_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/registered_plants_page.dart';
 import 'package:potner_app/features/sensor/presentation/pages/environment_dashboard_page.dart';
 import 'package:potner_app/features/user/presentation/pages/my_page.dart';
@@ -157,8 +159,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   ),
                   GoRoute(
                     path: 'compare',
-                    builder: (context, state) =>
-                        const GrowthComparisonPage(),
+                    builder: (context, state) => const GrowthComparisonPage(),
                   ),
                 ],
               ),
@@ -199,11 +200,29 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     builder: (context, state) =>
                         const NotificationSettingsPage(),
                   ),
+                  GoRoute(
+                    path: 'arrival',
+                    builder: (context, state) => const ArrivalSettingPage(),
+                  ),
                 ],
               ),
             ],
           ),
         ],
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/plant-selection/care',
+        builder: (context, state) => const PlantSelectionPage(
+          destination: PlantSelectionDestination.care,
+        ),
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/plant-selection/environment',
+        builder: (context, state) => const PlantSelectionPage(
+          destination: PlantSelectionDestination.environment,
+        ),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,

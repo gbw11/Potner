@@ -48,6 +48,11 @@ class DeviceRepositoryImpl implements DeviceRepository {
   }
 
   @override
+  Future<void> deleteRobot(String robotId) {
+    return _api.deleteRobot(robotId);
+  }
+
+  @override
   Future<RobotLiveStatus?> getPlantRobotStatus(String plantId) {
     return _api.getPlantRobotStatus(plantId);
   }

@@ -52,6 +52,17 @@ void main() {
     expect(find.widgetWithText(TextFormField, '로지'), findsOneWidget);
     expect(find.text('2026년 3월 20일'), findsOneWidget);
     expect(find.textContaining('D+'), findsOneWidget);
+    final environmentButton = tester.widget<FilledButton>(
+      find.byKey(const Key('profile_environment')),
+    );
+    expect(
+      environmentButton.style?.backgroundColor?.resolve(<WidgetState>{}),
+      const Color(0xFFCCEBC0),
+    );
+    expect(
+      environmentButton.style?.foregroundColor?.resolve(<WidgetState>{}),
+      const Color(0xFF334F2B),
+    );
 
     await tester.enterText(find.byKey(const Key('profile_name')), '로즈');
     await tester.ensureVisible(find.byKey(const Key('profile_save')));

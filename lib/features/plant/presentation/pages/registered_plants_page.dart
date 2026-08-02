@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
@@ -22,7 +22,8 @@ class RegisteredPlantsPage extends ConsumerWidget {
         centerTitle: true,
         leading: BackButton(
           key: const Key('registered_plants_back'),
-          onPressed: () => context.canPop() ? context.pop() : context.go('/my'),
+          onPressed: () =>
+              returnFromSharedPage(context, fallbackLocation: '/my'),
         ),
       ),
       body: SafeArea(
@@ -250,9 +251,7 @@ class _RegisteredPlantCard extends ConsumerWidget {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(plantErrorMessage(error, '식물을 삭제하지 못했습니다.')),
-          ),
+          SnackBar(content: Text(plantErrorMessage(error, '식물을 삭제하지 못했습니다.'))),
         );
     } finally {
       ref.invalidate(myPlantsProvider);

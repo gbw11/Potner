@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/diary/data/diary_repository_impl.dart';
 import 'package:potner_app/features/diary/domain/diary_models.dart';
@@ -52,7 +53,7 @@ class _DiaryCalendarPageState extends ConsumerState<DiaryCalendarPage> {
         leading: BackButton(
           key: const Key('diary_calendar_back'),
           onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/growth'),
+              returnFromSharedPage(context, fallbackLocation: '/growth'),
         ),
       ),
       body: SafeArea(
@@ -87,14 +88,30 @@ class _DiaryCalendarPageState extends ConsumerState<DiaryCalendarPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      const Icon(
+                        Icons.menu_book_outlined,
+                        key: Key('diary_empty_icon'),
+                        size: 52,
+                        color: AppColors.primarySoft,
+                      ),
+                      const SizedBox(height: 14),
                       const Text(
                         '식물을 등록하면 매일 성장 일기가 기록돼요.',
-                        style: TextStyle(color: AppColors.textMuted),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          height: 1.5,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       FilledButton(
                         key: const Key('diary_register_plant'),
-                        onPressed: () => context.go('/plants/register'),
+                        onPressed: () => context.go(
+                          withCurrentNavigationOrigin(
+                            context,
+                            '/plants/register',
+                          ),
+                        ),
                         child: const Text('내 식물 등록하기'),
                       ),
                     ],
@@ -285,7 +302,10 @@ class _DiaryCalendarPageState extends ConsumerState<DiaryCalendarPage> {
             child: InkWell(
               key: const Key('diary_preview_card'),
               onTap: () => context.go(
-                '/growth/diary/${plant.plantId}/${selected.diaryId}',
+                withCurrentNavigationOrigin(
+                  context,
+                  '/growth/diary/${plant.plantId}/${selected.diaryId}',
+                ),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(20),

@@ -1,8 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:potner_app/core/platform/native_arrival_session_bridge.dart';
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) {
-  return SecureTokenStorage(const FlutterSecureStorage());
+  return SecureTokenStorage(
+    const FlutterSecureStorage(),
+    ref.watch(nativeArrivalSessionBridgeProvider),
+  );
 });
 
 class StoredTokens {
@@ -24,12 +28,16 @@ abstract interface class TokenStorage {
 }
 
 class SecureTokenStorage implements TokenStorage {
-  SecureTokenStorage(this._storage);
+  SecureTokenStorage(
+    this._storage, [
+    this._arrivalSessionBridge = const NativeArrivalSessionBridge(),
+  ]);
 
   static const _accessTokenKey = 'potner.access_token';
   static const _refreshTokenKey = 'potner.refresh_token';
 
   final FlutterSecureStorage _storage;
+  final NativeArrivalSessionBridge _arrivalSessionBridge;
 
   @override
   Future<StoredTokens?> readTokens() async {
@@ -46,6 +54,8 @@ class SecureTokenStorage implements TokenStorage {
         refreshToken.isEmpty) {
       if (accessToken != null || refreshToken != null) {
         await clearTokens();
+      } else {
+        await _arrivalSessionBridge.clearSessionBestEffort();
       }
       return null;
     }
@@ -68,8 +78,9 @@ class SecureTokenStorage implements TokenStorage {
   }
 
   @override
-  Future<void> clearTokens() {
-    return Future.wait([
+  Future<void> clearTokens() async {
+    await _arrivalSessionBridge.clearSessionBestEffort();
+    await Future.wait([
       _storage.delete(key: _accessTokenKey),
       _storage.delete(key: _refreshTokenKey),
     ]);
