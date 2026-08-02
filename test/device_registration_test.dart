@@ -48,7 +48,7 @@ Future<FakeDeviceRepository> _pumpToDeviceRegistration(
 
 void main() {
   testWidgets(
-    'device registration registers robot, station, assignment and shows the token once',
+    'device registration registers robot, both boards, assignment and shows the token once',
     (tester) async {
       final deviceRepository = await _pumpToDeviceRegistration(tester);
 
@@ -63,8 +63,12 @@ void main() {
         '포트니',
       );
       await tester.enterText(
-        find.byKey(const Key('device_station_code')),
-        'station-01',
+        find.byKey(const Key('device_raspberry_code')),
+        'raspberry-01',
+      );
+      await tester.enterText(
+        find.byKey(const Key('device_jetson_code')),
+        'jetson-01',
       );
 
       await tester.ensureVisible(find.byKey(const Key('device_plant')));
@@ -84,10 +88,17 @@ void main() {
         'potner-robot-01',
       );
       expect(deviceRepository.registerRobotCalls.single.name, '포트니');
-      expect(deviceRepository.registerIotDeviceCalls, hasLength(1));
+      // MQTT 는 보드 코드로만 오간다. 라즈베리와 젯슨이 각자 등록되어야 각 보드의 신호가
+      // 서버에 귀속된다 — 로봇 코드로는 브로커에 아무것도 오지 않는다.
+      expect(deviceRepository.registerIotDeviceCalls, hasLength(2));
       expect(
-        deviceRepository.registerIotDeviceCalls.single.deviceType,
-        IotDeviceType.raspberryPi,
+        deviceRepository.registerIotDeviceCalls
+            .map((call) => (call.deviceUid, call.deviceType))
+            .toList(),
+        [
+          ('raspberry-01', IotDeviceType.raspberryPi),
+          ('jetson-01', IotDeviceType.jetsonOrin),
+        ],
       );
       expect(deviceRepository.assignCalls, hasLength(1));
       expect(deviceRepository.assignCalls.single.plantId, 'plant-rose');
