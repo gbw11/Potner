@@ -20,4 +20,7 @@ abstract class PhotoRepository {
     required String plantId,
     required String photoId,
   });
+
+  /// 대표 사진을 내린다. 장치가 찍은 사진이면 포토 로그에는 그대로 남는다.
+  Future<void> clearRepresentativePhoto({required String plantId});
 }
