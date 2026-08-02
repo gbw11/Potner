@@ -62,6 +62,7 @@ public class ArrivalService {
         if (arrivalEventRepository.existsById(eventId)) {
             return ArrivalEventResponse.duplicate(request.eventId());
         }
+        validateEventTime(request.occurredAt());
 
         Robot robot = singleRobot(userId);
         IotDevice jetson = iotDeviceRepository
@@ -130,6 +131,17 @@ public class ArrivalService {
             throw new BusinessException(ErrorCode.ARRIVAL_MULTIPLE_ROBOTS);
         }
         return robots.getFirst();
+    }
+
+    private void validateEventTime(OffsetDateTime occurredAt) {
+        var occurredInstant = occurredAt.toInstant();
+        var now = clock.instant();
+        if (occurredInstant.isBefore(now.minusSeconds(properties.eventMaxAgeSeconds()))) {
+            throw new BusinessException(ErrorCode.STALE_EVENT);
+        }
+        if (occurredInstant.isAfter(now.plusSeconds(properties.futureEventSkewSeconds()))) {
+            throw new BusinessException(ErrorCode.INVALID_EVENT_TIME);
+        }
     }
 
     private RobotLocation requirePose(String robotId, RobotLocationType type) {
