@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:potner_app/core/api/api_exception.dart';
+import 'package:potner_app/core/api/media_url.dart';
 import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/domain/plant_detail.dart';
 import 'package:potner_app/features/plant/domain/plant_reference.dart';
@@ -75,9 +76,10 @@ class PlantApi {
               categoryName: _requiredString(plant['categoryName']),
               lifeStageName: _requiredString(plant['lifeStageName']),
               adoptedDate: _optionalDate(plant['adoptedDate']),
-              thumbnailUrl:
-                  _optionalString(photo?['thumbnailUrl']) ??
-                  _optionalString(photo?['originalUrl']),
+              thumbnailUrl: resolveMediaUrl(
+                _optionalString(photo?['thumbnailUrl']) ??
+                    _optionalString(photo?['originalUrl']),
+              ),
             );
           })
           .toList(growable: false);
@@ -217,9 +219,10 @@ class PlantApi {
       categoryName: _requiredString(category['name']),
       lifeStage: _parseGrowthStage(data['lifeStage']),
       adoptedDate: _optionalDate(data['adoptedDate']),
-      thumbnailUrl:
-          _optionalString(photo?['thumbnailUrl']) ??
-          _optionalString(photo?['originalUrl']),
+      thumbnailUrl: resolveMediaUrl(
+        _optionalString(photo?['thumbnailUrl']) ??
+            _optionalString(photo?['originalUrl']),
+      ),
     );
   }
 

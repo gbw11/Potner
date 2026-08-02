@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
+import 'package:potner_app/features/photo/data/photo_repository_impl.dart';
+import 'package:potner_app/features/photo/domain/photo_models.dart';
+import 'package:potner_app/features/photo/presentation/photo_providers.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 import 'package:potner_app/features/plant/domain/plant_detail.dart';
 import 'package:potner_app/features/plant/domain/plant_reference.dart';
@@ -83,9 +87,11 @@ class _ProfileForm extends ConsumerStatefulWidget {
 
 class _ProfileFormState extends ConsumerState<_ProfileForm> {
   late final TextEditingController _nameController;
+  final _imagePicker = ImagePicker();
   DateTime? _adoptedDate;
   late GrowthStageOption _stage;
   bool _isSaving = false;
+  bool _isChangingPhoto = false;
 
   PlantDetail get _detail => widget.detail;
 
@@ -113,7 +119,11 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _ProfilePhoto(url: _detail.thumbnailUrl),
+              _ProfilePhoto(
+                url: _detail.thumbnailUrl,
+                isBusy: _isChangingPhoto,
+                onChangePressed: _showPhotoSourceSheet,
+              ),
               const SizedBox(height: 24),
               Container(
                 padding: const EdgeInsets.fromLTRB(22, 10, 22, 10),
@@ -471,12 +481,318 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
         );
     }
   }
+
+  /// 대표 사진을 바꾸는 세 갈래다. 앨범·카메라로 새로 올리거나, 로봇이 찍어 둔 포토 로그에서
+  /// 고르거나, 내린다. 서버가 세 엔드포인트를 모두 제공한다.
+  Future<void> _showPhotoSourceSheet() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final action = await showModalBottomSheet<_PhotoAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '대표 사진 변경',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                key: const Key('profile_photo_camera'),
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('카메라로 촬영'),
+                onTap: () =>
+                    Navigator.of(sheetContext).pop(_PhotoAction.camera),
+              ),
+              ListTile(
+                key: const Key('profile_photo_gallery'),
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('앨범에서 선택'),
+                onTap: () =>
+                    Navigator.of(sheetContext).pop(_PhotoAction.gallery),
+              ),
+              ListTile(
+                key: const Key('profile_photo_from_log'),
+                leading: const Icon(Icons.grid_view_rounded),
+                title: const Text('포토 로그에서 고르기'),
+                subtitle: const Text('로봇이 매일 찍은 사진 중에서 선택해요.'),
+                onTap: () =>
+                    Navigator.of(sheetContext).pop(_PhotoAction.photoLog),
+              ),
+              if (_detail.thumbnailUrl != null)
+                ListTile(
+                  key: const Key('profile_photo_clear'),
+                  leading: const Icon(
+                    Icons.hide_image_outlined,
+                    color: AppColors.error,
+                  ),
+                  title: const Text(
+                    '대표 사진 해제',
+                    style: TextStyle(color: AppColors.error),
+                  ),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_PhotoAction.clear),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (action == null || !mounted) {
+      return;
+    }
+
+    switch (action) {
+      case _PhotoAction.camera:
+        await _uploadPickedPhoto(ImageSource.camera);
+      case _PhotoAction.gallery:
+        await _uploadPickedPhoto(ImageSource.gallery);
+      case _PhotoAction.photoLog:
+        await _selectFromPhotoLog();
+      case _PhotoAction.clear:
+        await _runPhotoChange(
+          () => ref
+              .read(photoRepositoryProvider)
+              .clearRepresentativePhoto(plantId: _detail.plantId),
+          successMessage: '대표 사진을 해제했어요.',
+          failureMessage: '대표 사진을 해제하지 못했습니다.',
+        );
+    }
+  }
+
+  Future<void> _uploadPickedPhoto(ImageSource source) async {
+    final XFile? picked;
+    try {
+      picked = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 2048,
+        maxHeight: 2048,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('사진을 불러오지 못했어요.')));
+      }
+      return;
+    }
+    if (picked == null || !mounted) {
+      return;
+    }
+
+    await _runPhotoChange(
+      () => ref.read(photoRepositoryProvider).uploadRepresentativePhoto(
+        plantId: _detail.plantId,
+        filePath: picked!.path,
+        fileName: picked.name,
+      ),
+      successMessage: '대표 사진을 변경했어요.',
+      failureMessage: '대표 사진을 올리지 못했습니다.',
+    );
+  }
+
+  Future<void> _selectFromPhotoLog() async {
+    final photoId = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => _PhotoLogPicker(plantId: _detail.plantId),
+    );
+    if (photoId == null || !mounted) {
+      return;
+    }
+
+    await _runPhotoChange(
+      () => ref.read(photoRepositoryProvider).selectRepresentativePhoto(
+        plantId: _detail.plantId,
+        photoId: photoId,
+      ),
+      successMessage: '대표 사진을 변경했어요.',
+      failureMessage: '대표 사진을 변경하지 못했습니다.',
+    );
+  }
+
+  /// 세 갈래가 성공·실패 처리와 갱신 대상이 같다. 대표 사진은 프로필뿐 아니라 식물 목록과
+  /// 홈 썸네일에도 나가므로 셋을 함께 무효화해야 화면 간 값이 어긋나지 않는다.
+  Future<void> _runPhotoChange(
+    Future<void> Function() action, {
+    required String successMessage,
+    required String failureMessage,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _isChangingPhoto = true);
+    try {
+      await action();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isChangingPhoto = false);
+      ref.invalidate(plantDetailProvider(_detail.plantId));
+      ref.invalidate(plantPhotosProvider(_detail.plantId));
+      ref.invalidate(myPlantsProvider);
+      ref.invalidate(homeControllerProvider);
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(successMessage)));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isChangingPhoto = false);
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(plantErrorMessage(error, failureMessage))),
+        );
+    }
+  }
+}
+
+enum _PhotoAction { camera, gallery, photoLog, clear }
+
+/// 포토 로그에서 대표 사진을 고르는 그리드다. 목록은 장치가 찍은 사진만이라(서버가
+/// `source=DEVICE` 로 걸러 준다) 로봇이 촬영을 시작하기 전에는 비어 있는 것이 정상이다.
+class _PhotoLogPicker extends ConsumerWidget {
+  const _PhotoLogPicker({required this.plantId});
+
+  final String plantId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final photos = ref.watch(plantPhotosProvider(plantId));
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '포토 로그에서 고르기',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: photos.when(
+                  loading: () => const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (error, _) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
+                    child: Text(
+                      plantErrorMessage(error, '사진을 불러오지 못했습니다.'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.textMuted),
+                    ),
+                  ),
+                  data: (items) => items.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 32),
+                          child: Text(
+                            '아직 촬영된 사진이 없어요.\n로봇이 사진을 찍으면 여기에서 고를 수 있어요.',
+                            key: Key('profile_photo_log_empty'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.textMuted),
+                          ),
+                        )
+                      : GridView.builder(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.zero,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                              ),
+                          // 최신 사진이 위로 오는 것이 고를 때 자연스럽다. 서버는 타임랩스
+                          // 순서(오래된 순)로 주므로 여기서만 뒤집는다.
+                          itemCount: items.length,
+                          itemBuilder: (context, index) {
+                            final photo = items[items.length - 1 - index];
+                            return _PhotoLogTile(photo: photo);
+                          },
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PhotoLogTile extends StatelessWidget {
+  const _PhotoLogTile({required this.photo});
+
+  final PlantPhoto photo;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: Key('profile_photo_option_${photo.photoId}'),
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.of(context).pop(photo.photoId),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              photo.thumbnailUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const ColoredBox(
+                color: AppColors.surfaceLow,
+                child: Icon(
+                  Icons.image_not_supported_outlined,
+                  color: AppColors.primarySoft,
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: ColoredBox(
+                color: Colors.black38,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Text(
+                    photoDateShort(photo.photoDate),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 11),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ProfilePhoto extends StatelessWidget {
-  const _ProfilePhoto({required this.url});
+  const _ProfilePhoto({
+    required this.url,
+    required this.isBusy,
+    required this.onChangePressed,
+  });
 
   final String? url;
+  final bool isBusy;
+  final VoidCallback onChangePressed;
 
   @override
   Widget build(BuildContext context) {
@@ -505,16 +821,16 @@ class _ProfilePhoto extends StatelessWidget {
                   tooltip: '대표 사진 변경',
                   color: Colors.white,
                   iconSize: 20,
-                  icon: const Icon(Icons.photo_camera_outlined),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context)
-                      ..hideCurrentSnackBar()
-                      ..showSnackBar(
-                        const SnackBar(
-                          content: Text('대표 사진 변경은 다음 작업에서 연결합니다.'),
-                        ),
-                      );
-                  },
+                  icon: isBusy
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.photo_camera_outlined),
+                  onPressed: isBusy ? null : onChangePressed,
                 ),
               ),
             ),

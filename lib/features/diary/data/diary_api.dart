@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:potner_app/core/api/api_exception.dart';
+import 'package:potner_app/core/api/media_url.dart';
 import 'package:potner_app/features/diary/domain/diary_models.dart';
 
 class DiaryApi {
@@ -28,7 +29,9 @@ class DiaryApi {
               diaryId: _requiredString(diary['diaryId']),
               diaryDate: _requiredDate(diary['diaryDate']),
               title: _requiredString(diary['title']),
-              thumbnailUrl: _optionalString(diary['thumbnailUrl']),
+              thumbnailUrl: resolveMediaUrl(
+                _optionalString(diary['thumbnailUrl']),
+              ),
             );
           })
           .toList(growable: false);
@@ -54,9 +57,10 @@ class DiaryApi {
         diaryDate: _requiredDate(data['diaryDate']),
         title: _requiredString(data['title']),
         content: _requiredString(data['content']),
-        photoUrl:
-            _optionalString(photo?['originalUrl']) ??
-            _optionalString(photo?['thumbnailUrl']),
+        photoUrl: resolveMediaUrl(
+          _optionalString(photo?['originalUrl']) ??
+              _optionalString(photo?['thumbnailUrl']),
+        ),
       );
     } on DioException catch (exception) {
       throw ApiException.fromDio(exception);

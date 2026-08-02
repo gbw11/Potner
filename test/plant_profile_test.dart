@@ -6,12 +6,17 @@ import 'package:potner_app/features/auth/data/auth_repository_impl.dart';
 import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/user.dart';
 import 'package:potner_app/features/home/data/home_repository_impl.dart';
+import 'package:potner_app/features/photo/data/photo_repository_impl.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 
 import 'support/fake_home_repository.dart';
+import 'support/fake_photo_repository.dart';
 import 'support/fake_plant_repository.dart';
 
-Future<FakePlantRepository> _pumpToProfile(WidgetTester tester) async {
+Future<FakePlantRepository> _pumpToProfile(
+  WidgetTester tester, {
+  FakePhotoRepository? photoRepository,
+}) async {
   final plantRepository = FakePlantRepository();
   await tester.pumpWidget(
     ProviderScope(
@@ -19,6 +24,9 @@ Future<FakePlantRepository> _pumpToProfile(WidgetTester tester) async {
         authRepositoryProvider.overrideWithValue(_FakeAuthRepository()),
         homeRepositoryProvider.overrideWithValue(FakeHomeRepository()),
         plantRepositoryProvider.overrideWithValue(plantRepository),
+        photoRepositoryProvider.overrideWithValue(
+          photoRepository ?? FakePhotoRepository(),
+        ),
       ],
       child: const PotnerApp(),
     ),
@@ -93,6 +101,43 @@ void main() {
 
     expect(plantRepository.changedLifeStageIds, ['stage-growth']);
     expect(plantRepository.updatePlantCalls, isEmpty);
+  });
+
+  testWidgets('대표 사진 변경 시트는 올리기와 포토 로그에서 고르기를 함께 제공한다', (tester) async {
+    final photoRepository = FakePhotoRepository();
+    await _pumpToProfile(tester, photoRepository: photoRepository);
+
+    await tester.tap(find.byKey(const Key('profile_photo_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('profile_photo_camera')), findsOneWidget);
+    expect(find.byKey(const Key('profile_photo_gallery')), findsOneWidget);
+    expect(find.byKey(const Key('profile_photo_from_log')), findsOneWidget);
+    // 대표 사진이 없는 식물에는 해제할 것이 없다.
+    expect(find.byKey(const Key('profile_photo_clear')), findsNothing);
+  });
+
+  testWidgets('포토 로그에서 고른 사진을 대표로 지정한다', (tester) async {
+    final photoRepository = FakePhotoRepository();
+    await _pumpToProfile(tester, photoRepository: photoRepository);
+
+    await tester.tap(find.byKey(const Key('profile_photo_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('profile_photo_from_log')));
+    await tester.pumpAndSettle();
+
+    // 고를 때는 최신이 위로 온다. 서버는 타임랩스 순서(오래된 순)로 내려준다.
+    expect(find.byKey(const Key('profile_photo_option_photo-new')), findsOne);
+    expect(find.byKey(const Key('profile_photo_option_photo-old')), findsOne);
+
+    await tester.tap(find.byKey(const Key('profile_photo_option_photo-new')));
+    await tester.pumpAndSettle();
+
+    expect(photoRepository.representativeCalls, hasLength(1));
+    expect(photoRepository.representativeCalls.single.plantId, 'plant-rose');
+    expect(photoRepository.representativeCalls.single.photoId, 'photo-new');
+    expect(photoRepository.uploadCalls, isEmpty);
+    expect(find.text('대표 사진을 변경했어요.'), findsOneWidget);
   });
 
   testWidgets('plant profile deletes the plant after confirmation', (

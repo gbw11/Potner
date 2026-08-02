@@ -9,6 +9,7 @@ class FakePhotoRepository implements PhotoRepository {
   final List<({String plantId, String photoId})> representativeCalls = [];
   final List<({String plantId, String filePath, String fileName})> uploadCalls =
       [];
+  final List<String> clearCalls = [];
 
   static List<PlantPhoto> _defaultPhotos() {
     final today = DateTime.now();
@@ -61,5 +62,10 @@ class FakePhotoRepository implements PhotoRepository {
     required String photoId,
   }) async {
     representativeCalls.add((plantId: plantId, photoId: photoId));
+  }
+
+  @override
+  Future<void> clearRepresentativePhoto({required String plantId}) async {
+    clearCalls.add(plantId);
   }
 }
