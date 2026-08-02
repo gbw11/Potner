@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:potner_app/core/api/api_exception.dart';
+import 'package:potner_app/core/api/media_url.dart';
 import 'package:potner_app/features/home/domain/home_dashboard.dart';
 
 class HomeApi {
@@ -21,10 +22,13 @@ class HomeApi {
               name: _requiredString(plant['name']),
               createdAt: _requiredDate(plant['createdAt']),
               adoptedDate: _optionalDate(plant['adoptedDate']),
-              thumbnailUrl: _optionalString(photo?['thumbnailUrl']),
-              imageUrl:
-                  _optionalString(photo?['originalUrl']) ??
-                  _optionalString(photo?['thumbnailUrl']),
+              thumbnailUrl: resolveMediaUrl(
+                _optionalString(photo?['thumbnailUrl']),
+              ),
+              imageUrl: resolveMediaUrl(
+                _optionalString(photo?['originalUrl']) ??
+                    _optionalString(photo?['thumbnailUrl']),
+              ),
             );
           })
           .toList(growable: false);
@@ -93,8 +97,10 @@ class HomeApi {
         return null;
       }
       final latest = _asMap(photos.last);
-      return _optionalString(latest['thumbnailUrl']) ??
-          _optionalString(latest['originalUrl']);
+      return resolveMediaUrl(
+        _optionalString(latest['thumbnailUrl']) ??
+            _optionalString(latest['originalUrl']),
+      );
     } on DioException catch (exception) {
       throw ApiException.fromDio(exception);
     } on FormatException catch (exception) {

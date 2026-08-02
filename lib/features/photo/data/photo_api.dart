@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:potner_app/core/api/api_exception.dart';
+import 'package:potner_app/core/api/media_url.dart';
 import 'package:potner_app/features/photo/domain/photo_models.dart';
 
 class PhotoApi {
@@ -44,9 +45,15 @@ class PhotoApi {
             return PlantPhoto(
               photoId: _requiredString(photo['photoId']),
               photoDate: _requiredDate(photo['photoDate']),
-              thumbnailUrl: _requiredString(photo['thumbnailUrl']),
-              originalUrl: _requiredString(photo['originalUrl']),
-              playbackUrl: _optionalString(photo['playbackUrl']),
+              thumbnailUrl: requireMediaUrl(
+                _requiredString(photo['thumbnailUrl']),
+              ),
+              originalUrl: requireMediaUrl(
+                _requiredString(photo['originalUrl']),
+              ),
+              playbackUrl: resolveMediaUrl(
+                _optionalString(photo['playbackUrl']),
+              ),
               capturedAt: _optionalDateTime(photo['capturedAt']),
             );
           })
@@ -67,6 +74,16 @@ class PhotoApi {
         'plants/$plantId/representative-photo',
         data: {'photoId': photoId},
       );
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
+  /// 대표 사진을 내린다. 사용자가 올린 사진이었으면 서버가 파일까지 지우고,
+  /// 장치가 찍은 사진이었으면 대표에서만 내려와 포토 로그에는 그대로 남는다.
+  Future<void> clearRepresentativePhoto({required String plantId}) async {
+    try {
+      await _dio.delete<Object?>('plants/$plantId/representative-photo');
     } on DioException catch (exception) {
       throw ApiException.fromDio(exception);
     }

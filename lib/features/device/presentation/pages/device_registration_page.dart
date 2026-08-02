@@ -12,8 +12,15 @@ import 'package:potner_app/features/home/presentation/controllers/home_controlle
 import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 
-/// 디바이스 등록이다. Potner 코드(로봇), 스테이션 코드(라즈베리)를 연결하고
-/// 선택한 식물에 배정까지 마쳐야 측정값이 흐르기 시작한다.
+/// 디바이스 등록이다. Potner 코드로 로봇(본체)을 만들고, 그 아래에 실제 보드 두 개
+/// (라즈베리파이·젯슨)를 붙인 뒤 선택한 식물에 배정해야 측정값이 흐르기 시작한다.
+///
+/// 보드 코드를 로봇 코드와 따로 받는 이유는 **MQTT 가 보드 코드로만 오간다**는 데 있다.
+/// 토픽 세그먼트·페이로드 `deviceId`·브로커 계정명이 모두 보드 코드와 같아야 하며, 로봇 코드는
+/// 그 둘을 한 화분으로 묶는 이름표일 뿐 브로커에 등장하지 않는다.
+///
+/// 급수 스테이션 코드는 여기서 받지 않는다. 그건 보드가 아니라 설비의 식별자이고
+/// `robot_location` 에 들어가므로 로봇 위치 설정 화면이 담당한다.
 class DeviceRegistrationPage extends ConsumerStatefulWidget {
   const DeviceRegistrationPage({super.key});
 
@@ -29,7 +36,8 @@ class _DeviceRegistrationPageState
   final _formKey = GlobalKey<FormState>();
   final _potnerCodeController = TextEditingController();
   final _nameController = TextEditingController();
-  final _stationCodeController = TextEditingController();
+  final _raspberryCodeController = TextEditingController();
+  final _jetsonCodeController = TextEditingController();
 
   MyPlant? _selectedPlant;
   bool _isSubmitting = false;
@@ -39,7 +47,8 @@ class _DeviceRegistrationPageState
   void dispose() {
     _potnerCodeController.dispose();
     _nameController.dispose();
-    _stationCodeController.dispose();
+    _raspberryCodeController.dispose();
+    _jetsonCodeController.dispose();
     super.dispose();
   }
 
@@ -86,8 +95,8 @@ class _DeviceRegistrationPageState
                       ),
                       const SizedBox(height: 10),
                       const Text(
-                        'Potner와 스테이션의 코드를 입력하면 내 반려식물의 상태를 확인하고 '
-                        '환경을 관리할 수 있어요.',
+                        '기기에 붙은 코드를 입력하면 내 반려식물의 상태를 확인하고 환경을 '
+                        '관리할 수 있어요.',
                         style: TextStyle(color: AppColors.textMuted),
                       ),
                       const SizedBox(height: 24),
@@ -128,24 +137,35 @@ class _DeviceRegistrationPageState
                         onChanged: (_) => _clearFormError(),
                       ),
                       const SizedBox(height: 18),
-                      _FieldLabel(label: '스테이션 코드 (선택)'),
+                      _FieldLabel(label: '라즈베리파이 코드 (선택)'),
                       const SizedBox(height: 8),
                       TextFormField(
-                        key: const Key('device_station_code'),
-                        controller: _stationCodeController,
+                        key: const Key('device_raspberry_code'),
+                        controller: _raspberryCodeController,
                         enabled: !_isSubmitting,
                         maxLength: 100,
                         decoration: const InputDecoration(
-                          hintText: '스테이션 코드를 입력해 주세요',
+                          hintText: '센서·급수를 담당하는 보드의 코드',
                           counterText: '',
                           suffixIcon: Icon(Icons.sensors_rounded),
                         ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return null;
-                          }
-                          return _validateDeviceUid(value);
-                        },
+                        validator: _validateOptionalDeviceUid,
+                        onChanged: (_) => _clearFormError(),
+                      ),
+                      const SizedBox(height: 18),
+                      _FieldLabel(label: '젯슨 코드 (선택)'),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        key: const Key('device_jetson_code'),
+                        controller: _jetsonCodeController,
+                        enabled: !_isSubmitting,
+                        maxLength: 100,
+                        decoration: const InputDecoration(
+                          hintText: '주행·표정을 담당하는 보드의 코드',
+                          counterText: '',
+                          suffixIcon: Icon(Icons.smart_toy_outlined),
+                        ),
+                        validator: _validateOptionalDeviceUid,
                         onChanged: (_) => _clearFormError(),
                       ),
                       const SizedBox(height: 18),
@@ -217,6 +237,13 @@ class _DeviceRegistrationPageState
     return null;
   }
 
+  String? _validateOptionalDeviceUid(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return _validateDeviceUid(value);
+  }
+
   void _clearFormError() {
     if (_formError != null) {
       setState(() => _formError = null);
@@ -231,7 +258,14 @@ class _DeviceRegistrationPageState
     }
 
     final repository = ref.read(deviceRepositoryProvider);
-    final stationCode = _stationCodeController.text.trim();
+    final boards = <(String, IotDeviceType, String)>[
+      (
+        _raspberryCodeController.text.trim(),
+        IotDeviceType.raspberryPi,
+        '라즈베리파이',
+      ),
+      (_jetsonCodeController.text.trim(), IotDeviceType.jetsonOrin, '젯슨'),
+    ];
     final plant = _selectedPlant;
 
     setState(() => _isSubmitting = true);
@@ -256,16 +290,21 @@ class _DeviceRegistrationPageState
     // 로봇 등록 후의 실패는 되돌릴 수 없으므로(토큰이 이미 발급됨)
     // 경고로 모아 안내하고 토큰 다이얼로그는 반드시 보여 준다.
     final warnings = <String>[];
-    if (stationCode.isNotEmpty) {
+    // 한 보드가 실패해도 나머지는 계속 붙인다. 둘 중 하나만 등록돼도 그 보드의 신호는
+    // 들어오기 시작하므로, 먼저 실패한 쪽 때문에 뒤를 포기하면 손해다.
+    for (final (code, deviceType, label) in boards) {
+      if (code.isEmpty) {
+        continue;
+      }
       try {
         await repository.registerIotDevice(
           robotId: registration.robotId,
-          deviceUid: stationCode,
-          deviceType: IotDeviceType.raspberryPi,
+          deviceUid: code,
+          deviceType: deviceType,
         );
       } catch (error) {
         warnings.add(
-          plantErrorMessage(error, '스테이션 등록에 실패했어요. 장치 관리에서 다시 시도해 주세요.'),
+          plantErrorMessage(error, '$label 등록에 실패했어요. 장치 관리에서 다시 시도해 주세요.'),
         );
       }
     }

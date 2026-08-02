@@ -42,4 +42,9 @@ class PhotoRepositoryImpl implements PhotoRepository {
   }) {
     return _api.selectRepresentativePhoto(plantId: plantId, photoId: photoId);
   }
+
+  @override
+  Future<void> clearRepresentativePhoto({required String plantId}) {
+    return _api.clearRepresentativePhoto(plantId: plantId);
+  }
 }
