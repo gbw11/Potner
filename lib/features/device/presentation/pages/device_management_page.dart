@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/arrival/application/arrival_debug_controller.dart';
+import 'package:potner_app/features/command/application/device_command_debug_controller.dart';
+import 'package:potner_app/features/command/domain/command_models.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
@@ -90,6 +92,8 @@ class DeviceManagementPage extends ConsumerWidget {
                     children: [
                       if (kDebugMode) ...[
                         const _ArrivalDebugPanel(),
+                        const SizedBox(height: 16),
+                        _DeviceCommandDebugPanel(robots: items),
                         const SizedBox(height: 16),
                       ],
                       for (final robot in items) ...[
@@ -181,6 +185,189 @@ class _ArrivalDebugPanel extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          const Text(
+            '디버그 빌드에서만 표시됩니다.',
+            textAlign: TextAlign.right,
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 손으로 장치 명령을 보내는 패널이다. 자동 케어는 센서값과 지도 좌표가 갖춰져야 트리거되므로
+/// 시연 자리에서 조건을 만들 수 없을 때 여기서 직접 보낸다.
+///
+/// 급수·촬영·송풍은 라즈베리파이에게 바로 가고 **좌표를 보지 않는다.** 좌표가 비어 있어도 이
+/// 경로로는 로봇이 움직인다. 이동만 목적지 좌표를 요구하며, 없으면 서버가
+/// `LOCATION_POSE_NOT_CONFIGURED` 로 거절한다.
+class _DeviceCommandDebugPanel extends ConsumerStatefulWidget {
+  const _DeviceCommandDebugPanel({required this.robots});
+
+  final List<ManagedRobot> robots;
+
+  @override
+  ConsumerState<_DeviceCommandDebugPanel> createState() =>
+      _DeviceCommandDebugPanelState();
+}
+
+class _DeviceCommandDebugPanelState
+    extends ConsumerState<_DeviceCommandDebugPanel> {
+  RobotLocationType _destination = RobotLocationType.waterStation;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(deviceCommandDebugControllerProvider);
+    final controller = ref.read(deviceCommandDebugControllerProvider.notifier);
+
+    // 명령은 식물 단위다. 배정된 식물이 없으면 서버가 보낼 대상을 정할 수 없다.
+    final assigned = widget.robots
+        .where((robot) => robot.assignedPlantId != null)
+        .firstOrNull;
+
+    final statusColor = switch (state.phase) {
+      DeviceCommandDebugPhase.success => AppColors.primary,
+      DeviceCommandDebugPhase.failure => AppColors.error,
+      _ => AppColors.textMuted,
+    };
+
+    return Container(
+      key: const Key('device_command_debug_panel'),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.settings_remote_outlined, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                '수동 명령',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (assigned == null)
+            const Text(
+              '배정된 식물이 없어 명령을 보낼 수 없어요. 로봇을 식물에 배정해 주세요.',
+              key: Key('device_command_debug_unavailable'),
+              style: TextStyle(color: AppColors.textMuted, height: 1.4),
+            )
+          else ...[
+            Text(
+              '${assigned.assignedPlantName ?? '배정된 식물'} · ${assigned.name}',
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              state.message,
+              key: const Key('device_command_debug_status'),
+              style: TextStyle(color: statusColor, height: 1.4),
+            ),
+            if (state.lastRequestId != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'requestId: ${state.lastRequestId}',
+                key: const Key('device_command_debug_request_id'),
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final type in const [
+                  DeviceCommandType.water,
+                  DeviceCommandType.capture,
+                  DeviceCommandType.fan,
+                ])
+                  FilledButton.tonal(
+                    key: Key('device_command_debug_${type.wireName}'),
+                    onPressed: state.isBusy
+                        ? null
+                        : () => controller.send(
+                            plantId: assigned.assignedPlantId!,
+                            type: type,
+                          ),
+                    child: Text(type.label),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<RobotLocationType>(
+                    key: const Key('device_command_debug_destination'),
+                    initialValue: _destination,
+                    isExpanded: true,
+                    decoration: const InputDecoration(isDense: true),
+                    items: [
+                      for (final type in RobotLocationType.values)
+                        DropdownMenuItem(value: type, child: Text(type.label)),
+                    ],
+                    onChanged: state.isBusy
+                        ? null
+                        : (value) => setState(
+                            () => _destination = value ?? _destination,
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  key: const Key('device_command_debug_NAVIGATE'),
+                  onPressed: state.isBusy
+                      ? null
+                      : () => controller.send(
+                          plantId: assigned.assignedPlantId!,
+                          type: DeviceCommandType.navigate,
+                          destination: _destination,
+                        ),
+                  icon: const Icon(Icons.navigation_outlined),
+                  label: const Text('이동'),
+                ),
+              ],
+            ),
+            const Divider(height: 26),
+            const Text(
+              '표정 — 약 30초 뒤 서버 판정으로 돌아갑니다',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final expression in PlantExpression.values)
+                  OutlinedButton(
+                    key: Key('device_expression_debug_${expression.wireName}'),
+                    onPressed: state.isBusy
+                        ? null
+                        : () => controller.sendExpression(
+                            plantId: assigned.assignedPlantId!,
+                            expression: expression,
+                          ),
+                    child: Text(expression.label),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           const Text(
             '디버그 빌드에서만 표시됩니다.',
