@@ -107,6 +107,42 @@ class DeviceCommandDebugController extends Notifier<DeviceCommandDebugState> {
     unawaited(_poll(plantId, issued.requestId, type, generation));
   }
 
+  /// 표정을 한 번 보낸다.
+  ///
+  /// 폴링하지 않는다. 표정에는 result 회신 계약이 없어 서버가 수행 여부를 알 수 없고, 앱이 기다릴
+  /// 대상도 없다. 로봇 화면을 눈으로 확인해야 한다. 발행 자체가 성공했는지만 알려 준다.
+  ///
+  /// **다음 주기 발행이 덮어쓴다.** 서버가 기본 30초마다 자기 판정을 다시 밀어 주므로 이 표정은
+  /// 한 주기만 유지된다. 잠깐 보여주는 용도라는 것을 문구로 밝힌다.
+  Future<void> sendExpression({
+    required String plantId,
+    required PlantExpression expression,
+  }) async {
+    if (state.isBusy) {
+      return;
+    }
+    // 진행 중인 명령 폴링을 이 발행이 끊지 않도록 세대를 올리지 않는다.
+    state = DeviceCommandDebugState(
+      phase: DeviceCommandDebugPhase.sending,
+      message: '${expression.label} 표정을 보내는 중이에요.',
+    );
+    try {
+      await _repository.publishExpression(
+        plantId: plantId,
+        expression: expression,
+      );
+      state = DeviceCommandDebugState(
+        phase: DeviceCommandDebugPhase.success,
+        message: '${expression.label} 표정을 보냈어요. 로봇 화면을 확인해 주세요 — 약 30초 뒤 서버 판정으로 돌아갑니다.',
+      );
+    } catch (error) {
+      state = DeviceCommandDebugState(
+        phase: DeviceCommandDebugPhase.failure,
+        message: _messageFor(error),
+      );
+    }
+  }
+
   Future<void> _poll(
     String plantId,
     String requestId,

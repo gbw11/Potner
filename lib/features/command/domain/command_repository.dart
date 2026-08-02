@@ -18,4 +18,13 @@ abstract class DeviceCommandRepository {
     required DateTime from,
     required DateTime to,
   });
+
+  /// 로봇 디스플레이에 표정을 한 번 보낸다.
+  ///
+  /// 회신을 기다리지 않는다. 표정에는 result 계약이 없어 수행 여부를 서버가 확인할 방법이
+  /// 없으므로 로봇 화면을 눈으로 봐야 한다. **다음 주기 발행(기본 30초)이 덮어쓴다.**
+  Future<void> publishExpression({
+    required String plantId,
+    required PlantExpression expression,
+  });
 }

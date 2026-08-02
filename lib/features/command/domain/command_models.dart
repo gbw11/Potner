@@ -58,6 +58,38 @@ enum DeviceCommandStatus {
 /// 누가 발행했는지다. 이력에서 "내가 안 시킨 급수"를 구분하는 근거다.
 enum CommandInitiator { user, auto, unknown }
 
+/// 로봇 디스플레이에 그릴 표정이다.
+///
+/// 장치 명령([DeviceCommandType])과 다르게 다룬다. 표정은 회신 계약이 없고 이력도 남지 않으며,
+/// 서버가 주기적으로 판정해 밀어 주는 값이다. 손으로 보낸 값은 **다음 주기가 덮어쓴다.**
+enum PlantExpression {
+  /// 급수·송풍 받는 중, 사용자 반기는 중.
+  veryHappy,
+
+  /// 오늘 개화, 충분한 광량.
+  happy,
+
+  /// 특별한 일 없음.
+  neutral,
+
+  /// 온도나 습도가 기준을 벗어남.
+  sad;
+
+  String get wireName => switch (this) {
+    PlantExpression.veryHappy => 'VERY_HAPPY',
+    PlantExpression.happy => 'HAPPY',
+    PlantExpression.neutral => 'NEUTRAL',
+    PlantExpression.sad => 'SAD',
+  };
+
+  String get label => switch (this) {
+    PlantExpression.veryHappy => '매우 행복',
+    PlantExpression.happy => '행복',
+    PlantExpression.neutral => '보통',
+    PlantExpression.sad => '우울',
+  };
+}
+
 class DeviceCommandRecord {
   const DeviceCommandRecord({
     required this.requestId,

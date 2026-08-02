@@ -151,6 +151,28 @@ void main() {
     expect(find.textContaining('회신이 없어'), findsOneWidget);
   });
 
+  testWidgets('표정 버튼은 폴링 없이 발행하고 덮어쓰기를 알려 준다', (tester) async {
+    final repository = await _pumpToPanel(tester);
+
+    await tester.ensureVisible(
+      find.byKey(const Key('device_expression_debug_SAD')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('device_expression_debug_SAD')));
+    await tester.pumpAndSettle();
+
+    expect(repository.expressionCalls, hasLength(1));
+    expect(repository.expressionCalls.single.expression, PlantExpression.sad);
+    // 표정에는 result 회신 계약이 없다. 기다릴 대상이 없으므로 이력 폴링을 하지 않는다.
+    expect(repository.issueCalls, isEmpty);
+    // 패널 상단의 정적 라벨에도 같은 문구가 있으므로 상태 줄만 본다.
+    final status = tester.widget<Text>(
+      find.byKey(const Key('device_command_debug_status')),
+    );
+    expect(status.data, contains('우울 표정을 보냈어요'));
+    expect(status.data, contains('30초 뒤'));
+  });
+
   testWidgets('배정된 식물이 없으면 명령 버튼을 내린다', (tester) async {
     // 명령은 식물 단위다. 배정이 없으면 서버가 보낼 대상을 정할 수 없다.
     await _pumpToPanel(

@@ -56,6 +56,20 @@ class DeviceCommandApi {
     }
   }
 
+  Future<void> publishExpression({
+    required String plantId,
+    required PlantExpression expression,
+  }) async {
+    try {
+      await _dio.post<Object?>(
+        'plants/$plantId/expression',
+        data: {'expression': expression.wireName},
+      );
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   DeviceCommandRecord _parseCommand(Object? value) {
     final command = _asMap(value);
     return DeviceCommandRecord(

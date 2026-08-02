@@ -55,4 +55,21 @@ class FakeDeviceCommandRepository implements DeviceCommandRepository {
   }) async {
     return List.of(commands);
   }
+
+  final List<({String plantId, PlantExpression expression})> expressionCalls =
+      [];
+
+  Object? expressionError;
+
+  @override
+  Future<void> publishExpression({
+    required String plantId,
+    required PlantExpression expression,
+  }) async {
+    final error = expressionError;
+    if (error != null) {
+      throw error;
+    }
+    expressionCalls.add((plantId: plantId, expression: expression));
+  }
 }

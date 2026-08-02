@@ -39,4 +39,12 @@ class DeviceCommandRepositoryImpl implements DeviceCommandRepository {
   }) {
     return _api.getCommands(plantId: plantId, from: from, to: to);
   }
+
+  @override
+  Future<void> publishExpression({
+    required String plantId,
+    required PlantExpression expression,
+  }) {
+    return _api.publishExpression(plantId: plantId, expression: expression);
+  }
 }

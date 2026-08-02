@@ -344,6 +344,29 @@ class _DeviceCommandDebugPanelState
                 ),
               ],
             ),
+            const Divider(height: 26),
+            const Text(
+              '표정 — 약 30초 뒤 서버 판정으로 돌아갑니다',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final expression in PlantExpression.values)
+                  OutlinedButton(
+                    key: Key('device_expression_debug_${expression.wireName}'),
+                    onPressed: state.isBusy
+                        ? null
+                        : () => controller.sendExpression(
+                            plantId: assigned.assignedPlantId!,
+                            expression: expression,
+                          ),
+                    child: Text(expression.label),
+                  ),
+              ],
+            ),
           ],
           const SizedBox(height: 8),
           const Text(
