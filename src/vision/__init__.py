@@ -38,4 +38,15 @@ def build_camera(config: dict[str, Any]) -> Optional[Camera]:
 
 def build_camera_store(config: dict[str, Any]) -> CameraStore:
     cam_cfg = config.get("camera", {}) or {}
-    return CameraStore(cam_cfg.get("path", "data/camera"))
+    # events.path 가 있으면 촬영 이력도 남긴다 (없으면 앱 로그에만 기록)
+    events_path = (config.get("events") or {}).get("path")
+    event_store = None
+    if events_path:
+        from ..events.store import EventStore
+
+        event_store = EventStore(events_path)
+    return CameraStore(
+        cam_cfg.get("path", "data/camera"),
+        event_store=event_store,
+        trigger="collector",
+    )

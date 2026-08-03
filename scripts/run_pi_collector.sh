@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Pi 호스트 터미널에서 실행 (Cursor Agent 샌드박스 밖).
+# Pi 호스트에서 수동 실행용.
+# 부팅 자동 실행은 systemd/sensor-collector.service 를 enable 하세요:
+#   sudo cp systemd/sensor-collector.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now sensor-collector
 # 기대 배너: mqtt=on ... hb=30s water=on ... capture=on ...
 set -euo pipefail
 cd "$(dirname "$0")/.."

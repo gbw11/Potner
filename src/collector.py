@@ -7,6 +7,7 @@ from .sensors.factory import SensorBundle, build_sensors
 from .storage import CsvStorage
 from .vision import build_camera, build_camera_store
 from .vision.base import Camera, CaptureResult
+from .vision.capture_flow import CameraUnavailableError
 from .vision.store import CameraStore
 
 
@@ -52,7 +53,9 @@ class Collector:
 
     def capture_once(self) -> CaptureResult:
         if self.camera is None or self.camera_store is None:
-            raise RuntimeError(
+            # 설정 문제라 재촬영해도 결과가 같다 → 재시도 계층이 즉시 포기하도록
+            # RuntimeError 하위 타입으로 표시한다 (기존 except RuntimeError 는 그대로 동작).
+            raise CameraUnavailableError(
                 "Camera disabled. Set camera.enabled: true in config "
                 "(mock on PC, picamera2 on Raspberry Pi)."
             )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import signal
 import sys
 import time
@@ -9,8 +10,11 @@ from pathlib import Path
 from src.collector import Collector
 from src.config import load_config
 from src.device import resolve_device_id
+from src.logging_setup import setup_logging
 from src.mqtt import build_capture_listener, build_mqtt_publisher, build_water_listener
 from src.transport import build_spring_publisher
+
+log = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,11 +40,21 @@ def main() -> int:
         return 1
 
     config = load_config(config_path)
+    setup_logging(config)
     device_id = resolve_device_id((config.get("mqtt") or {}).get("device_id"))
     collector = Collector(config)
     publisher = build_spring_publisher(config)
     mqtt_publisher = build_mqtt_publisher(config)
-    water_listener = None if args.once else build_water_listener(config)
+    # 과급수 게이트의 "이미 젖었으면 스킵" 판정용. 센서를 새로 열지 않고 collector 의
+    # 마지막 측정값을 넘긴다 (같은 I2C 센서를 두 번 열면 안 되므로).
+    last_row: dict = {}
+    water_listener = (
+        None
+        if args.once
+        else build_water_listener(
+            config, soil_provider=lambda: last_row.get("soil_moisture_pct")
+        )
+    )
     capture_listener = (
         None
         if args.once
@@ -67,15 +81,22 @@ def main() -> int:
                 f"hb={mqtt_publisher.heartbeat_interval_sec:.0f}s"
             )
         except Exception as exc:  # noqa: BLE001
-            print(f"warn: mqtt connect failed (will retry): {exc}")
+            log.warning(f"mqtt connect failed (will retry): {exc}")
             mqtt_note = f"retrying {mqtt_publisher.host}:{mqtt_publisher.port}"
     water_note = "off"
     if water_listener is not None:
         try:
             water_listener.start()
-            water_note = f"on {water_listener.command_topic}"
+            # 펌프 드라이버명을 배너에 남긴다 — 실기에서 mock 이 물려 있으면 바로 드러난다
+            pump_name = type(water_listener.pump).__name__
+            water_note = f"on {water_listener.command_topic} pump={pump_name}"
         except Exception as exc:  # noqa: BLE001 — 급수 실패해도 수집은 계속
-            print(f"warn: water listener unavailable: {exc}")
+            log.warning(f"water listener unavailable: {exc}")
+            # 리스너를 버리기 전에 GPIO 를 놓아준다 (안 하면 핀이 잡힌 채로 남는다)
+            try:
+                water_listener.pump.close()
+            except Exception:  # noqa: BLE001
+                pass
             water_listener = None
 
     capture_note = "off"
@@ -84,10 +105,10 @@ def main() -> int:
             capture_listener.start()
             capture_note = f"on {capture_listener.command_topic}"
         except Exception as exc:  # noqa: BLE001 — 촬영 실패해도 수집은 계속
-            print(f"warn: capture listener unavailable: {exc}")
+            log.warning(f"capture listener unavailable: {exc}")
             capture_listener = None
 
-    print(
+    log.info(
         f"platform={config.get('platform')} device_id={device_id} interval={interval}s "
         f"storage={config.get('storage', {}).get('path')} "
         f"backend={'on ' + publisher.url if publisher.enabled else 'off'} "
@@ -98,6 +119,7 @@ def main() -> int:
         while running:
             row = collector.read_once()
             row["device_id"] = device_id
+            last_row = row
             pub = publisher.publish(row)
             pub_note = "skip" if not publisher.enabled else ("ok" if pub.ok else pub.message)
             mqtt = mqtt_publisher.publish(row)
@@ -106,7 +128,7 @@ def main() -> int:
                 if not mqtt_publisher.enabled
                 else (f"ok({mqtt.count})" if mqtt.ok else mqtt.message)
             )
-            print(
+            log.info(
                 f"[{row['timestamp']}] device={device_id} "
                 f"T={row['temperature_c']}C H={row['humidity_pct']}% "
                 f"| spring={pub_note} mqtt={mqtt_status}"

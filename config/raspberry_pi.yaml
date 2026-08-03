@@ -48,8 +48,66 @@ backend:
   device_id: auto
   timeout_sec: 5
 
+# 촬영 사진을 potner 서버로 업로드 (multipart/form-data)
+#   POST http://i15e104.p.ssafy.io/api/v1/device/photos
+# 서버가 업로드 토큰 -> 로봇 -> 활성 배정 순으로 식물을 정하므로 plantId 를 보내지 않는다.
+# 파일 파트 하나(file)와 쿼리 capturedAt 만 받고, 그 외 메타데이터는 받지 않는다.
+upload:
+  enabled: true
+  base_url: http://i15e104.p.ssafy.io
+  path: /api/v1/device/photos
+  method: POST
+  timeout_sec: 20               # 사진 전송이라 센서보다 넉넉히
+  device_id: raspberry-01
+  # HTTP 재시도 (네트워크/서버 오류 대상. 촬영 재시도와는 별개)
+  # 4xx 는 재시도하지 않는다 — 토큰·배정 문제는 사람이 고쳐야 한다.
+  max_attempts: 3
+  retry_backoff_sec: 1.0        # 1s -> 2s (지수 백오프)
+  retry_backoff_max_sec: 8.0
+  retry_on_status: [408, 425, 429, 500, 502, 503, 504]
+  # 201 외에 성공으로 볼 상태코드.
+  # 409 PHOTO_ALREADY_EXISTS_FOR_DATE — 서버는 타임랩스 프레임 간격을 일정하게 두려고
+  # 하루 한 장만 저장한다. 같은 날 두 번째 촬영은 409 이고 이건 정상 동작이다.
+  # 실패로 다루면 서버의 자동 촬영 체인이 거기서 끊긴다.
+  success_status: [409]
+  max_bytes: 10485760           # 서버 허용 10 MiB. 넘으면 JPEG 품질을 낮춰 재인코딩
+  file_field: file              # 다른 이름이면 서버가 400
+  metadata_mode: none           # 이 서버는 바디 메타데이터를 받지 않는다
+  metadata_field: metadata
+  metadata_content_type: application/json
+  # capturedAt 은 쿼리로 보낸다. '+09:00' 의 '+' 가 쿼리에서 공백으로 깨지므로
+  # iso8601_z 로 UTC Z 형식으로 정규화한다 (CaptureResult.timestamp 는 로컬 오프셋 형식).
+  timestamp_mode: iso8601_z
+  query_fields: [capturedAt]
+  # 이 서버로는 capturedAt 만 나간다. 나머지는 null 로 꺼 둔다.
+  field_map:
+    capturedAt: capturedAt
+    requestId: null
+    deviceId: null
+    fileName: null
+    contentType: null
+    fileSize: null
+    width: null
+    height: null
+    driver: null
+  required_fields: [capturedAt]
+  extra_fields: {}
+  auth:
+    scheme: header
+    header: X-Device-Token      # 로봇 등록 시 1회만 나오는 uploadToken
+    token_env: POTNER_UPLOAD_TOKEN  # 값은 .env 에만. yaml/git 에 넣지 말 것
+
 events:
   path: data/events.jsonl
+
+# 애플리케이션 로그 (표준 logging + 회전 파일). 모듈은 logging.getLogger(__name__) 만 쓴다.
+# systemd 로 띄우면 콘솔 출력은 journald 로도 함께 들어간다.
+logging:
+  level: INFO          # DEBUG | INFO | WARNING | ERROR
+  console: true
+  path: data/app.log   # null 이면 파일 로그 비활성 (콘솔만)
+  max_bytes: 1048576   # 1MB 마다 회전
+  backup_count: 5      # app.log.1 ~ app.log.5
 
 llm:
   enabled: true
@@ -72,12 +130,49 @@ camera:
   height: 1080
   camera_num: 0
   settle_sec: 1.0
-  exposure_value: 1.0
-  brightness: 0.12
+  # 2026-08-03 실측: EV +1.0 / brightness 0.12 조합에서 평균 밝기가 204~246 으로 떠서
+  # 과노출 판정(상한 215)에 걸렸다. 어두웠던 시절 올려둔 값이라 지금 조명에선 과보정이다.
+  # 잠정값 — 재촬영 후 로그의 평균 밝기가 120~180 에 들어오는지 보고 확정할 것.
+  exposure_value: 0.3    # EV 보정 (+면 밝아짐). 여전히 밝으면 0.0 까지 내린다
+  brightness: 0.0
   contrast: 1.1
   saturation: 1.05
   capture_with_read: false
   capture_every_n: 1
+  # 촬영 "후" 결과 이미지 밝기 검사 (src/vision/quality.py)
+  # 실기는 JPEG 로 저장되므로 Pillow(python3-pil) 가 있어야 검사가 동작한다.
+  # 없으면 검사만 실패(ERROR 로그)하고 촬영 자체는 영향받지 않는다.
+  quality:
+    enabled: true
+    min_mean_brightness: 40     # 평균 luma(0~255) 하한 — 미만이면 저조도
+    max_mean_brightness: 215    # 평균 luma 상한 — 초과면 과노출
+    dark_pixel_level: 16        # 이 값 이하 픽셀 = 뭉개진 검정
+    bright_pixel_level: 240     # 이 값 이상 픽셀 = 날아간 흰색
+    max_dark_ratio: 0.6         # 검정 픽셀 허용 비율 (초과 시 저조도)
+    max_bright_ratio: 0.5       # 흰색 픽셀 허용 비율 (초과 시 과노출)
+    sample_step: 8              # FHD 전수 검사는 느리다 — 8픽셀마다 1개
+    # warn: 경고만 남기고 업로드까지 진행 | reject: 후속 분석/업로드 차단
+    # reject 로 되돌리지 말 것 — 탈락하면 result/capture 가 ERROR 로 나가고,
+    # 서버는 ERROR 를 받으면 그날 자동 촬영 체인을 멈춘다. 사진이 아예 없는 것보다
+    # 약간 밝은 사진이 낫다 (최종 품질 판단은 서버 YOLO 가 한다).
+    on_failure: warn
+  # 촬영 실패 시 자동 재시도 (src/vision/capture_flow.py)
+  # 재시도 대상: 카메라 오류 / 촬영 실패 / 이미지 저장 실패 / 밝기 검사 탈락
+  # 재시도 안 함: 잘못된 requestId·페이로드, 카메라 비활성(camera.enabled=false)
+  # 이 섹션을 통째로 지우면 재시도 없이 1회만 촬영한다 (구버전 동작).
+  retry:
+    enabled: true
+    max_attempts: 3             # 최초 촬영 포함 총 시도 횟수 (1 이면 재시도 없음)
+    delay_sec: 2.0              # 실기는 AE(자동노출) 재수렴 시간이 필요해 PC보다 길게 잡는다
+    backoff: true               # 2s → 4s → 8s (backoff_max_sec 에서 멈춤)
+    backoff_max_sec: 8.0
+    retry_on_quality: true      # 밝기 탈락(저조도/과노출)도 재촬영 — 조명이 흔들릴 때 유효
+    verify_saved_file: true     # SD 카드 쓰기 실패를 잡는다 (파일 없음 · 0바이트)
+    # true 로 하면 재촬영으로 버려진 중간 실패 이미지를 삭제한다 (SD 카드 용량 절약).
+    # 마지막 1장은 항상 남긴다. 삭제해도 index.jsonl 항목은 남으므로 주의.
+    discard_failed_images: false
+    # 재시도 중에는 카메라 락을 계속 쥔다 → 그 사이 들어온 촬영 명령은 BUSY 로 회신된다.
+    # 최악 소요 = 3회 x (촬영 ~3s + 대기 2·4s) ≈ 15s. 서버 타임아웃보다 짧게 유지할 것.
 
 # 급수용 다이어프램 펌프 — L298N 모터 드라이버 경유
 # 배선(BCM): GPIO17→IN1, GPIO18→IN2, 펌프→OUT1/OUT2, +12V 외부전원, GND 는 Pi 와 공통
@@ -90,10 +185,20 @@ pump:
   in2_pin: 18
   ena_pin: null          # ENA 점퍼 장착 시 null. 점퍼 빼고 GPIO 연결 시 핀 번호 지정
   speed: 1.0             # ena_pin 지정 시 PWM 세기 (0.0~1.0). 바꾸면 재보정 필요
-  flow_ml_per_sec: 25.0  # 펌프 유량 보정값: cli.water calibrate 로 측정
+  flow_ml_per_sec: 25.0  # 펌프 유량 보정값: cli.water calibrate 로 측정 (12V 실측 전 임시값)
   startup_sec: 0.0       # 시동 손실 보정 (calibrate 가 함께 계산)
+  min_run_sec: 0.3       # 최소 가동 시간. 이보다 짧으면 물이 사실상 안 나온다
   max_run_sec: 30        # 1회 최대 가동 시간 (과급수 방지)
   default_ml: 100        # dispense --ml 생략 시 기본 급수량
+  # 과급수 방지 게이트. 급수량은 위 보정값이 정하고, 여기서는 "지금 줘도 되는가"만 본다.
+  # 토양수분은 급수량 계산이 아니라 이 게이트에만 쓴다 (센서가 %만 주고 ml 을 못 주므로).
+  safety:
+    enabled: true
+    max_ml_per_dose: 500   # 1회 요청 상한 (넘으면 이 값까지만 급수)
+    min_interval_sec: 300  # 직전 급수 후 재급수 최소 간격 (서버 재전송·중복 명령 차단)
+    daily_max_ml: 1000     # 최근 24시간 누적 상한
+    soil_wet_pct: 70       # 토양수분이 이 값 이상이면 급수 스킵 (센서 없으면 이 축만 비활성)
+    state_path: data/water_history.json  # 재시작해도 누적량 유지
 
 # 송풍용 시로코 팬 — IRF520 MOSFET 모듈 경유 (L298N 무관)
 # 배선(BCM): GPIO23(물리 16번) → SIG, Pi GND → 모듈 GND,
