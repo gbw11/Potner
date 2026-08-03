@@ -37,6 +37,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- 앱이 죽어 있을 때 FCM 이 직접 알림을 띄울 때 쓰는 채널이다. 서버가 보내는
+             AndroidNotification.channelId 와 NotificationChannels.ALERTS 와 같아야 한다.
+             값이 어긋나면 중요도 HIGH 가 아닌 자동 생성 채널로 떨어져 팝업이 안 뜬다. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="potner_alerts" />
         <receiver
             android:name=".GeofenceBroadcastReceiver"
             android:enabled="true"
