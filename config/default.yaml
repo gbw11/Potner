@@ -51,47 +51,55 @@ backend:
   device_id: pi-01
   timeout_sec: 5
 
-# 촬영 이미지 + 메타데이터 업로드 (multipart/form-data)
-# !!! 서버 API 스펙 미확정 !!! 아래 값은 전부 자리표시자다. 스펙이 나오면 코드가 아니라
-# 이 섹션만 고치면 된다 (구현: src/transport/uploader.py).
-# UPLOAD_BASE_URL 환경변수로 base_url 을 덮어쓸 수 있다.
+# 촬영 사진을 potner 서버로 업로드 (multipart/form-data)
+#   POST http://i15e104.p.ssafy.io/api/v1/device/photos
+# 서버가 업로드 토큰 -> 로봇 -> 활성 배정 순으로 식물을 정하므로 plantId 를 보내지 않는다.
+# 파일 파트 하나(file)와 쿼리 capturedAt 만 받고, 그 외 메타데이터는 받지 않는다.
 upload:
   enabled: false
-  base_url: http://127.0.0.1:8080
-  path: /api/v1/images          # [스펙확정] 업로드 엔드포인트
+  base_url: http://i15e104.p.ssafy.io
+  path: /api/v1/device/photos
   method: POST
-  timeout_sec: 10
-  device_id: pi-01              # auto = 보드 시리얼. DEVICE_ID 환경변수가 최우선
-  # HTTP 재시도 (네트워크/서버 오류 대상. 촬영 자체의 재시도와는 무관)
+  timeout_sec: 20               # 사진 전송이라 센서보다 넉넉히
+  device_id: pi-01
+  # HTTP 재시도 (네트워크/서버 오류 대상. 촬영 재시도와는 별개)
+  # 4xx 는 재시도하지 않는다 — 토큰·배정 문제는 사람이 고쳐야 한다.
   max_attempts: 3
-  retry_backoff_sec: 1.0        # 1s → 2s → 4s ... (지수 백오프)
+  retry_backoff_sec: 1.0        # 1s -> 2s (지수 백오프)
   retry_backoff_max_sec: 8.0
   retry_on_status: [408, 425, 429, 500, 502, 503, 504]
-  # --- 여기부터 서버 스펙 확정 시 바꾸는 지점 ---
-  file_field: file              # [스펙확정] 이미지 파일 파트 이름
-  metadata_mode: json_part      # [스펙확정] json_part | fields | both
-  metadata_field: metadata      # [스펙확정] json_part 일 때 JSON 파트 이름
+  # 201 외에 성공으로 볼 상태코드.
+  # 409 PHOTO_ALREADY_EXISTS_FOR_DATE — 서버는 타임랩스 프레임 간격을 일정하게 두려고
+  # 하루 한 장만 저장한다. 같은 날 두 번째 촬영은 409 이고 이건 정상 동작이다.
+  # 실패로 다루면 서버의 자동 촬영 체인이 거기서 끊긴다.
+  success_status: [409]
+  max_bytes: 10485760           # 서버 허용 10 MiB. 넘으면 JPEG 품질을 낮춰 재인코딩
+  file_field: file              # 다른 이름이면 서버가 400
+  metadata_mode: none           # 이 서버는 바디 메타데이터를 받지 않는다
+  metadata_field: metadata
   metadata_content_type: application/json
-  timestamp_mode: iso8601       # [스펙확정] iso8601 | epoch_millis
-  # 우리 표준 키 → 서버 필드명. 값을 null 로 두면 그 항목은 전송하지 않는다.
+  # capturedAt 은 쿼리로 보낸다. '+09:00' 의 '+' 가 쿼리에서 공백으로 깨지므로
+  # iso8601_z 로 UTC Z 형식으로 정규화한다 (CaptureResult.timestamp 는 로컬 오프셋 형식).
+  timestamp_mode: iso8601_z
+  query_fields: [capturedAt]
+  # 이 서버로는 capturedAt 만 나간다. 나머지는 null 로 꺼 둔다.
   field_map:
-    requestId: requestId
-    deviceId: deviceId
-    fileName: fileName
     capturedAt: capturedAt
-    contentType: contentType
-    fileSize: fileSize
-    width: width
-    height: height
-    driver: driver
-  required_fields: [requestId, deviceId, fileName, capturedAt]
-  extra_fields: {}              # 항상 함께 보낼 고정 폼 필드 (예: {source: raspberry})
+    requestId: null
+    deviceId: null
+    fileName: null
+    contentType: null
+    fileSize: null
+    width: null
+    height: null
+    driver: null
+  required_fields: [capturedAt]
+  extra_fields: {}
   auth:
-    scheme: none                # [스펙확정] none | bearer | header
-    header: Authorization
-    token_env: UPLOAD_API_TOKEN # 토큰 값은 .env 에만. yaml 에 넣지 말 것
+    scheme: header
+    header: X-Device-Token      # 로봇 등록 시 1회만 나오는 uploadToken
+    token_env: POTNER_UPLOAD_TOKEN  # 값은 .env 에만. yaml/git 에 넣지 말 것
 
-# 외출 중 이벤트 로그
 events:
   path: data/events.jsonl
 

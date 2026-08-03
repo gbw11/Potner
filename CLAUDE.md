@@ -71,6 +71,19 @@ These hold in the current code; if you're about to change one, that's a delibera
 - Captured images pass a brightness gate before they go anywhere else: `src/vision/quality.py::check_image`
   runs in `src/mqtt/capture_command.py` after capture, and a rejected image is never uploaded
   (`camera.quality.on_failure: reject`). Setting it to `warn` lets rejects through with a logged warning.
+- Photo upload (`POST /api/v1/device/photos`) has three contract details that break silently if changed —
+  see the `upload:` config section, driven by `src/transport/uploader.py`:
+  - The file part **must** be named `file`, and auth is the raw header `X-Device-Token` (no `Bearer`).
+    No `plantId` is sent; the server resolves it from the upload token's robot and its active assignment.
+  - `capturedAt` goes in the **query string in UTC `Z` form**. `CaptureResult.timestamp` is local
+    (`+09:00`) and a `+` in a query decodes as a space, so `timestamp_mode: iso8601_z` must stay on.
+  - **HTTP 409 is success**, not failure. The server keeps one photo per day for even timelapse spacing,
+    so a second capture the same day is a 409. Treating it as an error stops the server's automatic
+    capture chain for that day (`success_status: [409]`).
+- Upload failure never flips a successful capture to `ERROR` — the photo is already on disk and can be
+  re-sent later, whereas an `ERROR` reply halts the server's capture chain. The result payload carries
+  `uploaded`/`uploadError` as separate fields while `status` stays `OK`
+  (`tests/test_capture_integration.py::test_upload_failure_does_not_block_capture_result`).
 - `config/*.yaml` is the single source of truth for driver selection, pins, and tuning constants
   (`platform: mock|raspberry_pi|jetson` switches every sensor/actuator driver). Don't hardcode pin numbers
   or thresholds in code that already reads them from config.

@@ -522,14 +522,21 @@ def test_custom_auth_header_scheme(recorder: Recorder, image_file, monkeypatch):
     assert recorder.requests[0].get_header("X-api-key") == "k-1"
 
 
-def test_missing_token_warns_but_still_uploads(recorder: Recorder, image_file, monkeypatch, caplog):
+def test_missing_token_fails_before_sending(recorder: Recorder, image_file, monkeypatch, caplog):
+    """인증이 필요한데 토큰이 없으면 보내지 않는다.
+
+    스펙 미확정 시절엔 경고만 하고 전송했지만, 실제 서버(X-Device-Token)는 토큰이 없으면
+    401 만 준다. 헛된 요청을 보내고 401 을 해석하게 하는 것보다 로컬에서 끊는 편이 진단이 쉽다.
+    """
     monkeypatch.delenv("UPLOAD_API_TOKEN", raising=False)
     uploader = make_uploader(auth_scheme="bearer")
 
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        assert uploader.upload_file(image_file, request_id="req-1").ok
+    with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
+        result = uploader.upload_file(image_file, request_id="req-1")
 
-    assert recorder.requests[0].get_header("Authorization") is None
+    assert result.ok is False
+    assert result.code == "MISSING_TOKEN"
+    assert recorder.requests == []
     assert "UPLOAD_API_TOKEN" in caplog.text
 
 
@@ -583,15 +590,35 @@ def test_base_url_env_override(monkeypatch):
 
 
 @pytest.mark.parametrize("config_path", ["config/default.yaml", "config/raspberry_pi.yaml"])
-def test_project_yaml_upload_section_loads(config_path, monkeypatch):
+def test_project_yaml_upload_section_matches_photo_api_contract(config_path, monkeypatch):
+    """두 yaml 이 potner 사진 API 계약과 어긋나지 않는지 — 어기면 서버가 조용히 거절한다."""
     monkeypatch.delenv("DEVICE_ID", raising=False)
     config = load_config(config_path)
     assert "upload" in config, f"{config_path} 에 upload 섹션이 없습니다"
     uploader = build_image_uploader(config)
-    # 스펙 확정 전이므로 기본 비활성 — 실서버로 새어나가지 않는다
-    assert uploader.enabled is False
-    assert uploader.metadata_mode in {"json_part", "fields", "both"}
-    assert set(uploader.required_fields) <= set(uploader.field_map)
+
+    assert uploader.url == "http://i15e104.p.ssafy.io/api/v1/device/photos"
+    assert uploader.file_field == "file"          # 다른 이름이면 서버가 400
+    assert uploader.auth_scheme == "header"
+    assert uploader.auth_header == "X-Device-Token"
+    # 바디 메타데이터를 보내면 안 되고, capturedAt 은 쿼리로 나가야 한다
+    assert uploader.metadata_mode == "none"
+    assert uploader.query_fields == ("capturedAt",)
+    # '+09:00' 이 쿼리에서 깨지므로 Z 정규화가 켜져 있어야 한다
+    assert uploader.timestamp_mode == "iso8601_z"
+    # 409(그날 사진 이미 있음)는 정상 — 실패로 다루면 자동 촬영 체인이 끊긴다
+    assert 409 in uploader.success_status
+    assert uploader.max_bytes == 10 * 1024 * 1024
+    # 4xx 는 재시도 대상이 아니다 (토큰·배정 문제는 사람이 고쳐야 한다)
+    assert not [code for code in uploader.retry_on_status if 400 <= code < 500 and code != 408
+                and code != 425 and code != 429]
+
+
+def test_only_raspberry_config_enables_upload(monkeypatch):
+    """PC(mock) 설정으로는 실서버에 사진이 새어나가지 않아야 한다."""
+    monkeypatch.delenv("DEVICE_ID", raising=False)
+    assert build_image_uploader(load_config("config/default.yaml")).enabled is False
+    assert build_image_uploader(load_config("config/raspberry_pi.yaml")).enabled is True
 
 
 # --------------------------------------------------------------------------

@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+from urllib.parse import urlencode
 
 from ..device import resolve_device_id
 from ..integrations.spring import MultipartPart, guess_content_type, post_multipart
@@ -85,6 +86,39 @@ def _utc_now_z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def shrink_jpeg(data: bytes, max_bytes: int) -> Optional[bytes]:
+    """`max_bytes` 안에 들어가도록 JPEG 품질을 낮춰 재인코딩. 실패하면 None.
+
+    Pillow 가 없으면(=PC mock 환경) None 을 돌려주고 호출부가 명확히 실패시킨다.
+    Pi 에는 python3-pil 이 있어 실제로 동작한다.
+    """
+    try:
+        import io
+
+        from PIL import Image
+    except ImportError:
+        log.error("이미지가 상한을 넘었지만 Pillow 가 없어 재인코딩할 수 없습니다 (apt python3-pil)")
+        return None
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            frame = image.convert("RGB")
+            for quality in (85, 75, 65, 55, 45):
+                buffer = io.BytesIO()
+                frame.save(buffer, format="JPEG", quality=quality, optimize=True)
+                shrunk = buffer.getvalue()
+                if len(shrunk) <= max_bytes:
+                    log.warning(
+                        f"이미지가 상한을 넘어 품질 {quality} 로 재인코딩했습니다 "
+                        f"({len(data)} → {len(shrunk)} bytes)"
+                    )
+                    return shrunk
+    except Exception as exc:  # noqa: BLE001 — 재인코딩 실패로 촬영 흐름을 깨뜨리지 않는다
+        log.error(f"이미지 재인코딩 실패: {type(exc).__name__}: {exc}")
+        return None
+    return None
+
+
 def redact(text: str) -> str:
     """응답 본문 로그용 마스킹 — 토큰/인증 값이 로그에 남지 않게 한다."""
     masked = text
@@ -121,6 +155,9 @@ class ImageUploader:
         required_fields: tuple[str, ...] = DEFAULT_REQUIRED_FIELDS,
         extra_fields: Optional[dict[str, Any]] = None,
         timestamp_mode: str = "iso8601",
+        query_fields: tuple[str, ...] = (),
+        success_status: tuple[int, ...] = (),
+        max_bytes: int = 0,
         auth_scheme: str = "none",
         auth_header: str = "Authorization",
         auth_token_env: str = "UPLOAD_API_TOKEN",
@@ -145,6 +182,9 @@ class ImageUploader:
         self.required_fields = tuple(required_fields)
         self.extra_fields = dict(extra_fields or {})
         self.timestamp_mode = timestamp_mode.lower()
+        self.query_fields = tuple(query_fields)
+        self.success_status = tuple(success_status)
+        self.max_bytes = max(0, int(max_bytes))
         self.auth_scheme = auth_scheme.lower()
         self.auth_header = auth_header
         self.auth_token_env = auth_token_env
@@ -157,36 +197,46 @@ class ImageUploader:
     def url(self) -> str:
         return f"{self.base_url}{self.path}"
 
+    def missing_token(self) -> bool:
+        """인증이 필요한데 토큰이 없는 상태인가."""
+        if self.auth_scheme in {"", "none"}:
+            return False
+        return not (os.getenv(self.auth_token_env) or "").strip()
+
     def _auth_headers(self) -> dict[str, str]:
         if self.auth_scheme in {"", "none"}:
             return {}
         token = (os.getenv(self.auth_token_env) or "").strip()
         if not token:
             # 토큰 값은 절대 로그에 남기지 않는다. 환경변수 '이름'만 남긴다.
-            log.warning(
-                f"업로드 인증 토큰이 비어 있습니다 (env {self.auth_token_env}). 헤더 없이 전송합니다."
-            )
+            log.warning(f"업로드 인증 토큰이 비어 있습니다 (env {self.auth_token_env})")
             return {}
         if self.auth_scheme == "bearer":
             return {self.auth_header: f"Bearer {token}"}
-        # 'header' — X-API-KEY 같은 원시 헤더
+        # 'header' — X-Device-Token / X-API-KEY 같은 원시 헤더
         return {self.auth_header: token}
 
     # --- 메타데이터 ---
 
     def _format_timestamp(self, value: Optional[str]) -> Any:
         raw = value or _utc_now_z()
-        if self.timestamp_mode != "epoch_millis":
+        if self.timestamp_mode == "iso8601":
             return raw
         try:
             text = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
             parsed = datetime.fromisoformat(text)
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
-            return int(parsed.timestamp() * 1000)
         except ValueError:
             log.error(f"capturedAt 파싱 실패 — 원문 그대로 전송합니다: {raw}")
             return raw
+        if self.timestamp_mode == "epoch_millis":
+            return int(parsed.timestamp() * 1000)
+        if self.timestamp_mode == "iso8601_z":
+            # 쿼리 스트링에서 '+09:00' 의 '+' 가 공백으로 해석되므로 UTC Z 로 정규화한다.
+            # CaptureResult.timestamp 는 로컬 오프셋 형식이라 이 변환이 반드시 필요하다.
+            return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return raw
 
     def build_metadata(
         self,
@@ -252,6 +302,21 @@ class ImageUploader:
             mapped[str(target)] = value
         return mapped
 
+    def partition_mapped(self, mapped: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """매핑된 메타데이터를 (쿼리 스트링용, 바디 파트용) 으로 가른다.
+
+        `query_fields` 에 적힌 표준 키는 multipart 바디가 아니라 URL 쿼리로 나간다 —
+        potner 사진 API 처럼 파일 파트 하나만 받고 나머지는 쿼리로 받는 서버용.
+        """
+        targets = set()
+        for key in self.query_fields:
+            target = self.field_map.get(key, key)
+            if target:
+                targets.add(str(target))
+        query = {k: v for k, v in mapped.items() if k in targets}
+        body = {k: v for k, v in mapped.items() if k not in targets}
+        return query, body
+
     # --- 업로드 ---
 
     def upload_capture(self, capture: Any, *, request_id: Any, extra: Optional[dict[str, Any]] = None) -> UploadResult:
@@ -287,6 +352,17 @@ class ImageUploader:
             log.debug(f"업로드 비활성 (upload.enabled=false) — 생략: {file_path}")
             return UploadResult(ok=True, status_code=None, message="disabled", code="DISABLED")
 
+        if self.missing_token():
+            # 토큰 없이 보내봐야 서버가 401 을 줄 뿐이다. 네트워크를 타기 전에 끊는다.
+            message = (
+                f"업로드 토큰이 없습니다 (env {self.auth_token_env}). "
+                "앱의 장치 관리 → 토큰 재발급으로 받아 .env 에 넣으세요."
+            )
+            log.error(message)
+            return UploadResult(
+                ok=False, status_code=None, message=message, code="MISSING_TOKEN"
+            )
+
         path = Path(file_path)
         try:
             data = path.read_bytes()
@@ -298,6 +374,19 @@ class ImageUploader:
             message = f"업로드할 파일을 읽을 수 없습니다 ({path}): {exc}"
             log.error(message)
             return UploadResult(ok=False, status_code=None, message=message, code="FILE_READ_ERROR")
+
+        if self.max_bytes and len(data) > self.max_bytes:
+            shrunk = shrink_jpeg(data, self.max_bytes)
+            if shrunk is None:
+                message = (
+                    f"이미지가 업로드 상한을 넘습니다: {len(data)} bytes "
+                    f"(상한 {self.max_bytes}). 재인코딩도 실패했습니다."
+                )
+                log.error(message)
+                return UploadResult(
+                    ok=False, status_code=None, message=message, code="FILE_TOO_LARGE"
+                )
+            data = shrunk
 
         content_type = guess_content_type(path.name)
         meta = self.build_metadata(
@@ -323,8 +412,11 @@ class ImageUploader:
             )
 
         mapped = self.map_metadata(meta)
-        parts = self._build_parts(mapped, file_name=path.name, data=data, content_type=content_type)
-        return self._send_with_retry(parts, meta=meta, file_name=path.name)
+        query, body_meta = self.partition_mapped(mapped)
+        parts = self._build_parts(
+            body_meta, file_name=path.name, data=data, content_type=content_type
+        )
+        return self._send_with_retry(parts, meta=meta, file_name=path.name, query=query)
 
     def _build_parts(
         self,
@@ -378,9 +470,13 @@ class ImageUploader:
         *,
         meta: dict[str, Any],
         file_name: str,
+        query: Optional[dict[str, Any]] = None,
     ) -> UploadResult:
         headers = self._auth_headers()
         request_id = meta.get("requestId")
+        url = self.url
+        if query:
+            url = f"{url}?{urlencode({k: str(v) for k, v in query.items()})}"
         last: UploadResult = UploadResult(
             ok=False, status_code=None, message="not attempted", code="NETWORK_ERROR", metadata=meta
         )
@@ -388,7 +484,7 @@ class ImageUploader:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 status, body = post_multipart(
-                    self.url,
+                    url,
                     parts,
                     headers=headers,
                     timeout=self.timeout_sec,
@@ -428,6 +524,22 @@ class ImageUploader:
                     ok=True,
                     status_code=status,
                     message="ok",
+                    attempts=attempt,
+                    metadata=meta,
+                    response_body=body,
+                )
+
+            if status in self.success_status:
+                # 예: 409 PHOTO_ALREADY_EXISTS_FOR_DATE — 서버가 하루 한 장만 저장하므로
+                # 같은 날 두 번째 촬영은 거절된다. 정상 동작이니 실패로 다루지 않는다.
+                log.info(
+                    f"업로드 완료로 간주 ({file_name}, requestId={request_id}, "
+                    f"HTTP {status}, 시도 {attempt}회) 응답: {snippet}"
+                )
+                return UploadResult(
+                    ok=True,
+                    status_code=status,
+                    message=f"HTTP {status} (성공으로 간주)",
                     attempts=attempt,
                     metadata=meta,
                     response_body=body,
@@ -476,6 +588,9 @@ _DEFAULTS: dict[str, Any] = {
     "metadata_field": "metadata",
     "metadata_content_type": "application/json",
     "timestamp_mode": "iso8601",
+    "query_fields": [],
+    "success_status": [],
+    "max_bytes": 0,
     "required_fields": list(DEFAULT_REQUIRED_FIELDS),
     "log_body_chars": 300,
 }
@@ -508,6 +623,9 @@ def build_image_uploader(config: dict[str, Any]) -> ImageUploader:
         required_fields=tuple(str(key) for key in cfg["required_fields"]),
         extra_fields=cfg.get("extra_fields") or {},
         timestamp_mode=str(cfg["timestamp_mode"]),
+        query_fields=tuple(str(key) for key in cfg["query_fields"]),
+        success_status=tuple(int(code) for code in cfg["success_status"]),
+        max_bytes=int(cfg["max_bytes"]),
         auth_scheme=str(auth_cfg.get("scheme", "none")),
         auth_header=str(auth_cfg.get("header", "Authorization")),
         auth_token_env=str(auth_cfg.get("token_env", "UPLOAD_API_TOKEN")),
