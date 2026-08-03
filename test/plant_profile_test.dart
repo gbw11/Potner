@@ -8,6 +8,7 @@ import 'package:potner_app/features/auth/domain/user.dart';
 import 'package:potner_app/features/home/data/home_repository_impl.dart';
 import 'package:potner_app/features/photo/data/photo_repository_impl.dart';
 import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
+import 'package:potner_app/features/plant/domain/plant_detail.dart';
 
 import 'support/fake_home_repository.dart';
 import 'support/fake_photo_repository.dart';
@@ -16,8 +17,12 @@ import 'support/fake_plant_repository.dart';
 Future<FakePlantRepository> _pumpToProfile(
   WidgetTester tester, {
   FakePhotoRepository? photoRepository,
+  GrowthProfile? growthProfile,
 }) async {
   final plantRepository = FakePlantRepository();
+  if (growthProfile != null) {
+    plantRepository.growthProfile = growthProfile;
+  }
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -177,6 +182,42 @@ void main() {
     expect(update.wateringCycleDays, 10);
     expect(update.soilMoistureMinPct, isNull);
     expect(update.temperatureMinC, isNull);
+  });
+
+  testWidgets('급수량이 비어 있어도 슬라이더가 보이고 저장하면 값이 들어간다', (tester) async {
+    // 값이 없을 때 슬라이더를 감추면 값을 넣을 방법이 사라진다. 새로 등록한 식물은 급수량이
+    // 비어 있어서 자동 급수가 무엇을 줄지 정하지 못했다.
+    final plantRepository = await _pumpToProfile(
+      tester,
+      growthProfile: const GrowthProfile(
+        plantId: 'plant-rose',
+        customized: false,
+        soilMoistureMinPct: 40,
+        soilMoistureMaxPct: 50,
+        temperatureMinC: 18,
+        temperatureMaxC: 26,
+        humidityMinPct: 50,
+        humidityMaxPct: 70,
+        wateringCycleDays: 7,
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('profile_care_settings')));
+    await tester.tap(find.byKey(const Key('profile_care_settings')));
+    await tester.pumpAndSettle();
+
+    final section = find.byKey(const Key('care_watering_ml'));
+    expect(section, findsOneWidget);
+    await tester.ensureVisible(section);
+    await tester.pumpAndSettle();
+    expect(find.text('아직 저장된 급수량이 없어요. 저장하면 이 값으로 설정됩니다.'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('care_save')));
+    await tester.tap(find.byKey(const Key('care_save')));
+    await tester.pumpAndSettle();
+
+    expect(plantRepository.growthProfileUpdates, hasLength(1));
+    expect(plantRepository.growthProfileUpdates.single.recommendedWateringMl, 200);
   });
 
   testWidgets('care settings resets to species defaults', (tester) async {
