@@ -154,7 +154,10 @@ camera:
     max_dark_ratio: 0.6         # 검정 픽셀 허용 비율 (초과 시 저조도)
     max_bright_ratio: 0.5       # 흰색 픽셀 허용 비율 (초과 시 과노출)
     sample_step: 4              # N픽셀마다 1개 샘플링 (1 이면 전수 검사)
-    on_failure: reject          # reject: 후속 분석/업로드 차단 | warn: 경고만 하고 통과
+    # warn: 경고만 남기고 업로드까지 진행 | reject: 후속 분석/업로드 차단
+    # reject 로 되돌리지 말 것 — 탈락하면 result/capture 가 ERROR 로 나가고,
+    # 서버는 ERROR 를 받으면 그날 자동 촬영 체인을 멈춘다 (raspberry_pi.yaml 과 동일 정책).
+    on_failure: warn
   # 촬영 실패 시 자동 재시도 (src/vision/capture_flow.py)
   # 재시도 대상: 카메라 오류 / 촬영 실패 / 이미지 저장 실패 / 밝기 검사 탈락
   # 재시도 안 함: 잘못된 requestId·페이로드, 카메라 비활성(camera.enabled=false)

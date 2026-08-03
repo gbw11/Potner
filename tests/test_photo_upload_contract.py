@@ -284,8 +284,12 @@ def test_shrink_jpeg_returns_none_for_undecodable_bytes():
 def test_missing_token_fails_locally_without_calling_the_server(tmp_path, monkeypatch):
     """토큰 없이 보내면 401 만 받는다 — 네트워크를 타기 전에 명확히 끊는다."""
     monkeypatch.delenv("DEVICE_ID", raising=False)
+    # load_config 가 .env 를 읽어 POTNER_UPLOAD_TOKEN 을 채운다. 먼저 지우면 여기서
+    # 되살아나므로 반드시 config 를 읽은 "다음"에 지워야 한다 (개발 PC .env 에 실제
+    # 토큰이 들어 있으면 이 순서를 어긴 테스트는 조용히 통과해버린다).
+    config = load_config("config/raspberry_pi.yaml")
     monkeypatch.delenv("POTNER_UPLOAD_TOKEN", raising=False)
-    up = build_image_uploader(load_config("config/raspberry_pi.yaml"))
+    up = build_image_uploader(config)
     rec = Recorder()
     monkeypatch.setattr(urllib.request, "urlopen", rec)
 

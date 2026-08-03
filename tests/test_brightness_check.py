@@ -361,7 +361,9 @@ def test_project_yaml_quality_section_loads():
     for path in ("config/default.yaml", "config/raspberry_pi.yaml"):
         th = BrightnessThresholds.from_config(load_config(path))
         assert th.enabled is True
-        assert th.reject_on_failure is True
+        # reject 면 안 된다: 탈락 시 result/capture 가 ERROR 로 나가고, 서버는 ERROR 를
+        # 받으면 그날 자동 촬영 체인을 멈춘다 (사진이 아예 없는 것보다 밝은 사진이 낫다).
+        assert th.reject_on_failure is False, f"{path}: on_failure 는 warn 이어야 한다"
         assert 0 < th.min_mean_brightness < th.max_mean_brightness <= 255
         assert th.sample_step >= 1
 

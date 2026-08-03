@@ -68,9 +68,12 @@ These hold in the current code; if you're about to change one, that's a delibera
 - Soil moisture never produces a volume — a `%` reading cannot yield `ml`. It is a pre-dispense safety gate
   only (`src/actuators/safety.py::WateringGuard`), and a missing or failing soil sensor fails open so
   watering still works. The other three gates (per-dose cap, interval, 24h budget) need no sensor at all.
-- Captured images pass a brightness gate before they go anywhere else: `src/vision/quality.py::check_image`
-  runs in `src/mqtt/capture_command.py` after capture, and a rejected image is never uploaded
-  (`camera.quality.on_failure: reject`). Setting it to `warn` lets rejects through with a logged warning.
+- Captured images go through a brightness check (`src/vision/quality.py::check_image`, run from
+  `src/mqtt/capture_command.py`), but it is a **warning, not a gate** — `camera.quality.on_failure: warn`
+  in both configs. Do not switch it back to `reject`: a rejected capture replies `ERROR`, and the server
+  stops that day's automatic capture chain on an `ERROR`, so a slightly overexposed photo beats no photo.
+  Real Pi captures measured 204–246 mean against a 215 ceiling tuned on synthetic images, so rejection
+  would fire often. Guarded by `tests/test_brightness_check.py::test_project_yaml_quality_section_loads`.
 - Photo upload (`POST /api/v1/device/photos`) has three contract details that break silently if changed —
   see the `upload:` config section, driven by `src/transport/uploader.py`:
   - The file part **must** be named `file`, and auth is the raw header `X-Device-Token` (no `Bearer`).
