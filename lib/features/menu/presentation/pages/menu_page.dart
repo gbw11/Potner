@@ -49,6 +49,12 @@ class MenuPage extends ConsumerWidget {
           icon: Icons.eco_outlined,
           action: _MenuAction.environment,
         ),
+        _MenuEntry(
+          id: 'repotting',
+          label: '분갈이 방법',
+          icon: Icons.yard_outlined,
+          action: _MenuAction.repotting,
+        ),
       ],
     ),
     _MenuSection(
@@ -228,6 +234,8 @@ class MenuPage extends ConsumerWidget {
         context.go(_fromMenu('/growth/compare'));
       case _MenuAction.flowering:
         context.go(_fromMenu('/growth/blooms'));
+      case _MenuAction.repotting:
+        context.go(_fromMenu('/repotting'));
       case _MenuAction.withdrawal:
         context.go(_fromMenu('/my/withdraw'));
       case _MenuAction.notificationSettings:
@@ -386,6 +394,7 @@ enum _MenuAction {
   deviceManagement,
   careSettings,
   environment,
+  repotting,
   plantDiary,
   photoLog,
   growthComparison,

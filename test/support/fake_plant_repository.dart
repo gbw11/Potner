@@ -45,6 +45,13 @@ class FakePlantRepository implements PlantRepository {
     myPlants.removeWhere((plant) => plant.plantId == plantId);
   }
 
+  final List<String> repottingReminderPlantIds = [];
+
+  @override
+  Future<void> sendRepottingReminder(String plantId) async {
+    repottingReminderPlantIds.add(plantId);
+  }
+
   PlantDetail detail = samplePlantDetail;
   GrowthProfile growthProfile = sampleGrowthProfile;
   final List<UpdatePlantCall> updatePlantCalls = [];
