@@ -18,8 +18,10 @@ entry point; `cli/plant.py` is the interactive entry point (brief/report/chat/ti
 `.claude/` (agents, skills, settings) is `.gitignore`d — nothing under it is ever committed, so a file left
 there from work on a different branch survives `git checkout` as an untracked leftover. If something under
 `.claude/` looks inconsistent with the checked-out branch, check `git status`/`.gitignore` before trusting it.
-Likewise `src/potner_*/` and `voice-chat-server/` are untracked Robot-branch leftovers on this branch — not
-part of this codebase, ignore them.
+The same mechanism applies to `__pycache__`/data dirs from other branches (e.g. `src/potner_*/`,
+`voice-chat-server/` — cleaned out 2026-08-03, but they regrow after working on a Robot branch and
+checking back out): if an unfamiliar directory appears with no `.py` sources in `git ls-files`, it's a
+cross-branch leftover, not this codebase.
 
 ## Map
 
@@ -104,8 +106,9 @@ These hold in the current code; if you're about to change one, that's a delibera
 - Committing secrets — `MQTT_PASSWORD`, `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL` (GMS, not real
   OpenAI) live in `.env` only.
 - Treating `sensor-collector/` (if present) as live code — it's pre-restructure leftover, ignored.
-- Editing `src/potner_*/` or `voice-chat-server/` here — those are untracked Robot-branch leftovers, not part
-  of this branch (see "What this is" above); don't let them shadow this branch's actual modules.
+  (Still exists on the Pi; contains only gitignored venv/data, so git stays silent about it.)
+- Editing cross-branch untracked leftovers (`src/potner_*/`, `voice-chat-server/`, …) if they reappear —
+  they belong to other `*-master` branches; don't let them shadow this branch's actual modules.
 
 ## Logging
 

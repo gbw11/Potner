@@ -21,6 +21,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+if not __package__:  # `python cli/water.py` 직접 실행 시 프로젝트 루트를 경로에 추가
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from src.actuators import build_pump
 from src.actuators.safety import build_guard
 from src.config import load_config

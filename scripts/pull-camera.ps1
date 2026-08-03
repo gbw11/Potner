@@ -1,6 +1,6 @@
 # Pull Pi camera files into the single local folder: data/camera
 param(
-    [string]$RemoteDir = "~/sensor-collector",
+    [string]$RemoteDir = "~/S15P11E104",
     [string]$LocalDir = "data/camera"
 )
 
