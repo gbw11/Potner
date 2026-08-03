@@ -109,18 +109,24 @@ def cmd_watch(args: argparse.Namespace) -> int:
     pin_label = "mock" if args.mock else f"GPIO{args.pin} (물리 13번={DEFAULT_PIN} 기준)"
     # em-dash 등 cp949 밖 문자는 금지 — Windows 콘솔이 파이프 모드일 때 출력이 죽는다
     print(f"[water-level] {pin_label} 감시 시작 (Ctrl+C 로 종료)")
-    print(f"뜨개를 손으로 올렸다 내렸다 해보세요. 출렁임은 {args.hold:g}초 유지될 때만 변화로 표시합니다.")
+    print("접점이 바뀌는 순간은 '감지'로 즉시 표시되고,")
+    print(f"새 상태가 {args.hold:g}초 연속 유지되면 '확정'으로 표시합니다 (짧은 출렁임은 감지에서 끝남).")
     print("'물 있음/없음' 해석이 실물과 반대면 --no-invert 로 다시 확인하세요.\n")
 
     try:
         first = sensor.read()
         print(f"{datetime.now():%H:%M:%S} 현재: {_describe(first)}")
         hold = HoldFilter(args.hold, initial=first.raw_closed)
+        prev_raw = first.raw_closed
         while True:
             time.sleep(args.interval)
             reading = sensor.read()
+            if reading.raw_closed != prev_raw:
+                # 미확정 순간 변화 — 센서가 살아있다는 즉각 피드백
+                print(f"{datetime.now():%H:%M:%S} 감지: {_describe(reading)} ({args.hold:g}초 유지 시 확정)")
+                prev_raw = reading.raw_closed
             if hold.update(reading.raw_closed, time.monotonic()):
-                print(f"{datetime.now():%H:%M:%S} 변화: {_describe(reading)}")
+                print(f"{datetime.now():%H:%M:%S} 확정: {_describe(reading)}")
     except KeyboardInterrupt:
         print("\n[water-level] 종료")
         return 0
