@@ -5,6 +5,9 @@ import json
 import sys
 from pathlib import Path
 
+if not __package__:  # `python cli/plant.py` 직접 실행 시 프로젝트 루트를 경로에 추가
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from src.config import load_config
 from src.dialogue.service import PlantService
 from src.llm.client import create_llm_client, describe_llm

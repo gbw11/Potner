@@ -19,11 +19,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+if not __package__:  # `python cli/capture_photo.py` 직접 실행 시 프로젝트 루트를 경로에 추가
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from src.config import load_config
 from src.vision import build_camera, build_camera_store
 
 REMOTE_HOST = "raspberrypi"
-REMOTE_DIR = "~/sensor-collector"
+REMOTE_DIR = "~/S15P11E104"
 LOCAL_CAMERA_DIR = Path("data/camera")
 
 

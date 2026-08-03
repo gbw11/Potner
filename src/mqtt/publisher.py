@@ -13,7 +13,7 @@ import paho.mqtt.client as mqtt
 
 from ..device import resolve_device_id
 from .client import _make_client
-from .payloads import heartbeat_payload, telemetry_payload
+from .payloads import heartbeat_payload, telemetry_payload, water_low_payload
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,10 @@ class MqttTelemetryPublisher:
     Sends available climate metrics (no status text):
       - TEMPERATURE / CELSIUS
       - HUMIDITY / PERCENT
+      - 수위(water_present)는 텔레메트리가 아니라 **전용 상태 토픽**으로 보낸다:
+        potner/device/{id}/status/water-low, 페이로드 waterLow 불리언
+        (서버 WaterLowMessage 규약 — Server-develop d4f9219 에 머지됨).
+        waterLow=false 도 매 주기 발행한다 — 서버 플래그 해제용, 처리는 멱등.
 
     조도(ILLUMINANCE)·토양수분(SOIL_MOISTURE)은 Pi 담당이 아니라 발행하지 않는다.
 
@@ -55,6 +59,8 @@ class MqttTelemetryPublisher:
         heartbeat_interval_sec: float = 30.0,
         enabled: bool = True,
         timeout: float = 5.0,
+        water_low_enabled: bool = True,
+        water_low_topic: str | None = None,
     ) -> None:
         self.enabled = enabled
         self.host = host
@@ -67,6 +73,9 @@ class MqttTelemetryPublisher:
         self.heartbeat_topic = heartbeat_topic or f"potner/device/{device_id}/status/heartbeat"
         self.heartbeat_interval_sec = heartbeat_interval_sec
         self.timeout = timeout
+        # 수위 물부족 보고: sensors.water_level.report 가 발행 여부, 토픽은 mqtt.water_low_topic
+        self.water_low_enabled = water_low_enabled
+        self.water_low_topic = water_low_topic or f"potner/device/{device_id}/status/water-low"
         self._client: Optional[mqtt.Client] = None
         self._hb_thread: Optional[threading.Thread] = None
         self._hb_stop = threading.Event()
@@ -166,6 +175,21 @@ class MqttTelemetryPublisher:
                     ),
                 )
             )
+
+        # 수위(플로트 스위치): 전용 상태 토픽으로 waterLow 불리언 보고.
+        # None(센서 없음/실패)은 미발행 — false(물 있음)로 오인시키지 않는다.
+        water_present = reading.get("water_present")
+        if self.water_low_enabled and water_present is not None:
+            messages.append(
+                (
+                    self.water_low_topic,
+                    water_low_payload(
+                        device_id=device_id,
+                        water_low=not water_present,
+                        measured_at=measured_at,
+                    ),
+                )
+            )
         return messages
 
     def publish(self, reading: dict[str, Any]) -> MqttPublishResult:
@@ -200,6 +224,7 @@ class MqttTelemetryPublisher:
 
 def build_mqtt_publisher(config: dict[str, Any]) -> MqttTelemetryPublisher:
     cfg = config.get("mqtt", {}) or {}
+    water_cfg = (config.get("sensors", {}) or {}).get("water_level", {}) or {}
     device_id = resolve_device_id(cfg.get("device_id"))
     username = cfg.get("username") or os.environ.get("MQTT_USERNAME")
     password = os.environ.get("MQTT_PASSWORD") or cfg.get("password") or ""
@@ -220,4 +245,6 @@ def build_mqtt_publisher(config: dict[str, Any]) -> MqttTelemetryPublisher:
         heartbeat_topic=str(hb_topic),
         heartbeat_interval_sec=float(cfg.get("heartbeat_interval_sec", 30)),
         enabled=bool(cfg.get("enabled", False)),
+        water_low_enabled=bool(water_cfg.get("report", True)),
+        water_low_topic=str(cfg.get("water_low_topic")) if cfg.get("water_low_topic") else None,
     )

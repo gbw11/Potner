@@ -25,7 +25,7 @@ pipeline {
         )
         string(
             name: 'PI_DIR',
-            defaultValue: '~/sensor-collector',
+            defaultValue: '~/S15P11E104',
             description: 'Pi 배포 경로'
         )
     }
@@ -60,7 +60,7 @@ pipeline {
                     set -e
                     . "${VENV}/bin/activate"
                     python -m compileall -q \
-                        main.py plant.py scripts src
+                        main.py cli scripts src
                     python - <<'PY'
 from pathlib import Path
 import yaml
@@ -93,6 +93,9 @@ PY
                           --exclude 'data/' \
                           --exclude 'captures/' \
                           --exclude '.git' \
+                          --exclude '.env' \
+                          --exclude '.claude' \
+                          --exclude 'sensor-collector/' \
                           -e "${RSYNC_SSH}" \
                           ./ "${PI_USER}@${PI_HOST}:${PI_DIR}/"
 
@@ -104,7 +107,7 @@ if [ ! -d .venv ]; then
 fi
 . .venv/bin/activate
 pip install -r requirements.txt
-python -m compileall -q main.py plant.py scripts src
+python -m compileall -q main.py cli scripts src
 echo "deploy ok on \$(hostname)"
 EOF
                     '''

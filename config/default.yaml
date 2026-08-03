@@ -33,6 +33,21 @@ sensors:
     dry_raw: 20000
     wet_raw: 8000
 
+  # 수위 센서(플로트 스위치, GND+GPIO 2선 건식 접점) — src/sensors/water_level.py
+  # 켜면 collector 가 매 주기 read_stable(다수결)로 읽고 row.water_present 에 기록,
+  # MQTT 텔레메트리로 온습도와 함께 발행한다 (bool → 1.0/0.0).
+  # 주의: collector 가 이 핀을 잡으면 cli/water_level 단독 실행은 GPIO busy 로 실패 —
+  #       단독 테스트는 collector 서비스를 중지한 뒤 할 것.
+  water_level:
+    enabled: false        # mock PC 기본 꺼짐 (테스트에서만 켠다)
+    driver: float_switch  # float_switch | mock (platform: mock 이면 항상 mock)
+    pin: 27               # BCM. 물리 13번 핀
+    invert: true          # 실물 확인(2026-08-03): 접점 닫힘 = 물 없음 → 해석 반전
+    # 서버 규약(Server-develop d4f9219): 텔레메트리가 아니라 전용 상태 토픽
+    # potner/device/{id}/status/water-low 로 waterLow 불리언을 보고한다.
+    # false 도 매 주기 발행 (서버 플래그 해제용, 처리 멱등).
+    report: true          # false 면 수집(CSV)은 하되 MQTT 보고만 끈다
+
 # 로컬 규칙 판단 임계값 (LLM 호출 전 단계)
 status_rules:
   temperature_c:
@@ -222,3 +237,5 @@ mqtt:
   heartbeat_interval_sec: 30
   telemetry_topic: potner/device/raspberry-01/sensor/telemetry
   heartbeat_topic: potner/device/raspberry-01/status/heartbeat
+  # 급수 스테이션 물부족 보고 (sensors.water_level 활성 시, waterLow 불리언)
+  water_low_topic: potner/device/raspberry-01/status/water-low
