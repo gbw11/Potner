@@ -350,6 +350,8 @@ class _HistoryAlertCard extends ConsumerWidget {
       AlertMetric.soilMoisture => Icons.water_drop_outlined,
       AlertMetric.dailyLight => Icons.wb_sunny_outlined,
       AlertMetric.photoperiod => Icons.schedule_outlined,
+      AlertMetric.stationWaterLow => Icons.local_drink_outlined,
+      AlertMetric.drainageTray => Icons.delete_outline_rounded,
       AlertMetric.unknown => Icons.notifications_none_rounded,
     };
   }
