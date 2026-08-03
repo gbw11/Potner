@@ -89,9 +89,19 @@ void main() {
   );
 
   testWidgets('타임랩스는 오래된 사진부터 재생하고 재생용 축소본을 쓴다', (tester) async {
+    // 디자인상 진입점은 성장 비교 화면이다 — 전·후 두 장 아래에서 전체 흐름으로 이어진다.
     await _pumpToPhotoLog(tester);
+    await tester.tap(find.byKey(const Key('bottom_nav_home')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open_menu_button')));
+    await tester.pumpAndSettle();
+    await _tapMenuItem(tester, 'menu_item_growth_comparison');
 
-    await tester.tap(find.byKey(const Key('photo_log_timelapse')));
+    await tester.ensureVisible(
+      find.byKey(const Key('growth_comparison_timelapse')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('growth_comparison_timelapse')));
     await tester.pumpAndSettle();
 
     // 서버가 오래된 순으로 내려주므로 첫 프레임은 가장 오래된 사진이다.

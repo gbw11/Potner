@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/photo/domain/photo_models.dart';
+import 'package:potner_app/features/photo/presentation/pages/timelapse_page.dart';
 import 'package:potner_app/features/photo/presentation/photo_providers.dart';
 import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
@@ -254,6 +255,31 @@ class _GrowthComparisonPageState extends ConsumerState<GrowthComparisonPage> {
                         child: _DateFooter(label: '후', date: after.photoDate),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 24),
+                  // 두 장 비교 아래에 전체 흐름을 이어 보는 진입을 둔다. 전·후만으로는 그 사이의
+                  // 변화가 안 보이고, 이 화면에 이미 같은 사진 목록이 있어 다시 부르지 않는다.
+                  Center(
+                    child: FilledButton.icon(
+                      key: const Key('growth_comparison_timelapse'),
+                      // 테마가 minimumSize 를 Size.fromHeight(56) 으로 둬서 기본값이면 가로를
+                      // 꽉 채운다. 디자인은 가운데 알약 모양이라 최소 너비를 푼다.
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        shape: const StadiumBorder(),
+                      ),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => TimelapsePage(
+                            plantName: plant.name,
+                            photos: items,
+                          ),
+                        ),
+                      ),
+                      icon: const Icon(Icons.play_circle_outline_rounded),
+                      label: const Text('타임랩스 보기'),
+                    ),
                   ),
                 ],
               ),
