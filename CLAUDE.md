@@ -30,7 +30,7 @@ cross-branch leftover, not this codebase.
 | `main.py` | Collector entry point (`--once` / loop, `--config path.yaml`) |
 | `cli/plant.py` | Interactive entry point: `brief` / `report` / `chat` / `tick` / `llm-status` |
 | `cli/water.py`, `cli/fan.py`, `cli/capture_photo.py` | Actuator/camera CLI (`dispense`/`calibrate`/`prime`/`run`, etc.) |
-| `src/sensors/` | BH1750 (light), DHT22/AHT20 (climate), ADS1115 (soil) drivers + `factory.py` + mock |
+| `src/sensors/` | BH1750 (light), DHT22/AHT20 (climate), ADS1115 (soil), float switch (water level, `water_level.py`) drivers + `factory.py` + mock |
 | `src/actuators/` | Water pump (L298N/relay), fan (MOSFET) — see quick map below |
 | `src/vision/` | Camera capture (OV5647/Picamera2), storage/index, snapshot naming — see quick map below |
 | `src/mqtt/` | Broker client, telemetry/heartbeat publisher, water & capture command listeners |
@@ -42,6 +42,7 @@ cross-branch leftover, not this codebase.
 | `config/default.yaml`, `config/raspberry_pi.yaml` | `platform: mock\|raspberry_pi\|jetson` switches drivers; single source of truth for pump/fan/camera/mqtt/status_rules tuning |
 | `tests/` | Unit tests, all pass on Windows without hardware (`conftest.py` sets up mocks) |
 | `docs/potner-mqtt-pi-handoff.md` | Current Pi↔broker handoff notes — device IDs, topics, known ACL blocker, resume checklist |
+| `docs/water-level-sensor-handoff.md` | Water-level float switch ticket — driver/CLI/server-contract history, 10s hold-gate design, Pi troubleshooting notes, remaining work |
 | `scripts/`, `systemd/` | Pi deployment/SSH helpers, systemd unit for the collector service |
 | `README.md` | Full hardware wiring, calibration, and PC↔Pi deploy walkthrough |
 
