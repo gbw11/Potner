@@ -248,30 +248,34 @@ def test_cli_read_uses_read_stable_majority(fake_gpiozero, capsys):
 # ------------------------------------------------------------------ HoldFilter
 
 
-def test_hold_filter_blip_shorter_than_hold_is_dropped():
-    """hold 미만 유지 후 원래 상태로 복귀하면 변화로 치지 않는다 (후보 폐기)."""
+def test_hold_filter_blip_reports_detected_then_cancelled():
+    """hold 미만 유지 후 복귀: 감지 → 취소 이벤트로 보고하고 확정하지 않는다."""
     from cli.water_level import HoldFilter
 
     filt = HoldFilter(hold_sec=2.0, initial=False)
-    assert filt.update(True, 0.0) is False  # 후보 등록
-    assert filt.update(True, 1.5) is False  # 아직 hold 미만
-    assert filt.update(False, 1.8) is False  # 복귀 → 후보 폐기, 출력 없음
-    assert filt.update(True, 3.0) is False  # 새 후보는 처음부터 다시 센다
-    assert filt.update(True, 4.9) is False  # 3.0 기준 1.9초 < 2.0초
+    assert filt.update(True, 0.0).kind == "detected"  # 후보 등록 순간
+    assert filt.update(True, 1.5) is None  # 유지 중 (아직 hold 미만) — 조용
+    cancelled = filt.update(False, 1.8)  # 복귀 → 후보 폐기
+    assert cancelled.kind == "cancelled"
+    assert cancelled.elapsed_sec == pytest.approx(1.8)
+    assert filt.update(True, 3.0).kind == "detected"  # 새 후보는 처음부터 다시 센다
+    assert filt.update(True, 4.9) is None  # 3.0 기준 1.9초 < 2.0초
     assert filt.state is False
 
 
 def test_hold_filter_confirms_exactly_once_after_hold():
-    """hold 이상 유지되면 정확히 1회만 변화로 확정한다."""
+    """hold 이상 유지되면 정확히 1회만 확정 이벤트를 낸다."""
     from cli.water_level import HoldFilter
 
     filt = HoldFilter(hold_sec=2.0, initial=False)
-    assert filt.update(True, 0.0) is False
-    assert filt.update(True, 1.0) is False
-    assert filt.update(True, 2.0) is True  # 경계 포함(>= hold) 확정
+    assert filt.update(True, 0.0).kind == "detected"
+    assert filt.update(True, 1.0) is None
+    confirmed = filt.update(True, 2.0)  # 경계 포함(>= hold) 확정
+    assert confirmed.kind == "confirmed"
+    assert confirmed.elapsed_sec == pytest.approx(2.0)
     assert filt.state is True
-    assert filt.update(True, 3.0) is False  # 유지 중 재출력 없음
-    assert filt.update(True, 10.0) is False
+    assert filt.update(True, 3.0) is None  # 유지 중 재출력 없음
+    assert filt.update(True, 10.0) is None
 
 
 def test_hold_filter_reconfirm_after_change_follows_same_rule():
@@ -279,12 +283,23 @@ def test_hold_filter_reconfirm_after_change_follows_same_rule():
     from cli.water_level import HoldFilter
 
     filt = HoldFilter(hold_sec=1.0, initial=False)
-    assert filt.update(True, 0.0) is False
-    assert filt.update(True, 1.0) is True  # 1차 확정: False -> True
+    assert filt.update(True, 0.0).kind == "detected"
+    assert filt.update(True, 1.0).kind == "confirmed"  # 1차 확정: False -> True
 
-    assert filt.update(False, 2.0) is False  # 되돌아가는 방향도 후보부터
-    assert filt.update(True, 2.5) is False  # 복귀 → 후보 폐기
-    assert filt.update(False, 3.0) is False  # 다시 처음부터
-    assert filt.update(False, 3.9) is False
-    assert filt.update(False, 4.0) is True  # 2차 확정: True -> False
+    assert filt.update(False, 2.0).kind == "detected"  # 되돌아가는 방향도 후보부터
+    assert filt.update(True, 2.5).kind == "cancelled"  # 복귀 → 후보 폐기
+    assert filt.update(False, 3.0).kind == "detected"  # 다시 처음부터
+    assert filt.update(False, 3.9) is None
+    assert filt.update(False, 4.0).kind == "confirmed"  # 2차 확정: True -> False
     assert filt.state is False
+
+
+def test_hold_filter_zero_hold_confirms_immediately():
+    """--hold 0 은 필터 끔 — 감지 없이 즉시 확정한다."""
+    from cli.water_level import HoldFilter
+
+    filt = HoldFilter(hold_sec=0.0, initial=False)
+    event = filt.update(True, 5.0)
+    assert event.kind == "confirmed"
+    assert event.elapsed_sec == 0.0
+    assert filt.state is True

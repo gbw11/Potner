@@ -12,8 +12,8 @@ Pi 실행 예 (프로젝트 루트에서):
 
 PC 흐름 확인:
   python -m cli.water_level read --mock
-  python -m cli.water_level watch --mock       # toggle mock은 read 마다 교대 → hold 필터에 걸려
-                                               # 변화가 안 찍히는 것이 정상 (필터 동작 증거)
+  python -m cli.water_level watch --mock       # toggle mock은 read 마다 교대 → 감지/취소만
+                                               # 반복되고 확정이 없는 것이 정상 (필터 동작 증거)
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -38,13 +39,28 @@ from src.sensors.water_level import (
 )
 
 
-class HoldFilter:
-    """watch 용 유지시간 필터 — 새 상태가 hold_sec 동안 연속 유지될 때만 변화로 확정한다.
+@dataclass(frozen=True)
+class HoldEvent:
+    """HoldFilter 가 보고하는 판정 이벤트.
 
-    뜨개가 출렁이면 접점이 짧게 여닫히는데 그 순간값을 전부 출력하면 혼란스럽다.
-    반대 상태가 후보로 등록된 뒤 hold_sec 이 지나기 전에 원래 상태로 돌아오면
-    후보를 버린다(출력 없음). 시계를 주입받아(now 인자, 단조 시각) 실시간
-    sleep 없이 테스트할 수 있다.
+    kind:
+      detected  — 접점이 확정 상태와 달라진 순간 (아직 미확정)
+      confirmed — 새 상태가 hold_sec 연속 유지됨 → 실제 수위 변화로 인정
+      cancelled — hold_sec 을 못 채우고 원래 상태로 복귀 → 출렁임으로 무시
+    elapsed_sec: 후보 상태가 유지된 시간 (detected 는 0.0)
+    """
+
+    kind: str
+    elapsed_sec: float
+
+
+class HoldFilter:
+    """watch 용 유지시간 필터 — 접촉 인정 기준을 명시적으로 만든다.
+
+    기준: 접점의 새 상태가 hold_sec 동안 **연속** 유지되면 확정(confirmed),
+    그 전에 원래 상태로 돌아오면 취소(cancelled). 모든 단계가 이벤트로
+    보고되므로 "왜 안 뜨지"가 생기지 않는다. 시계는 now 인자(단조 시각)로
+    주입받아 실시간 sleep 없이 테스트할 수 있다. hold_sec<=0 이면 즉시 확정.
     """
 
     def __init__(self, hold_sec: float, initial: bool) -> None:
@@ -57,18 +73,26 @@ class HoldFilter:
         """마지막으로 확정된 상태."""
         return self._state
 
-    def update(self, raw_closed: bool, now: float) -> bool:
-        """관측값 1건을 반영하고, 확정 변화가 발생한 순간에만 True 를 돌려준다."""
+    def update(self, raw_closed: bool, now: float) -> Optional[HoldEvent]:
+        """관측값 1건을 반영하고, 판정 단계가 바뀐 순간에만 이벤트를 돌려준다."""
         if raw_closed == self._state:
-            self._candidate_since = None  # 유지 중 복귀 → 후보 폐기
-            return False
+            if self._candidate_since is not None:  # 유지 중 복귀 → 후보 폐기
+                elapsed = now - self._candidate_since
+                self._candidate_since = None
+                return HoldEvent("cancelled", elapsed)
+            return None
         if self._candidate_since is None:
+            if self._hold_sec <= 0:  # 필터 끔 — 즉시 확정
+                self._state = raw_closed
+                return HoldEvent("confirmed", 0.0)
             self._candidate_since = now
-        if now - self._candidate_since >= self._hold_sec:
+            return HoldEvent("detected", 0.0)
+        elapsed = now - self._candidate_since
+        if elapsed >= self._hold_sec:
             self._state = raw_closed
             self._candidate_since = None
-            return True
-        return False
+            return HoldEvent("confirmed", elapsed)
+        return None
 
 
 def _describe(reading: WaterLevelReading) -> str:
@@ -109,24 +133,29 @@ def cmd_watch(args: argparse.Namespace) -> int:
     pin_label = "mock" if args.mock else f"GPIO{args.pin} (물리 13번={DEFAULT_PIN} 기준)"
     # em-dash 등 cp949 밖 문자는 금지 — Windows 콘솔이 파이프 모드일 때 출력이 죽는다
     print(f"[water-level] {pin_label} 감시 시작 (Ctrl+C 로 종료)")
-    print("접점이 바뀌는 순간은 '감지'로 즉시 표시되고,")
-    print(f"새 상태가 {args.hold:g}초 연속 유지되면 '확정'으로 표시합니다 (짧은 출렁임은 감지에서 끝남).")
+    print("접촉 인정 기준:")
+    print("  감지 = 접점이 바뀐 순간 (아직 미확정)")
+    print(f"  확정 = 새 상태가 {args.hold:g}초 연속 유지됨 (실제 수위 변화로 인정)")
+    print(f"  취소 = {args.hold:g}초를 못 채우고 복귀 (출렁임으로 무시)")
     print("'물 있음/없음' 해석이 실물과 반대면 --no-invert 로 다시 확인하세요.\n")
 
     try:
         first = sensor.read()
         print(f"{datetime.now():%H:%M:%S} 현재: {_describe(first)}")
         hold = HoldFilter(args.hold, initial=first.raw_closed)
-        prev_raw = first.raw_closed
         while True:
             time.sleep(args.interval)
             reading = sensor.read()
-            if reading.raw_closed != prev_raw:
-                # 미확정 순간 변화 — 센서가 살아있다는 즉각 피드백
-                print(f"{datetime.now():%H:%M:%S} 감지: {_describe(reading)} ({args.hold:g}초 유지 시 확정)")
-                prev_raw = reading.raw_closed
-            if hold.update(reading.raw_closed, time.monotonic()):
-                print(f"{datetime.now():%H:%M:%S} 확정: {_describe(reading)}")
+            event = hold.update(reading.raw_closed, time.monotonic())
+            if event is None:
+                continue
+            stamp = f"{datetime.now():%H:%M:%S}"
+            if event.kind == "detected":
+                print(f"{stamp} 감지: {_describe(reading)} ({args.hold:g}초 유지되면 확정)")
+            elif event.kind == "confirmed":
+                print(f"{stamp} 확정: {_describe(reading)} ({event.elapsed_sec:.1f}초 유지)")
+            else:  # cancelled
+                print(f"{stamp} 취소: {event.elapsed_sec:.1f}초 만에 복귀 (출렁임으로 무시)")
     except KeyboardInterrupt:
         print("\n[water-level] 종료")
         return 0
@@ -154,8 +183,8 @@ def main(argv: list[str] | None = None) -> int:
     watch.add_argument(
         "--hold",
         type=float,
-        default=2.0,
-        help="새 상태가 이 시간(초) 동안 연속 유지될 때만 변화로 표시 (기본 2.0)",
+        default=1.0,
+        help="새 상태가 이 시간(초) 동안 연속 유지되면 확정 (기본 1.0, 0 이면 즉시 확정)",
     )
 
     args = parser.parse_args(argv)
