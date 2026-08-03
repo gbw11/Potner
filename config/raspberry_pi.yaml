@@ -48,6 +48,46 @@ backend:
   device_id: auto
   timeout_sec: 5
 
+# 촬영 이미지 + 메타데이터 업로드 (multipart/form-data)
+# !!! 서버 API 스펙 미확정 !!! 아래 값은 전부 자리표시자다. 스펙이 나오면 코드가 아니라
+# 이 섹션만 고치면 된다 (구현: src/transport/uploader.py).
+# UPLOAD_BASE_URL 환경변수로 base_url 을 덮어쓸 수 있다.
+upload:
+  enabled: false
+  base_url: http://i15e104.p.ssafy.io:8080
+  path: /api/v1/images          # [스펙확정] 업로드 엔드포인트
+  method: POST
+  timeout_sec: 10
+  device_id: raspberry-01       # MQTT device_id 와 같은 문자열로 유지할 것
+  # HTTP 재시도 (네트워크/서버 오류 대상. 촬영 자체의 재시도와는 무관)
+  max_attempts: 3
+  retry_backoff_sec: 1.0        # 1s → 2s → 4s ... (지수 백오프)
+  retry_backoff_max_sec: 8.0
+  retry_on_status: [408, 425, 429, 500, 502, 503, 504]
+  # --- 여기부터 서버 스펙 확정 시 바꾸는 지점 ---
+  file_field: file              # [스펙확정] 이미지 파일 파트 이름
+  metadata_mode: json_part      # [스펙확정] json_part | fields | both
+  metadata_field: metadata      # [스펙확정] json_part 일 때 JSON 파트 이름
+  metadata_content_type: application/json
+  timestamp_mode: iso8601       # [스펙확정] iso8601 | epoch_millis
+  # 우리 표준 키 → 서버 필드명. 값을 null 로 두면 그 항목은 전송하지 않는다.
+  field_map:
+    requestId: requestId
+    deviceId: deviceId
+    fileName: fileName
+    capturedAt: capturedAt
+    contentType: contentType
+    fileSize: fileSize
+    width: width
+    height: height
+    driver: driver
+  required_fields: [requestId, deviceId, fileName, capturedAt]
+  extra_fields: {}              # 항상 함께 보낼 고정 폼 필드 (예: {source: raspberry})
+  auth:
+    scheme: none                # [스펙확정] none | bearer | header
+    header: Authorization
+    token_env: UPLOAD_API_TOKEN # 토큰 값은 .env 에만. yaml 에 넣지 말 것
+
 events:
   path: data/events.jsonl
 
