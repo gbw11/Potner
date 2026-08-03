@@ -87,6 +87,19 @@ camera:
   saturation: 1.05
   capture_with_read: false
   capture_every_n: 1
+  # 촬영 "후" 결과 이미지 밝기 검사 (src/vision/quality.py)
+  # 실기는 JPEG 로 저장되므로 Pillow(python3-pil) 가 있어야 검사가 동작한다.
+  # 없으면 검사만 실패(ERROR 로그)하고 촬영 자체는 영향받지 않는다.
+  quality:
+    enabled: true
+    min_mean_brightness: 40     # 평균 luma(0~255) 하한 — 미만이면 저조도
+    max_mean_brightness: 215    # 평균 luma 상한 — 초과면 과노출
+    dark_pixel_level: 16        # 이 값 이하 픽셀 = 뭉개진 검정
+    bright_pixel_level: 240     # 이 값 이상 픽셀 = 날아간 흰색
+    max_dark_ratio: 0.6         # 검정 픽셀 허용 비율 (초과 시 저조도)
+    max_bright_ratio: 0.5       # 흰색 픽셀 허용 비율 (초과 시 과노출)
+    sample_step: 8              # FHD 전수 검사는 느리다 — 8픽셀마다 1개
+    on_failure: reject          # reject: 후속 분석/업로드 차단 | warn: 경고만 하고 통과
 
 # 급수용 다이어프램 펌프 — L298N 모터 드라이버 경유
 # 배선(BCM): GPIO17→IN1, GPIO18→IN2, 펌프→OUT1/OUT2, +12V 외부전원, GND 는 Pi 와 공통
