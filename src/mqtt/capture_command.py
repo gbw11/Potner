@@ -13,7 +13,12 @@
   INVALID_REQUEST  requestId 누락·형식 오류
   CAPTURE_FAILED   카메라가 촬영 실패를 보고 (미연결, 드라이버 오류 등)
   CAMERA_ERROR     촬영 함수 예외 (카메라 비활성 등)
+  IMAGE_TOO_DARK / IMAGE_TOO_BRIGHT / IMAGE_QUALITY_UNKNOWN
+                   촬영은 됐지만 밝기 검사 탈락 (retryable=true → 서버가 재촬영 요청 가능)
 촬영 중 새 명령은 status=BUSY 로 즉시 회신하고 무시한다.
+
+촬영 성공 후 순서: 밝기 검사 → (통과 시) 업로드 → 결과 회신.
+둘 다 설정이 꺼져 있으면 no-op 이고, 업로드 실패는 촬영 결과 회신을 막지 않는다.
 """
 
 from __future__ import annotations
@@ -28,7 +33,9 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from ..device import resolve_device_id
+from ..transport.uploader import ImageUploader, build_image_uploader
 from ..vision.base import CaptureResult
+from ..vision.quality import BrightnessThresholds, check_image, should_deliver
 from ..vision.store import capture_event
 from .client import _make_client
 
@@ -36,6 +43,12 @@ logger = logging.getLogger(__name__)
 
 # 이 리스너가 남기는 촬영 이벤트의 트리거 주체 (collector 자동 촬영과 구분)
 CAPTURE_TRIGGER = "mqtt"
+
+# 밝기 판정 → 서버 회신용 오류 코드
+_QUALITY_CODES = {
+    "too_dark": "IMAGE_TOO_DARK",
+    "too_bright": "IMAGE_TOO_BRIGHT",
+}
 
 
 def _utc_now_z() -> str:
@@ -50,6 +63,7 @@ class CaptureCommandListener:
     촬영 함수(capture_fn)만 주입받는다.
 
     ``event_store`` 를 주면 원격 촬영 1건마다 촬영 이벤트(trigger="mqtt")를 남긴다.
+    ``quality`` / ``uploader`` 는 None 이면 각각 밝기 검사·업로드 없이 기존 동작.
     """
 
     def __init__(
@@ -66,6 +80,8 @@ class CaptureCommandListener:
         result_topic: str,
         enabled: bool = True,
         event_store: Any = None,
+        quality: Optional[BrightnessThresholds] = None,
+        uploader: Optional[ImageUploader] = None,
     ) -> None:
         self.enabled = enabled
         self.capture_fn = capture_fn
@@ -78,6 +94,8 @@ class CaptureCommandListener:
         self.command_topic = command_topic
         self.result_topic = result_topic
         self.event_store = event_store
+        self.quality = quality
+        self.uploader = uploader
         self._client = None
         self._capture_lock = threading.Lock()
 
@@ -161,7 +179,21 @@ class CaptureCommandListener:
             )
 
         self._log_capture(result, request_id)
-        return {
+
+        # 밝기 검사 — 탈락한 이미지는 업로드·후속 분석으로 넘기지 않는다
+        report = None
+        if self.quality is not None and self.quality.enabled:
+            report = check_image(result.path, thresholds=self.quality)
+            if not should_deliver(report):
+                code = _QUALITY_CODES.get(report.verdict, "IMAGE_QUALITY_UNKNOWN")
+                return {
+                    **self._error_result(request_id, code, report.reason),
+                    "path": result.path,
+                    "retryable": report.needs_recapture,
+                    "quality": report.to_dict(),
+                }
+
+        payload = {
             **self._base_result(request_id),
             "status": "OK",
             "path": result.path,
@@ -171,6 +203,16 @@ class CaptureCommandListener:
             "driver": result.driver,
             "capturedAt": result.timestamp,
         }
+        if report is not None:
+            payload["quality"] = report.to_dict()
+        # 업로드 실패는 촬영 결과 회신을 막지 않는다 (서버가 uploaded=false 로 판단)
+        if self.uploader is not None:
+            upload = self.uploader.upload_capture(result, request_id=request_id)
+            if upload.code != "DISABLED":
+                payload["uploaded"] = upload.ok
+                if not upload.ok:
+                    payload["uploadError"] = upload.message
+        return payload
 
     def _base_result(self, request_id: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
@@ -293,4 +335,6 @@ def build_capture_listener(
         command_topic=command_topic,
         result_topic=result_topic,
         enabled=True,
+        quality=BrightnessThresholds.from_config(config),
+        uploader=build_image_uploader(config),
     )

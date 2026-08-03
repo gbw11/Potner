@@ -45,7 +45,16 @@ def main() -> int:
     collector = Collector(config)
     publisher = build_spring_publisher(config)
     mqtt_publisher = build_mqtt_publisher(config)
-    water_listener = None if args.once else build_water_listener(config)
+    # 과급수 게이트의 "이미 젖었으면 스킵" 판정용. 센서를 새로 열지 않고 collector 의
+    # 마지막 측정값을 넘긴다 (같은 I2C 센서를 두 번 열면 안 되므로).
+    last_row: dict = {}
+    water_listener = (
+        None
+        if args.once
+        else build_water_listener(
+            config, soil_provider=lambda: last_row.get("soil_moisture_pct")
+        )
+    )
     capture_listener = (
         None
         if args.once
@@ -103,6 +112,7 @@ def main() -> int:
         while running:
             row = collector.read_once()
             row["device_id"] = device_id
+            last_row = row
             pub = publisher.publish(row)
             pub_note = "skip" if not publisher.enabled else ("ok" if pub.ok else pub.message)
             mqtt = mqtt_publisher.publish(row)

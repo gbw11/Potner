@@ -63,8 +63,14 @@ These hold in the current code; if you're about to change one, that's a delibera
 - Status judgment (normal/abnormal) is always computed locally in `src/status/rules.py`; the LLM only
   produces wording/conversation, never the judgment itself (`README.md` 수정 포인트).
 - Watering duration is time-controlled, not volume-sensed: `duration = ml/flow_ml_per_sec + startup_sec`,
-  capped by `max_run_sec` (`src/actuators/base.py::WaterPump`). Calibrate via `cli/water.py calibrate`, not
-  by hand-editing the formula.
+  clamped to `[min_run_sec, max_run_sec]` (`src/actuators/base.py::WaterPump.plan_dispense`). Calibrate via
+  `cli/water.py calibrate [--apply]`, not by hand-editing the formula.
+- Soil moisture never produces a volume — a `%` reading cannot yield `ml`. It is a pre-dispense safety gate
+  only (`src/actuators/safety.py::WateringGuard`), and a missing or failing soil sensor fails open so
+  watering still works. The other three gates (per-dose cap, interval, 24h budget) need no sensor at all.
+- Captured images pass a brightness gate before they go anywhere else: `src/vision/quality.py::check_image`
+  runs in `src/mqtt/capture_command.py` after capture, and a rejected image is never uploaded
+  (`camera.quality.on_failure: reject`). Setting it to `warn` lets rejects through with a logged warning.
 - `config/*.yaml` is the single source of truth for driver selection, pins, and tuning constants
   (`platform: mock|raspberry_pi|jetson` switches every sensor/actuator driver). Don't hardcode pin numbers
   or thresholds in code that already reads them from config.
@@ -140,5 +146,7 @@ retry trigger, so it runs sequentially after A–D merge, not alongside them.
 | `base.py` | `CaptureResult` dataclass — shared schema, treat as frozen during parallel work |
 | `camera.py` | Picamera2 driver, lazy-init (opens on first capture, not at collector startup) |
 | `mock.py` | Dummy PNG capture for PC/mock |
-| `store.py` | `CameraStore.next_path()` (filename rule) + `_append_index()` (capture index log) |
-| `snapshot.py` | `next_capture_path()` — a second, currently inconsistent filename rule (unify target) |
+| `naming.py` | Filename rule, single source: `frame_YYYYMMDD_HHMMSS[_n].ext` |
+| `store.py` | `CameraStore` — capture + `index.jsonl` image index + optional `EventStore` capture history |
+| `snapshot.py` | `next_capture_path()` — picamera2 entry point, delegates to `naming.py` |
+| `quality.py` | Brightness check (ok/too_dark/too_bright) — stdlib PNG decoder, optional Pillow for JPEG, `camera.quality:` config |
