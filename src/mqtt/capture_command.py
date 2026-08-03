@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import uuid
@@ -28,7 +29,13 @@ from typing import Any, Callable, Optional
 
 from ..device import resolve_device_id
 from ..vision.base import CaptureResult
+from ..vision.store import capture_event
 from .client import _make_client
+
+logger = logging.getLogger(__name__)
+
+# 이 리스너가 남기는 촬영 이벤트의 트리거 주체 (collector 자동 촬영과 구분)
+CAPTURE_TRIGGER = "mqtt"
 
 
 def _utc_now_z() -> str:
@@ -41,6 +48,8 @@ class CaptureCommandListener:
     촬영은 워커 스레드에서 수행해 MQTT 네트워크 루프를 막지 않는다.
     카메라는 collector 가 소유하므로 (Picamera2 는 이중 오픈 불가)
     촬영 함수(capture_fn)만 주입받는다.
+
+    ``event_store`` 를 주면 원격 촬영 1건마다 촬영 이벤트(trigger="mqtt")를 남긴다.
     """
 
     def __init__(
@@ -56,6 +65,7 @@ class CaptureCommandListener:
         command_topic: str,
         result_topic: str,
         enabled: bool = True,
+        event_store: Any = None,
     ) -> None:
         self.enabled = enabled
         self.capture_fn = capture_fn
@@ -67,6 +77,7 @@ class CaptureCommandListener:
         self.password = password or ""
         self.command_topic = command_topic
         self.result_topic = result_topic
+        self.event_store = event_store
         self._client = None
         self._capture_lock = threading.Lock()
 
@@ -132,22 +143,24 @@ class CaptureCommandListener:
             )
 
         if not self._capture_lock.acquire(blocking=False):
-            print(f"[capture] 촬영 중 — 새 명령 무시 (requestId={request_id})")
+            logger.warning(f"촬영 중 — 새 명령 무시 (requestId={request_id})")
             return {**self._base_result(request_id), "status": "BUSY"}
         try:
-            print(f"[capture] 촬영 명령 수신 (requestId={request_id})")
+            logger.info(f"촬영 명령 수신 (requestId={request_id})")
             result = self.capture_fn()
         except Exception as exc:  # noqa: BLE001 — 카메라 예외도 서버에 회신
+            self._log_capture(None, request_id, code="CAMERA_ERROR", error=str(exc))
             return self._error_result(request_id, "CAMERA_ERROR", str(exc))
         finally:
             self._capture_lock.release()
 
         if not result.ok:
+            self._log_capture(result, request_id, code="CAPTURE_FAILED")
             return self._error_result(
                 request_id, "CAPTURE_FAILED", result.error or "capture failed"
             )
 
-        print(f"[capture] 촬영 완료: {result.path}")
+        self._log_capture(result, request_id)
         return {
             **self._base_result(request_id),
             "status": "OK",
@@ -169,8 +182,36 @@ class CaptureCommandListener:
             base["requestId"] = request_id
         return base
 
+    def _log_capture(
+        self,
+        result: Optional[CaptureResult],
+        request_id: Any,
+        *,
+        code: str | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        """촬영 1건을 앱 로그 + 이벤트 로그(events.jsonl)에 남긴다."""
+        event = capture_event(
+            result,
+            trigger=CAPTURE_TRIGGER,
+            request_id=request_id,
+            error=error,
+            code=code,
+        )
+        if event["ok"]:
+            logger.info(f"{event['message']} → {event.get('path')}")
+        else:
+            logger.warning(event["message"])
+        store = self.event_store
+        if store is not None:
+            try:
+                store.append(event)
+            except Exception as exc:  # noqa: BLE001 — 로그 실패로 회신을 막지 않는다
+                logger.warning(f"촬영 이벤트 기록 실패: {exc}")
+        return event
+
     def _error_result(self, request_id: Any, code: str, message: str) -> dict[str, Any]:
-        print(f"[capture] 오류 ({code}): {message}")
+        logger.error(f"촬영 명령 오류 ({code}): {message}")
         return {
             **self._base_result(request_id),
             "status": "ERROR",
@@ -191,11 +232,26 @@ class CaptureCommandListener:
             )
             info.wait_for_publish(timeout=5.0)
             if info.is_published():
-                print(f"[capture] 결과 회신 완료 (status={result.get('status')})")
+                logger.info(f"결과 회신 완료 (status={result.get('status')})")
             else:
-                print("[capture] 결과 회신 시간 초과")
+                logger.warning("결과 회신 시간 초과")
         except Exception as exc:  # noqa: BLE001 — 회신 실패해도 리스너 유지
-            print(f"[capture] 결과 회신 실패: {exc}")
+            logger.error(f"결과 회신 실패: {exc}")
+
+
+def _build_event_store(config: dict[str, Any]) -> Any:
+    """config 에 events 섹션이 있을 때만 촬영 이벤트 로그를 붙인다 (없으면 앱 로그만)."""
+    events_cfg = config.get("events") or {}
+    path = events_cfg.get("path")
+    if not path:
+        return None
+    try:
+        from ..events.store import EventStore
+
+        return EventStore(path)
+    except OSError as exc:
+        logger.warning(f"촬영 이벤트 로그를 열 수 없습니다 ({path}): {exc}")
+        return None
 
 
 def build_capture_listener(
@@ -227,6 +283,7 @@ def build_capture_listener(
 
     return CaptureCommandListener(
         capture_fn=capture_fn,
+        event_store=_build_event_store(config),
         host=str(mqtt_cfg.get("host", "127.0.0.1")),
         port=int(mqtt_cfg.get("port", 1883)),
         qos=int(mqtt_cfg.get("qos", 1)),

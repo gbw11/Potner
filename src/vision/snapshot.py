@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
 from pathlib import Path
+
+from .naming import DEFAULT_EXT, DEFAULT_PREFIX, next_available_path
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTURE_DIR = Path(__file__).resolve().parents[2] / "data" / "camera"
 
@@ -14,15 +18,16 @@ def capture_dir(path: Path | str | None = None) -> Path:
     return out
 
 
-def next_capture_path(directory: Path | str | None = None, prefix: str = "snap") -> Path:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base = capture_dir(directory)
-    path = base / f"{prefix}_{stamp}.jpg"
-    n = 1
-    while path.exists():
-        path = base / f"{prefix}_{stamp}_{n}.jpg"
-        n += 1
-    return path
+def next_capture_path(
+    directory: Path | str | None = None,
+    prefix: str = DEFAULT_PREFIX,
+) -> Path:
+    """CameraStore.next_path 와 동일한 규칙 (frame_YYYYMMDD_HHMMSS[_n].jpg).
+
+    예전에는 여기만 ``snap_`` 접두사를 써서 저장 경로에 두 형식이 섞였다.
+    규칙 본체는 naming.py 하나뿐이고, 이 함수는 picamera2 전용 진입점일 뿐이다.
+    """
+    return next_available_path(capture_dir(directory), prefix=prefix, ext=DEFAULT_EXT)
 
 
 def capture_still(
@@ -39,6 +44,7 @@ def capture_still(
 
     out = Path(output) if output else next_capture_path(directory)
     out.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"스냅샷 촬영 시작: {out.name}")
 
     picam2 = Picamera2()
     try:
