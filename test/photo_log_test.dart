@@ -102,7 +102,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('growth_comparison_timelapse')));
-    await tester.pumpAndSettle();
+    // pumpAndSettle 은 쓸 수 없다. 재생 타이머가 프레임을 계속 예약해서 끝까지 돌아 버린다.
+    // 화면 전환(300ms)만 넘기고 첫 프레임에서 멈춘다.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
 
     // 서버가 오래된 순으로 내려주므로 첫 프레임은 가장 오래된 사진이다.
     Image frame() => tester.widget<Image>(find.byKey(const Key('timelapse_frame')));
@@ -115,8 +118,8 @@ void main() {
     // 원본이 아니라 playbackUrl 을 쓴다. 원본은 수 MB 라 연속 재생에서 끊긴다.
     expect((frame().image as NetworkImage).url, isNot(contains('old.jpg')));
 
-    // 기본 배속에서 한 프레임은 800ms 다.
-    await tester.pump(const Duration(milliseconds: 900));
+    // 기본 배속은 2x 라 한 프레임이 400ms 다.
+    await tester.pump(const Duration(milliseconds: 120));
     expect(
       (frame().image as NetworkImage).url,
       'https://images.test/new-play.jpg',

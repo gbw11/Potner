@@ -26,12 +26,16 @@ class TimelapsePage extends StatefulWidget {
 }
 
 class _TimelapsePageState extends State<TimelapsePage> {
-  /// 재생 속도. 성장은 느린 변화라 기본을 여유 있게 둔다.
-  static const _speeds = <double>[0.5, 1, 2, 4];
+  /// 재생 속도. 8x 는 프레임당 100ms 라 한 달치가 3초에 끝난다 — 성장 과정을 보는 게
+  /// 아니라 어디까지 찍혔는지 훑는 용도다.
+  static const _speeds = <double>[0.5, 1, 2, 4, 8];
 
   Timer? _timer;
   int _index = 0;
-  int _speedIndex = 1;
+
+  /// 2x 로 연다. 하루 한 장씩 쌓이므로 한 달치면 1x 에서 24초인데, 처음 보는 사람이
+  /// 끝까지 기다리기엔 길다.
+  int _speedIndex = 2;
   bool _isPlaying = true;
   bool _precached = false;
 
