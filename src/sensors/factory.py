@@ -32,7 +32,14 @@ def _build_water_level(sensors_cfg: dict[str, Any], *, platform_mock: bool) -> O
     invert = bool(cfg.get("invert", DEFAULT_INVERT))
     driver = str(cfg.get("driver", "float_switch")).lower()
     if platform_mock or driver == "mock":
-        return MockFloatSwitchSensor(invert=invert)
+        # mock 기본값은 raw 접점 닫힘 고정 = (invert 켜짐 기준) "물 없음" 고정이라
+        # PC 에서는 물부족→복구 흐름을 재현할 수 없다. 시퀀스/교대를 config 로 열어둔다.
+        values = cfg.get("mock_values") or None
+        return MockFloatSwitchSensor(
+            values=[bool(v) for v in values] if values else None,
+            invert=invert,
+            toggle=bool(cfg.get("mock_toggle", False)),
+        )
 
     try:
         if driver == "float_switch":

@@ -81,6 +81,46 @@ def test_factory_missing_section_defaults_off(tmp_path):
     assert build_sensors(config).water_level is None
 
 
+def test_factory_mock_defaults_to_water_absent(tmp_path):
+    """mock 기본값은 raw 접점 닫힘 + invert=True → '물 없음' 고정 (기존 동작 보존)."""
+    config = _mock_config(tmp_path, water_level={"enabled": True})
+    sensor = build_sensors(config).water_level
+
+    assert sensor.read().water_present is False
+    assert sensor.read().water_present is False  # 마지막 값 유지
+
+
+def test_factory_mock_values_replay_sequence(tmp_path):
+    """mock_values 로 물있음→물없음 흐름을 PC 에서 재현할 수 있어야 한다.
+
+    루프 2 에서 발견: 이 배선이 없으면 mock 은 '물 없음' 고정이라
+    물부족→복구(hold_sec 게이트) 를 PC 에서 시뮬레이션할 방법이 없었다.
+    """
+    config = _mock_config(
+        tmp_path,
+        # raw 접점 시퀀스. invert=True 라 closed=False 가 '물 있음'
+        water_level={"enabled": True, "mock_values": [False, False, True]},
+    )
+    sensor = build_sensors(config).water_level
+
+    assert sensor.read().water_present is True   # 물 있음
+    assert sensor.read().water_present is True
+    assert sensor.read().water_present is False  # 물 없음으로 전환
+    assert sensor.read().water_present is False  # 마지막 값 유지
+
+
+def test_factory_mock_toggle_alternates(tmp_path):
+    """mock_toggle 은 읽을 때마다 접점을 교대시킨다 (잔떨림 재현용)."""
+    config = _mock_config(
+        tmp_path, water_level={"enabled": True, "mock_toggle": True}
+    )
+    sensor = build_sensors(config).water_level
+
+    first = sensor.read().water_present
+    second = sensor.read().water_present
+    assert first != second
+
+
 def test_factory_raspberry_pi_passes_pin_and_invert(fake_gpiozero):
     config = {
         "platform": "raspberry_pi",
