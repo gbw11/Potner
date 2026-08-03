@@ -106,8 +106,18 @@ pump:
   speed: 1.0
   flow_ml_per_sec: 25.0
   startup_sec: 0.0
+  min_run_sec: 0.3       # 이보다 짧게 돌면 물이 사실상 안 나온다 (소량 요청은 여기까지 늘림)
   max_run_sec: 30
   default_ml: 100
+  # 과급수 방지 게이트. 급수량 자체는 위 보정값이 정하고, 여기서는 "지금 줘도 되는가"만 본다.
+  # CLI 는 --force 로 우회 가능(실험용), 서버 명령은 우회 불가.
+  safety:
+    enabled: true
+    max_ml_per_dose: 500   # 1회 요청 상한 (넘으면 이 값까지만 급수)
+    min_interval_sec: 300  # 직전 급수 후 재급수 최소 간격 (중복 명령 차단)
+    daily_max_ml: 1000     # 최근 24시간 누적 상한
+    soil_wet_pct: 70       # 토양수분이 이 값 이상이면 급수 스킵 (센서 없으면 이 축만 비활성)
+    state_path: data/water_history.json  # 재시작해도 누적량 유지
 
 # 송풍용 시로코 팬 — MOSFET 모듈 경유 (PC mock 모드에선 속도 로그만 출력)
 fan:
