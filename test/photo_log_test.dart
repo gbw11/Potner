@@ -88,6 +88,39 @@ void main() {
     },
   );
 
+  testWidgets('타임랩스는 오래된 사진부터 재생하고 재생용 축소본을 쓴다', (tester) async {
+    await _pumpToPhotoLog(tester);
+
+    await tester.tap(find.byKey(const Key('photo_log_timelapse')));
+    await tester.pumpAndSettle();
+
+    // 서버가 오래된 순으로 내려주므로 첫 프레임은 가장 오래된 사진이다.
+    Image frame() => tester.widget<Image>(find.byKey(const Key('timelapse_frame')));
+    expect(
+      (frame().image as NetworkImage).url,
+      'https://images.test/old-play.jpg',
+    );
+    expect(find.text('1 / 2일차'), findsOneWidget);
+
+    // 원본이 아니라 playbackUrl 을 쓴다. 원본은 수 MB 라 연속 재생에서 끊긴다.
+    expect((frame().image as NetworkImage).url, isNot(contains('old.jpg')));
+
+    // 기본 배속에서 한 프레임은 800ms 다.
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(
+      (frame().image as NetworkImage).url,
+      'https://images.test/new-play.jpg',
+    );
+
+    // 마지막 프레임에서 멈춘다 — 반복하면 가장 최근 모습을 볼 시간이 없다.
+    await tester.pump(const Duration(seconds: 3));
+    expect(
+      (frame().image as NetworkImage).url,
+      'https://images.test/new-play.jpg',
+    );
+    expect(find.text('재생'), findsOneWidget);
+  });
+
   testWidgets('growth comparison shows before and after photos', (
     tester,
   ) async {

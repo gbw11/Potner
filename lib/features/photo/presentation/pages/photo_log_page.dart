@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
+import 'package:potner_app/features/photo/domain/photo_models.dart';
+import 'package:potner_app/features/photo/presentation/pages/timelapse_page.dart';
 import 'package:potner_app/features/photo/presentation/photo_providers.dart';
 import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dart';
@@ -123,8 +125,14 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
                   key: const Key('photo_log_list'),
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-                  itemCount: descending.length,
-                  itemBuilder: (context, index) {
+                  // 맨 위 한 칸은 타임랩스 진입이다. 사진 목록과 같은 스크롤에 두어야
+                  // 사진이 많을 때도 버튼이 화면을 차지하지 않는다.
+                  itemCount: descending.length + 1,
+                  itemBuilder: (context, position) {
+                    if (position == 0) {
+                      return _TimelapseBar(plant: plant, photos: items);
+                    }
+                    final index = position - 1;
                     final photo = descending[index];
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,6 +188,87 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 타임랩스 진입 줄이다. 사진이 2장 미만이면 재생할 것이 없으므로 버튼 대신 안내를 둔다.
+class _TimelapseBar extends StatelessWidget {
+  const _TimelapseBar({required this.plant, required this.photos});
+
+  final MyPlant plant;
+  final List<PlantPhoto> photos;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = photos.length >= 2;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.movie_outlined, color: AppColors.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '타임랩스',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    enabled
+                        ? '${photos.length}일치 사진을 이어서 봐요.'
+                        : '사진이 2장 이상 쌓이면 재생할 수 있어요.',
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.icon(
+              key: const Key('photo_log_timelapse'),
+              // 테마가 minimumSize 를 Size.fromHeight(56) 으로 둬서 기본 FilledButton 은
+              // 가로를 꽉 채우려 한다. Row 안에서는 그 폭이 무한이 되어 레이아웃이 깨지므로
+              // 이 버튼만 최소 너비를 푼다.
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              onPressed: enabled
+                  ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => TimelapsePage(
+                          plantName: plant.name,
+                          photos: photos,
+                        ),
+                      ),
+                    )
+                  : null,
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('재생'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
