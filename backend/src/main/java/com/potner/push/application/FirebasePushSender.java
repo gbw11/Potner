@@ -1,5 +1,7 @@
 package com.potner.push.application;
 
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
@@ -94,6 +96,16 @@ public class FirebasePushSender implements PushSender {
                 || errorCode == MessagingErrorCode.INVALID_ARGUMENT;
     }
 
+    /**
+     * 안드로이드 알림 채널이다. 앱의 {@code NotificationChannels.ALERTS} 와 Manifest 의
+     * {@code default_notification_channel_id} 가 같은 문자열이어야 한다.
+     *
+     * <p>이 값을 지정하지 않으면 FCM 이 자동 생성한 기본 채널로 들어간다. 그 채널은
+     * {@code IMPORTANCE_DEFAULT} 라 알림이 도착해도 상태바에만 쌓이고 헤드업 팝업도 소리도
+     * 나지 않는다. 앱이 만든 채널은 {@code IMPORTANCE_HIGH} 다.
+     */
+    private static final String ANDROID_CHANNEL_ID = "potner_alerts";
+
     private Message toMessage(FcmToken target, PushMessage message) {
         return Message.builder()
                 .setToken(target.getToken())
@@ -101,7 +113,25 @@ public class FirebasePushSender implements PushSender {
                         .setTitle(message.title())
                         .setBody(message.body())
                         .build())
+                .setAndroidConfig(androidConfig())
                 .putAllData(message.data())
+                .build();
+    }
+
+    /**
+     * <p>{@code Priority.HIGH} 는 절전(Doze) 중인 기기를 깨워 즉시 전달한다. 기본값
+     * ({@code NORMAL})이면 화면을 켤 때까지, 길게는 수십 분까지 묶여 있을 수 있다. 물 부족·
+     * 이상 알림은 지금 조치해야 하는 것이라 늦게 도착하면 의미가 없다.
+     *
+     * <p>배터리 비용이 있으므로 남용할 것은 아니지만, 이 서버가 보내는 알림은 모두 사용자가
+     * 손을 써야 하는 것뿐이다. 마케팅 알림이 생기면 그때 종류별로 갈라야 한다.
+     */
+    private AndroidConfig androidConfig() {
+        return AndroidConfig.builder()
+                .setPriority(AndroidConfig.Priority.HIGH)
+                .setNotification(AndroidNotification.builder()
+                        .setChannelId(ANDROID_CHANNEL_ID)
+                        .build())
                 .build();
     }
 }
