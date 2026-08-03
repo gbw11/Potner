@@ -7,7 +7,7 @@ sensor-collector 서비스가 떠 있어도 그대로 같이 실행할 수 있�
 Pi 실행 예 (프로젝트 루트에서):
   python -m cli.water_level watch              # 상태 변화를 실시간 출력, Ctrl+C 종료
   python -m cli.water_level read               # 1회 읽고 JSON 출력
-  python -m cli.water_level watch --invert     # 극성이 반대로 확인되면
+  python -m cli.water_level watch --no-invert  # 센서 재장착 후 극성이 원래대로면
   python -m cli.water_level read --pin 22      # 다른 핀(예: 물받이 2호기)
 
 PC 흐름 확인:
@@ -28,6 +28,7 @@ if not __package__:  # `python cli/water_level.py` 직접 실행 시 프로젝�
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.sensors.water_level import (
+    DEFAULT_INVERT,
     DEFAULT_PIN,
     FloatSwitchSensor,
     MockFloatSwitchSensor,
@@ -94,7 +95,12 @@ def cmd_watch(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--pin", type=int, default=DEFAULT_PIN, help=f"BCM 핀 번호 (기본 {DEFAULT_PIN} = 물리 13번)")
-    common.add_argument("--invert", action="store_true", help="닫힘=물 없음 으로 해석 (장착 방향 반대일 때)")
+    common.add_argument(
+        "--invert",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_INVERT,
+        help="닫힘=물 없음 해석 (기본: 실물 확인값 켜짐). 재장착 후 반대면 --no-invert",
+    )
     common.add_argument("--mock", action="store_true", help="하드웨어 없이 흐름만 확인 (PC)")
 
     parser = argparse.ArgumentParser(description="수위 센서(플로트 스위치) 동작 확인")

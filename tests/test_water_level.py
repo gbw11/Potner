@@ -22,7 +22,10 @@ from src.sensors.water_level import (
 
 
 class FakeButton:
-    """gpiozero.Button 대역. 생성 인자를 기록하고 is_pressed 를 조작할 수 있다."""
+    """gpiozero.Button 대역. 생성 인자를 기록하고 is_pressed 를 조작할 수 있다.
+
+    seq 에 값을 넣으면 읽을 때마다 순서대로 소비한다 (read_stable 다수결 검증용).
+    """
 
     instances: list["FakeButton"] = []
 
@@ -30,9 +33,20 @@ class FakeButton:
         self.pin = pin
         self.pull_up = pull_up
         self.bounce_time = bounce_time
-        self.is_pressed = False
+        self._pressed = False
+        self.seq: list[bool] = []
         self.closed = False
         FakeButton.instances.append(self)
+
+    @property
+    def is_pressed(self) -> bool:
+        if self.seq:
+            return self.seq.pop(0)
+        return self._pressed
+
+    @is_pressed.setter
+    def is_pressed(self, value: bool) -> None:
+        self._pressed = value
 
     def close(self):
         self.closed = True
@@ -59,19 +73,32 @@ def test_button_wired_as_pullup_input_on_requested_pin(fake_gpiozero):
     assert sensor.pin == 27
 
 
-def test_contact_closed_means_water_present(fake_gpiozero):
-    sensor = FloatSwitchSensor(27)
+def test_no_type_semantics_without_invert(fake_gpiozero):
+    """NO 타입 원래 해석 (invert=False 명시): 닫힘 = 물 있음."""
+    sensor = FloatSwitchSensor(27, invert=False)
     button = FakeButton.instances[0]
 
-    button.is_pressed = True  # 접점 닫힘 (뜨개 올라감)
+    button.is_pressed = True  # 접점 닫힘
     reading = sensor.read()
     assert reading.raw_closed is True
     assert reading.water_present is True
 
-    button.is_pressed = False  # 접점 열림 (뜨개 내려감)
+    button.is_pressed = False  # 접점 열림
     reading = sensor.read()
     assert reading.raw_closed is False
     assert reading.water_present is False
+
+
+def test_default_invert_matches_field_measurement(fake_gpiozero):
+    """실물 확인(2026-08-03): 이 장착에서 접점 닫힘 = 물 없음 — 기본값이 이를 반영해야 한다."""
+    sensor = FloatSwitchSensor(27)  # invert 기본값
+    button = FakeButton.instances[0]
+
+    button.is_pressed = True  # 접점 닫힘 = 뜨개 내려감
+    assert sensor.read().water_present is False
+
+    button.is_pressed = False  # 접점 열림 = 뜨개 올라감
+    assert sensor.read().water_present is True
 
 
 def test_invert_flips_interpretation_but_not_raw(fake_gpiozero):
@@ -85,6 +112,31 @@ def test_invert_flips_interpretation_but_not_raw(fake_gpiozero):
 
     button.is_pressed = False
     assert sensor.read().water_present is True
+
+
+def test_read_stable_majority_vote_absorbs_slosh(fake_gpiozero):
+    """뜨개 출렁임으로 표가 갈려도 과반으로 판정한다."""
+    sensor = FloatSwitchSensor(27, invert=False)
+    button = FakeButton.instances[0]
+    sleeps: list[float] = []
+
+    button.seq = [True, False, True, False, True]  # 출렁임: 닫힘 3표 / 열림 2표
+    reading = sensor.read_stable(samples=5, sample_interval_sec=0.06, sleep_fn=sleeps.append)
+    assert reading.raw_closed is True
+    assert reading.water_present is True
+    assert sleeps == [0.06] * 4  # 표 사이에만 대기
+
+    button.seq = [False, False, True, False, True]  # 열림 3표 / 닫힘 2표
+    assert sensor.read_stable(samples=5, sleep_fn=sleeps.append).raw_closed is False
+
+
+def test_read_stable_single_sample_never_sleeps(fake_gpiozero):
+    sensor = FloatSwitchSensor(27, invert=False)
+    FakeButton.instances[0].is_pressed = True
+    sleeps: list[float] = []
+    reading = sensor.read_stable(samples=1, sleep_fn=sleeps.append)
+    assert reading.raw_closed is True
+    assert sleeps == []
 
 
 def test_close_releases_gpio(fake_gpiozero):
@@ -155,12 +207,13 @@ def test_cli_read_uses_float_switch_on_requested_pin(fake_gpiozero, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["pin"] == 22
     assert payload["raw_closed"] is False  # FakeButton 기본값(열림)
+    assert payload["water_present"] is True  # 열림 + 기본 invert(실물 확인값) = 물 있음
 
 
-def test_cli_read_invert_flag_flips_interpretation(fake_gpiozero, capsys):
+def test_cli_no_invert_flag_restores_no_semantics(fake_gpiozero, capsys):
     from cli.water_level import main
 
-    main(["read", "--invert"])
+    main(["read", "--no-invert"])
     payload = json.loads(capsys.readouterr().out)
     assert payload["raw_closed"] is False
-    assert payload["water_present"] is True  # 열림 + invert = 물 있음
+    assert payload["water_present"] is False  # 열림 + NO 원래 해석 = 물 없음

@@ -12,23 +12,29 @@ ADC(ADS1115) 불필요, 전원(VCC) 배선도 없다 — GND + GPIO 두 선이 �
 다른 회로와의 독립성: GPIO27은 펌프(17/18)·팬(23)·DHT(4)·I2C(2/3)와 겹치지 않고,
 건식 접점이라 전기적으로도 분리된다. collector 서비스가 떠 있어도 이 센서만 따로 읽을 수 있다.
 
-해석 (NO 타입 기본 가정):
-  접점 닫힘(GPIO LOW)  = 뜨개 올라감 = 물 있음
-  접점 열림(GPIO HIGH) = 뜨개 내려감 = 물 없음
-  장착 방향에 따라 반대일 수 있다 — `cli/water_level.py watch` 로 실물 확인 후
-  반대면 invert=True 로 뒤집는다.
+해석:
+  NO 타입 원래 가정은 "접점 닫힘 = 뜨개 올라감 = 물 있음"이지만,
+  **실물 확인(2026-08-03) 결과 이 장착에서는 반대** — 뜨개가 내려가면(물 없음) 접점이 닫힌다.
+  그래서 프로젝트 기본값은 invert=True (닫힘 = 물 없음). 센서를 다른 방향으로
+  재장착하면 invert=False 로 되돌려 `cli/water_level.py watch` 로 재확인할 것.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 log = logging.getLogger(__name__)
 
 DEFAULT_PIN = 27  # BCM. 물리 13번 핀
 DEFAULT_BOUNCE_SEC = 0.05  # 리드 스위치 채터링 흡수
+# 실물 확인(2026-08-03): 이 장착에서는 접점 닫힘 = 물 없음 → 해석을 뒤집는다
+DEFAULT_INVERT = True
+# read_stable 기본값: 0.06s 간격 5표 다수결 (~0.24s) — 뜨개 출렁임 순간값 흡수
+DEFAULT_STABLE_SAMPLES = 5
+DEFAULT_STABLE_INTERVAL_SEC = 0.06
 
 
 @dataclass
@@ -47,7 +53,7 @@ class FloatSwitchSensor:
         self,
         pin: int = DEFAULT_PIN,
         *,
-        invert: bool = False,
+        invert: bool = DEFAULT_INVERT,
         bounce_sec: float = DEFAULT_BOUNCE_SEC,
     ) -> None:
         try:
@@ -76,6 +82,31 @@ class FloatSwitchSensor:
             water_present=closed != self._invert,
         )
 
+    def read_stable(
+        self,
+        *,
+        samples: int = DEFAULT_STABLE_SAMPLES,
+        sample_interval_sec: float = DEFAULT_STABLE_INTERVAL_SEC,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ) -> WaterLevelReading:
+        """짧은 구간 다수결로 뜨개 출렁임을 흡수한 1회 판정.
+
+        수집 루프처럼 '지금 한 번' 읽는 경로용. 감시(watch)처럼 연속 관찰하는
+        경로는 CLI 쪽 유지시간(hold) 필터를 쓴다.
+        """
+        samples = max(1, int(samples))
+        closed_votes = 0
+        for i in range(samples):
+            if bool(self._button.is_pressed):
+                closed_votes += 1
+            if i < samples - 1:
+                sleep_fn(sample_interval_sec)
+        closed = closed_votes * 2 > samples  # 과반
+        return WaterLevelReading(
+            raw_closed=closed,
+            water_present=closed != self._invert,
+        )
+
     def close(self) -> None:
         # 입력 전용이라 펌프식 풀다운 주차는 불필요 — 해제만 하면 안전하다.
         try:
@@ -91,7 +122,7 @@ class MockFloatSwitchSensor:
         self,
         values: Optional[Sequence[bool]] = None,
         *,
-        invert: bool = False,
+        invert: bool = DEFAULT_INVERT,
         toggle: bool = False,
     ) -> None:
         self._values = list(values) if values is not None else [True]
@@ -114,6 +145,10 @@ class MockFloatSwitchSensor:
             raw_closed=closed,
             water_present=closed != self._invert,
         )
+
+    def read_stable(self, **_kwargs) -> WaterLevelReading:
+        # mock 은 노이즈가 없으므로 1회 읽기와 동일 (시그니처만 실센서와 맞춘다)
+        return self.read()
 
     def close(self) -> None:
         pass
