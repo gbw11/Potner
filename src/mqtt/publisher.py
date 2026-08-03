@@ -34,6 +34,9 @@ class MqttTelemetryPublisher:
     Sends available climate metrics (no status text):
       - TEMPERATURE / CELSIUS
       - HUMIDITY / PERCENT
+      - 수위(water_present) — bool 을 1.0/0.0 으로 변환해 발행.
+        sensorType/unit 은 sensors.water_level.telemetry_type/telemetry_unit 설정을
+        따른다 (서버 SensorType enum 이 다르면 config 만 고치면 된다).
 
     조도(ILLUMINANCE)·토양수분(SOIL_MOISTURE)은 Pi 담당이 아니라 발행하지 않는다.
 
@@ -55,6 +58,9 @@ class MqttTelemetryPublisher:
         heartbeat_interval_sec: float = 30.0,
         enabled: bool = True,
         timeout: float = 5.0,
+        water_level_telemetry: bool = True,
+        water_level_type: str = "WATER_LEVEL",
+        water_level_unit: str = "BOOLEAN",
     ) -> None:
         self.enabled = enabled
         self.host = host
@@ -67,6 +73,10 @@ class MqttTelemetryPublisher:
         self.heartbeat_topic = heartbeat_topic or f"potner/device/{device_id}/status/heartbeat"
         self.heartbeat_interval_sec = heartbeat_interval_sec
         self.timeout = timeout
+        # 수위 텔레메트리: sensors.water_level.telemetry(발행 여부)/telemetry_type/telemetry_unit
+        self.water_level_telemetry = water_level_telemetry
+        self.water_level_type = water_level_type
+        self.water_level_unit = water_level_unit
         self._client: Optional[mqtt.Client] = None
         self._hb_thread: Optional[threading.Thread] = None
         self._hb_stop = threading.Event()
@@ -166,6 +176,22 @@ class MqttTelemetryPublisher:
                     ),
                 )
             )
+
+        # 수위(플로트 스위치): bool → 1.0(물 있음)/0.0(물 없음). None(센서 없음/실패)은 미발행.
+        water_present = reading.get("water_present")
+        if self.water_level_telemetry and water_present is not None:
+            messages.append(
+                (
+                    self.telemetry_topic,
+                    telemetry_payload(
+                        device_id=device_id,
+                        sensor_type=self.water_level_type,
+                        value=1.0 if water_present else 0.0,
+                        unit=self.water_level_unit,
+                        measured_at=measured_at,
+                    ),
+                )
+            )
         return messages
 
     def publish(self, reading: dict[str, Any]) -> MqttPublishResult:
@@ -200,6 +226,7 @@ class MqttTelemetryPublisher:
 
 def build_mqtt_publisher(config: dict[str, Any]) -> MqttTelemetryPublisher:
     cfg = config.get("mqtt", {}) or {}
+    water_cfg = (config.get("sensors", {}) or {}).get("water_level", {}) or {}
     device_id = resolve_device_id(cfg.get("device_id"))
     username = cfg.get("username") or os.environ.get("MQTT_USERNAME")
     password = os.environ.get("MQTT_PASSWORD") or cfg.get("password") or ""
@@ -220,4 +247,7 @@ def build_mqtt_publisher(config: dict[str, Any]) -> MqttTelemetryPublisher:
         heartbeat_topic=str(hb_topic),
         heartbeat_interval_sec=float(cfg.get("heartbeat_interval_sec", 30)),
         enabled=bool(cfg.get("enabled", False)),
+        water_level_telemetry=bool(water_cfg.get("telemetry", True)),
+        water_level_type=str(water_cfg.get("telemetry_type", "WATER_LEVEL")),
+        water_level_unit=str(water_cfg.get("telemetry_unit", "BOOLEAN")),
     )

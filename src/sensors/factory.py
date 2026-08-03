@@ -8,6 +8,7 @@ from .bh1750 import BH1750Sensor
 from .climate import AHT20ClimateSensor, DHTClimateSensor, IIOClimateSensor
 from .mock import MockClimateSensor, MockLightSensor, MockSoilSensor
 from .soil import ADS1115SoilSensor
+from .water_level import DEFAULT_INVERT, DEFAULT_PIN, MockFloatSwitchSensor
 
 
 @dataclass
@@ -15,6 +16,33 @@ class SensorBundle:
     climate: Optional[ClimateSensor]
     light: Optional[LightSensor]
     soil: Optional[SoilSensor]
+    water_level: Optional[Any] = None  # FloatSwitchSensor | MockFloatSwitchSensor
+
+
+def _build_water_level(sensors_cfg: dict[str, Any], *, platform_mock: bool) -> Optional[Any]:
+    """sensors.water_level 설정으로 수위 센서(플로트 스위치)를 만든다.
+
+    기본은 꺼짐(enabled: false) — 배선 안 된 환경에서 GPIO 를 잡지 않기 위해서다.
+    실패해도 다른 센서처럼 warn 후 None 으로 두어 수집 루프는 유지한다.
+    """
+    cfg = sensors_cfg.get("water_level", {}) or {}
+    if not cfg.get("enabled", False):
+        return None
+
+    invert = bool(cfg.get("invert", DEFAULT_INVERT))
+    driver = str(cfg.get("driver", "float_switch")).lower()
+    if platform_mock or driver == "mock":
+        return MockFloatSwitchSensor(invert=invert)
+
+    try:
+        if driver == "float_switch":
+            from .water_level import FloatSwitchSensor
+
+            return FloatSwitchSensor(pin=int(cfg.get("pin", DEFAULT_PIN)), invert=invert)
+        raise ValueError(f"Unknown water_level driver: {driver}")
+    except Exception as exc:  # noqa: BLE001 — 개별 센서 실패해도 수집 루프 유지
+        print(f"warn: water_level sensor unavailable ({driver}): {exc}")
+        return None
 
 
 def build_sensors(config: dict[str, Any]) -> SensorBundle:
@@ -27,6 +55,7 @@ def build_sensors(config: dict[str, Any]) -> SensorBundle:
             climate=MockClimateSensor() if sensors_cfg.get("climate", {}).get("enabled", True) else None,
             light=MockLightSensor() if sensors_cfg.get("light", {}).get("enabled", False) else None,
             soil=MockSoilSensor() if sensors_cfg.get("soil", {}).get("enabled", False) else None,
+            water_level=_build_water_level(sensors_cfg, platform_mock=True),
         )
 
     climate = None
@@ -86,4 +115,6 @@ def build_sensors(config: dict[str, Any]) -> SensorBundle:
         except Exception as exc:  # noqa: BLE001
             print(f"warn: soil sensor unavailable ({driver}): {exc}")
 
-    return SensorBundle(climate=climate, light=light, soil=soil)
+    water_level = _build_water_level(sensors_cfg, platform_mock=False)
+
+    return SensorBundle(climate=climate, light=light, soil=soil, water_level=water_level)

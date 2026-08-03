@@ -13,6 +13,7 @@ class CsvStorage:
         "light_lux",
         "soil_raw",
         "soil_moisture_pct",
+        "water_present",
         "camera_path",
         "camera_ok",
     ]
