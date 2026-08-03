@@ -110,7 +110,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # em-dash 등 cp949 밖 문자는 금지 — Windows 콘솔이 파이프 모드일 때 출력이 죽는다
     print(f"[water-level] {pin_label} 감시 시작 (Ctrl+C 로 종료)")
     print(f"뜨개를 손으로 올렸다 내렸다 해보세요. 출렁임은 {args.hold:g}초 유지될 때만 변화로 표시합니다.")
-    print("'물 있음/없음' 해석이 실물과 반대면 --invert 를 붙여 다시 확인하세요.\n")
+    print("'물 있음/없음' 해석이 실물과 반대면 --no-invert 로 다시 확인하세요.\n")
 
     try:
         first = sensor.read()
