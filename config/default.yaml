@@ -35,7 +35,7 @@ sensors:
 
   # 수위 센서(플로트 스위치, GND+GPIO 2선 건식 접점) — src/sensors/water_level.py
   # 켜면 collector 가 매 주기 read_stable(다수결)로 읽고 row.water_present 에 기록,
-  # MQTT 텔레메트리로 온습도와 함께 발행한다 (bool → 1.0/0.0).
+  # 전용 상태 토픽(mqtt.water_low_topic)으로 waterLow 불리언을 발행한다.
   # 주의: collector 가 이 핀을 잡으면 cli/water_level 단독 실행은 GPIO busy 로 실패 —
   #       단독 테스트는 collector 서비스를 중지한 뒤 할 것.
   water_level:
@@ -47,6 +47,7 @@ sensors:
     # potner/device/{id}/status/water-low 로 waterLow 불리언을 보고한다.
     # false 도 매 주기 발행 (서버 플래그 해제용, 처리 멱등).
     report: true          # false 면 수집(CSV)은 하되 MQTT 보고만 끈다
+    hold_sec: 10           # 이 시간(초) 이상 연속 유지된 상태만 서버로 발행 (접촉 잔떨림 방지)
 
 # 로컬 규칙 판단 임계값 (LLM 호출 전 단계)
 status_rules:

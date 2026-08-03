@@ -214,6 +214,9 @@ def test_storage_fieldnames_include_water_present_after_soil():
 
 
 def _publisher(**kwargs) -> MqttTelemetryPublisher:
+    # 대부분의 테스트는 hold 게이트와 무관한 페이로드 형태를 확인하므로 기본 0(즉시 확정).
+    # hold_sec 자체를 검증하는 테스트는 명시적으로 오버라이드한다.
+    kwargs.setdefault("water_low_hold_sec", 0.0)
     return MqttTelemetryPublisher(
         host="127.0.0.1",
         device_id="raspberry-01",
@@ -273,6 +276,65 @@ def test_water_low_topic_override():
     assert messages[0][0] == "potner/device/raspberry-01/custom/water"
 
 
+# --- water-low hold 게이트 (뜨개 잔떨림이 알림으로 새지 않게) -----------------
+
+
+def _water_low_messages(messages):
+    return [(t, p) for t, p in messages if t.endswith("/status/water-low")]
+
+
+def test_water_low_blip_shorter_than_hold_sec_never_publishes():
+    """hold_sec 미만 유지되다 원래 상태로 돌아오면 확정되지 않아 발행도 없다."""
+    clock = iter([0.0, 3.0, 6.0])
+    publisher = _publisher(water_low_hold_sec=10.0, time_fn=lambda: next(clock))
+
+    r1 = publisher.build_messages({"water_present": False})  # t=0: 후보 등록
+    r2 = publisher.build_messages({"water_present": True})  # t=3: 원상복귀 → 후보 폐기
+    r3 = publisher.build_messages({"water_present": False})  # t=6: 새 후보(처음부터)
+
+    assert _water_low_messages(r1) == []
+    assert _water_low_messages(r2) == []
+    assert _water_low_messages(r3) == []
+
+
+def test_water_low_confirms_once_hold_sec_of_consistent_readings_elapses():
+    clock = iter([0.0, 10.0])
+    publisher = _publisher(water_low_hold_sec=10.0, time_fn=lambda: next(clock))
+
+    r1 = publisher.build_messages({"water_present": False})  # t=0: 후보 등록, 아직 미확정
+    assert _water_low_messages(r1) == []
+
+    r2 = publisher.build_messages({"water_present": False})  # t=10: 10초 유지 → 확정
+    (topic, payload) = _water_low_messages(r2)[0]
+    assert topic.endswith("/status/water-low")
+    assert payload["waterLow"] is True
+
+
+def test_water_low_republishes_confirmed_value_every_call_once_confirmed():
+    """확정 후에는 같은 확정값을 매 호출마다 그대로 재발행한다 (서버 처리 멱등)."""
+    clock = iter([0.0, 10.0, 20.0, 30.0])
+    publisher = _publisher(water_low_hold_sec=10.0, time_fn=lambda: next(clock))
+    publisher.build_messages({"water_present": False})
+    publisher.build_messages({"water_present": False})  # 확정
+
+    for _ in range(2):
+        (_, payload) = _water_low_messages(
+            publisher.build_messages({"water_present": False})
+        )[0]
+        assert payload["waterLow"] is True
+
+
+def test_water_low_sensor_failure_keeps_last_confirmed_value():
+    """확정된 뒤 센서 읽기 실패(None)가 와도 마지막 확정값을 그대로 재발행한다."""
+    clock = iter([0.0, 10.0, 20.0])
+    publisher = _publisher(water_low_hold_sec=10.0, time_fn=lambda: next(clock))
+    publisher.build_messages({"water_present": False})
+    publisher.build_messages({"water_present": False})  # 확정: waterLow=True
+
+    (_, payload) = _water_low_messages(publisher.build_messages({"water_present": None}))[0]
+    assert payload["waterLow"] is True
+
+
 def test_build_mqtt_publisher_reads_water_level_config(monkeypatch):
     monkeypatch.delenv("MQTT_PASSWORD", raising=False)
     monkeypatch.delenv("MQTT_USERNAME", raising=False)
@@ -285,11 +347,12 @@ def test_build_mqtt_publisher_reads_water_level_config(monkeypatch):
                 "device_id": "raspberry-01",
                 "water_low_topic": "potner/device/raspberry-01/status/water-low",
             },
-            "sensors": {"water_level": {"enabled": True, "report": False}},
+            "sensors": {"water_level": {"enabled": True, "report": False, "hold_sec": 3}},
         }
     )
     assert publisher.water_low_enabled is False
     assert publisher.water_low_topic == "potner/device/raspberry-01/status/water-low"
+    assert publisher.water_low_hold_sec == 3.0
 
 
 def test_build_mqtt_publisher_defaults_without_section(monkeypatch):
@@ -302,6 +365,7 @@ def test_build_mqtt_publisher_defaults_without_section(monkeypatch):
     assert publisher.water_low_enabled is True
     # 토픽 미지정 시 서버 구독 패턴(potner/device/+/status/water-low)에 맞는 기본값
     assert publisher.water_low_topic == "potner/device/raspberry-01/status/water-low"
+    assert publisher.water_low_hold_sec == 10.0
 
 
 # --- config 계약 (tests/test_brightness_check.py 의 yaml 계약 테스트 선례) -----
@@ -323,5 +387,6 @@ def test_project_yaml_water_level_section_loads():
         # 실물 확인(2026-08-03): 접점 닫힘 = 물 없음 → invert 는 True 여야 한다
         assert section["invert"] is True, f"{path}: invert 실측값이 바뀌었는지 확인"
         assert section["report"] is True
+        assert section["hold_sec"] == 10
         # 서버(WaterLowTopicParser)가 정확히 이 패턴을 구독한다
         assert cfg["mqtt"]["water_low_topic"] == "potner/device/raspberry-01/status/water-low"

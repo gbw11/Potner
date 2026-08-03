@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import paho.mqtt.client as mqtt
 
@@ -27,6 +28,42 @@ def _utc_now_z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class WaterLowHoldFilter:
+    """수위 신호가 hold_sec 이상 연속 유지되어야 서버 발행값을 바꾼다.
+
+    뜨개가 경계에서 출렁이며 tick(수집 주기)마다 반대로 뒤집혀도, 확정값이
+    hold_sec 동안 안 바뀌면 서버에는 이전 확정값이 그대로(멱등) 나간다 —
+    순간 접촉만으로 물부족 알림이 튀는 것을 막는다. hold_sec<=0 이면 즉시 확정.
+    """
+
+    def __init__(self, hold_sec: float) -> None:
+        self._hold_sec = hold_sec
+        self._confirmed: Optional[bool] = None
+        self._candidate: Optional[bool] = None
+        self._candidate_since: Optional[float] = None
+
+    def update(self, value: Optional[bool], now: float) -> Optional[bool]:
+        if value is None:  # 센서 읽기 실패 — 마지막 확정값 유지
+            return self._confirmed
+        if value == self._confirmed:
+            self._candidate = None
+            self._candidate_since = None
+            return self._confirmed
+        if self._hold_sec <= 0:
+            self._confirmed = value
+            return self._confirmed
+        if value != self._candidate:
+            self._candidate = value
+            self._candidate_since = now
+            return self._confirmed
+        assert self._candidate_since is not None
+        if now - self._candidate_since >= self._hold_sec:
+            self._confirmed = value
+            self._candidate = None
+            self._candidate_since = None
+        return self._confirmed
+
+
 class MqttTelemetryPublisher:
     """
     Collector reading → potner MQTT sensor messages + heartbeat.
@@ -38,6 +75,8 @@ class MqttTelemetryPublisher:
         potner/device/{id}/status/water-low, 페이로드 waterLow 불리언
         (서버 WaterLowMessage 규약 — Server-develop d4f9219 에 머지됨).
         waterLow=false 도 매 주기 발행한다 — 서버 플래그 해제용, 처리는 멱등.
+        발행값은 원시 읽기 그대로가 아니라 WaterLowHoldFilter 로 water_low_hold_sec
+        이상 연속 유지된 값만 반영한다 — 뜨개 접촉 잔떨림이 알림으로 새지 않게 한다.
 
     조도(ILLUMINANCE)·토양수분(SOIL_MOISTURE)은 Pi 담당이 아니라 발행하지 않는다.
 
@@ -61,6 +100,8 @@ class MqttTelemetryPublisher:
         timeout: float = 5.0,
         water_low_enabled: bool = True,
         water_low_topic: str | None = None,
+        water_low_hold_sec: float = 10.0,
+        time_fn: Callable[[], float] | None = None,
     ) -> None:
         self.enabled = enabled
         self.host = host
@@ -76,6 +117,9 @@ class MqttTelemetryPublisher:
         # 수위 물부족 보고: sensors.water_level.report 가 발행 여부, 토픽은 mqtt.water_low_topic
         self.water_low_enabled = water_low_enabled
         self.water_low_topic = water_low_topic or f"potner/device/{device_id}/status/water-low"
+        self.water_low_hold_sec = water_low_hold_sec
+        self._time_fn = time_fn or time.monotonic
+        self._water_low_hold = WaterLowHoldFilter(water_low_hold_sec)
         self._client: Optional[mqtt.Client] = None
         self._hb_thread: Optional[threading.Thread] = None
         self._hb_stop = threading.Event()
@@ -177,19 +221,22 @@ class MqttTelemetryPublisher:
             )
 
         # 수위(플로트 스위치): 전용 상태 토픽으로 waterLow 불리언 보고.
-        # None(센서 없음/실패)은 미발행 — false(물 있음)로 오인시키지 않는다.
+        # 원시값이 아니라 hold_sec 이상 연속 유지된 확정값만 발행 — 뜨개 잔떨림이
+        # tick(수집 주기)마다 알림을 뒤집는 것을 막는다. 아직 확정된 적 없으면(None) 미발행.
         water_present = reading.get("water_present")
-        if self.water_low_enabled and water_present is not None:
-            messages.append(
-                (
-                    self.water_low_topic,
-                    water_low_payload(
-                        device_id=device_id,
-                        water_low=not water_present,
-                        measured_at=measured_at,
-                    ),
+        if self.water_low_enabled:
+            confirmed = self._water_low_hold.update(water_present, self._time_fn())
+            if confirmed is not None:
+                messages.append(
+                    (
+                        self.water_low_topic,
+                        water_low_payload(
+                            device_id=device_id,
+                            water_low=not confirmed,
+                            measured_at=measured_at,
+                        ),
+                    )
                 )
-            )
         return messages
 
     def publish(self, reading: dict[str, Any]) -> MqttPublishResult:
@@ -247,4 +294,5 @@ def build_mqtt_publisher(config: dict[str, Any]) -> MqttTelemetryPublisher:
         enabled=bool(cfg.get("enabled", False)),
         water_low_enabled=bool(water_cfg.get("report", True)),
         water_low_topic=str(cfg.get("water_low_topic")) if cfg.get("water_low_topic") else None,
+        water_low_hold_sec=float(water_cfg.get("hold_sec", 10.0)),
     )
