@@ -13,12 +13,19 @@
   INVALID_REQUEST  requestId 누락·형식 오류
   CAPTURE_FAILED   카메라가 촬영 실패를 보고 (미연결, 드라이버 오류 등)
   CAMERA_ERROR     촬영 함수 예외 (카메라 비활성 등)
+  IMAGE_SAVE_FAILED 촬영은 됐다는데 파일이 없거나 0바이트
   IMAGE_TOO_DARK / IMAGE_TOO_BRIGHT / IMAGE_QUALITY_UNKNOWN
                    촬영은 됐지만 밝기 검사 탈락 (retryable=true → 서버가 재촬영 요청 가능)
 촬영 중 새 명령은 status=BUSY 로 즉시 회신하고 무시한다.
 
 촬영 성공 후 순서: 밝기 검사 → (통과 시) 업로드 → 결과 회신.
 둘 다 설정이 꺼져 있으면 no-op 이고, 업로드 실패는 촬영 결과 회신을 막지 않는다.
+
+촬영(+저장 확인 + 밝기 검사)은 `src/vision/capture_flow.py::capture_with_retry` 가
+config `camera.retry:` 정책대로 재시도한다. 회신에는 실제 시도 횟수(attempts)가 붙는다.
+재시도 대상이 아닌 실패(잘못된 requestId·페이로드, 카메라 비활성)는 즉시 실패로 회신한다.
+재시도 동안 `_capture_lock` 을 계속 쥐고 있으므로 그 사이 들어온 명령은 BUSY 로 회신된다
+(카메라는 한 대뿐이라 어차피 동시 촬영이 불가능하다 — 재시도 시간은 yaml 로 조절한다).
 """
 
 from __future__ import annotations
@@ -35,7 +42,8 @@ from typing import Any, Callable, Optional
 from ..device import resolve_device_id
 from ..transport.uploader import ImageUploader, build_image_uploader
 from ..vision.base import CaptureResult
-from ..vision.quality import BrightnessThresholds, check_image, should_deliver
+from ..vision.capture_flow import AttemptOutcome, CaptureAttempt, RetryPolicy, capture_with_retry
+from ..vision.quality import BrightnessThresholds
 from ..vision.store import capture_event
 from .client import _make_client
 
@@ -43,12 +51,6 @@ logger = logging.getLogger(__name__)
 
 # 이 리스너가 남기는 촬영 이벤트의 트리거 주체 (collector 자동 촬영과 구분)
 CAPTURE_TRIGGER = "mqtt"
-
-# 밝기 판정 → 서버 회신용 오류 코드
-_QUALITY_CODES = {
-    "too_dark": "IMAGE_TOO_DARK",
-    "too_bright": "IMAGE_TOO_BRIGHT",
-}
 
 
 def _utc_now_z() -> str:
@@ -62,8 +64,9 @@ class CaptureCommandListener:
     카메라는 collector 가 소유하므로 (Picamera2 는 이중 오픈 불가)
     촬영 함수(capture_fn)만 주입받는다.
 
-    ``event_store`` 를 주면 원격 촬영 1건마다 촬영 이벤트(trigger="mqtt")를 남긴다.
-    ``quality`` / ``uploader`` 는 None 이면 각각 밝기 검사·업로드 없이 기존 동작.
+    ``event_store`` 를 주면 원격 촬영 1건마다 (재시도분 포함) 촬영 이벤트(trigger="mqtt")를 남긴다.
+    ``quality`` / ``uploader`` / ``retry`` 는 None 이면 각각 밝기 검사·업로드·재시도 없이 기존 동작.
+    ``sleep_fn`` 은 재시도 대기 주입용 (테스트에서 실제로 기다리지 않게).
     """
 
     def __init__(
@@ -82,6 +85,8 @@ class CaptureCommandListener:
         event_store: Any = None,
         quality: Optional[BrightnessThresholds] = None,
         uploader: Optional[ImageUploader] = None,
+        retry: Optional[RetryPolicy] = None,
+        sleep_fn: Optional[Callable[[float], None]] = None,
     ) -> None:
         self.enabled = enabled
         self.capture_fn = capture_fn
@@ -96,6 +101,8 @@ class CaptureCommandListener:
         self.event_store = event_store
         self.quality = quality
         self.uploader = uploader
+        self.retry = retry
+        self.sleep_fn = sleep_fn
         self._client = None
         self._capture_lock = threading.Lock()
 
@@ -155,6 +162,7 @@ class CaptureCommandListener:
 
     def handle_command(self, payload: dict[str, Any]) -> dict[str, Any]:
         request_id = payload.get("requestId")
+        # 페이로드 오류는 재시도 대상이 아니다 — 같은 명령을 다시 처리해도 결과가 같다
         if request_id is None or not isinstance(request_id, (str, int)) or request_id == "":
             return self._error_result(
                 None, "INVALID_REQUEST", f"missing or invalid requestId: {payload}"
@@ -165,35 +173,24 @@ class CaptureCommandListener:
             return {**self._base_result(request_id), "status": "BUSY"}
         try:
             logger.info(f"촬영 명령 수신 (requestId={request_id})")
-            result = self.capture_fn()
-        except Exception as exc:  # noqa: BLE001 — 카메라 예외도 서버에 회신
-            self._log_capture(None, request_id, code="CAMERA_ERROR", error=str(exc))
-            return self._error_result(request_id, "CAMERA_ERROR", str(exc))
+            # 촬영 → 저장 확인 → 밝기 검사까지가 1회 시도. 재시도도 카메라를 쓰므로
+            # 락을 쥔 채로 돈다 (그 사이 들어온 명령은 BUSY).
+            attempt = capture_with_retry(
+                self.capture_fn,
+                policy=self.retry,
+                quality=self.quality,
+                sleep_fn=self.sleep_fn,
+                request_id=request_id,
+                on_attempt=lambda outcome: self._record_attempt(outcome, request_id),
+            )
         finally:
             self._capture_lock.release()
 
-        if not result.ok:
-            self._log_capture(result, request_id, code="CAPTURE_FAILED")
-            return self._error_result(
-                request_id, "CAPTURE_FAILED", result.error or "capture failed"
-            )
+        if not attempt.ok:
+            return self._failure_result(request_id, attempt)
 
-        self._log_capture(result, request_id)
-
-        # 밝기 검사 — 탈락한 이미지는 업로드·후속 분석으로 넘기지 않는다
-        report = None
-        if self.quality is not None and self.quality.enabled:
-            report = check_image(result.path, thresholds=self.quality)
-            if not should_deliver(report):
-                code = _QUALITY_CODES.get(report.verdict, "IMAGE_QUALITY_UNKNOWN")
-                return {
-                    **self._error_result(request_id, code, report.reason),
-                    "path": result.path,
-                    "retryable": report.needs_recapture,
-                    "quality": report.to_dict(),
-                }
-
-        payload = {
+        result = attempt.result
+        body = {
             **self._base_result(request_id),
             "status": "OK",
             "path": result.path,
@@ -202,17 +199,53 @@ class CaptureCommandListener:
             "height": result.height,
             "driver": result.driver,
             "capturedAt": result.timestamp,
+            "attempts": attempt.attempts,
         }
-        if report is not None:
-            payload["quality"] = report.to_dict()
+        if attempt.report is not None:
+            body["quality"] = attempt.report.to_dict()
         # 업로드 실패는 촬영 결과 회신을 막지 않는다 (서버가 uploaded=false 로 판단)
         if self.uploader is not None:
             upload = self.uploader.upload_capture(result, request_id=request_id)
             if upload.code != "DISABLED":
-                payload["uploaded"] = upload.ok
+                body["uploaded"] = upload.ok
                 if not upload.ok:
-                    payload["uploadError"] = upload.message
-        return payload
+                    body["uploadError"] = upload.message
+        return body
+
+    def _failure_result(self, request_id: Any, attempt: CaptureAttempt) -> dict[str, Any]:
+        """재시도까지 모두 실패한 촬영 → 서버 회신 페이로드."""
+        body = {
+            **self._error_result(
+                request_id,
+                attempt.code or "CAPTURE_FAILED",
+                attempt.error or "capture failed",
+            ),
+            "attempts": attempt.attempts,
+        }
+        report = attempt.report
+        if report is not None:
+            # 밝기 탈락: 이미지 자체는 남아 있으므로 경로와 판정 근거를 함께 회신한다.
+            # retryable 은 "서버가 나중에 다시 요청할 가치가 있는가" — 기기 쪽 재시도는
+            # 이미 attempts 회 소진했다는 뜻이다.
+            if attempt.result is not None and attempt.result.path:
+                body["path"] = attempt.result.path
+            body["retryable"] = report.needs_recapture
+            body["quality"] = report.to_dict()
+        return body
+
+    def _record_attempt(self, outcome: AttemptOutcome, request_id: Any) -> None:
+        """시도 1회를 촬영 이력(events.jsonl)에 남긴다 — 재시도분도 각각 남는다.
+
+        밝기 탈락처럼 셔터는 정상이었지만 쓸 수 없는 이미지도 **실패로** 남긴다.
+        이력만 보고 "왜 재시도됐는지" 알 수 있어야 하기 때문에 사유(code/error)를 함께 싣는다.
+        """
+        self._log_capture(
+            outcome.result,
+            request_id,
+            code=None if outcome.ok else outcome.code,
+            error=None if outcome.ok else outcome.error,
+            ok=outcome.ok,
+        )
 
     def _base_result(self, request_id: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
@@ -231,6 +264,7 @@ class CaptureCommandListener:
         *,
         code: str | None = None,
         error: str | None = None,
+        ok: bool | None = None,
     ) -> dict[str, Any]:
         """촬영 1건을 앱 로그 + 이벤트 로그(events.jsonl)에 남긴다."""
         event = capture_event(
@@ -239,6 +273,7 @@ class CaptureCommandListener:
             request_id=request_id,
             error=error,
             code=code,
+            ok=ok,
         )
         if event["ok"]:
             logger.info(f"{event['message']} → {event.get('path')}")
@@ -337,4 +372,5 @@ def build_capture_listener(
         enabled=True,
         quality=BrightnessThresholds.from_config(config),
         uploader=build_image_uploader(config),
+        retry=RetryPolicy.from_config(config),
     )

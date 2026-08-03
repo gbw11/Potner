@@ -150,3 +150,4 @@ retry trigger, so it runs sequentially after A–D merge, not alongside them.
 | `store.py` | `CameraStore` — capture + `index.jsonl` image index + optional `EventStore` capture history |
 | `snapshot.py` | `next_capture_path()` — picamera2 entry point, delegates to `naming.py` |
 | `quality.py` | Brightness check (ok/too_dark/too_bright) — stdlib PNG decoder, optional Pillow for JPEG, `camera.quality:` config |
+| `capture_flow.py` | `capture_with_retry()` — 촬영+저장확인+밝기검사 1회 시도를 재시도로 감싼다, `camera.retry:` config |

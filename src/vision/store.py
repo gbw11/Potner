@@ -22,14 +22,19 @@ def capture_event(
     request_id: Any = None,
     error: str | None = None,
     code: str | None = None,
+    ok: Optional[bool] = None,
 ) -> dict[str, Any]:
     """촬영 1건을 EventStore 용 이벤트 dict 로 변환.
 
     index.jsonl 은 "찍힌 이미지 목록"이고, 이 이벤트는 "언제·누가 시켜서·성공했는지"의
     기록이다. 촬영 자체가 예외로 죽어 CaptureResult 가 없을 때도 남길 수 있도록
     ``result`` 는 None 을 허용한다.
+
+    ``ok`` 를 넘기면 ``result.ok`` 대신 그 값을 쓴다 — 셔터는 정상이었지만 밝기 검사에
+    탈락해 재촬영된 시도처럼, "촬영은 됐으나 쓸 수 없는" 경우를 실패로 남기기 위함이다.
     """
-    ok = bool(result.ok) if result is not None else False
+    if ok is None:
+        ok = bool(result.ok) if result is not None else False
     timestamp = (
         result.timestamp
         if result is not None and result.timestamp
@@ -126,6 +131,7 @@ class CameraStore:
         request_id: Any = None,
         error: str | None = None,
         code: str | None = None,
+        ok: Optional[bool] = None,
     ) -> dict[str, Any]:
         """촬영 결과를 앱 로그 + 이벤트 로그에 남기고 이벤트 dict 를 돌려준다."""
         event = capture_event(
@@ -134,6 +140,7 @@ class CameraStore:
             request_id=request_id,
             error=error,
             code=code,
+            ok=ok,
         )
         if event["ok"]:
             logger.info(f"{event['message']} ({event.get('width')}x{event.get('height')})")

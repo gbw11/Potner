@@ -50,6 +50,16 @@ def write_capture(tmp_path, name: str, value: int) -> CaptureResult:
     )
 
 
+class RecordingEventStore:
+    """EventStore 대역 — 기록된 촬영 이벤트를 그대로 들고 있는다."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def append(self, event: dict) -> None:
+        self.events.append(event)
+
+
 class RecordingUploader:
     """ImageUploader 대역 — 호출 여부와 인자를 기록한다."""
 
@@ -225,6 +235,77 @@ def test_capture_failure_skips_both_gate_and_upload(tmp_path, strict_quality):
     assert result["code"] == "CAPTURE_FAILED"
     assert "quality" not in result
     assert uploader.calls == []
+
+
+# --- 촬영 이력(events.jsonl) 정확성 ----------------------------------------
+
+
+def test_quality_rejected_attempt_is_recorded_as_failure(tmp_path, strict_quality):
+    """밝기 탈락은 셔터가 정상이었어도 이력에 '실패 + 사유'로 남아야 한다.
+
+    이력만 보고 왜 재촬영됐는지 알 수 없으면 티켓의 "실패 시 오류 코드·원인 기록"
+    조건을 못 채운다 (한때 ok=true '촬영 성공' 으로만 남던 회귀).
+    """
+    capture = write_capture(tmp_path, "dark.png", 5)
+    events = RecordingEventStore()
+    listener = make_listener(
+        capture_fn=lambda: capture, quality=strict_quality, event_store=events
+    )
+
+    listener.handle_command({"requestId": "r-ev1"})
+
+    assert len(events.events) == 1
+    event = events.events[0]
+    assert event["ok"] is False
+    assert event["code"] == "IMAGE_TOO_DARK"
+    assert "평균 밝기" in event["error"]
+    assert "촬영 실패" in event["message"]
+    assert event["request_id"] == "r-ev1"
+
+
+def test_successful_attempt_is_recorded_without_error(tmp_path, strict_quality):
+    capture = write_capture(tmp_path, "ok.png", 128)
+    events = RecordingEventStore()
+    listener = make_listener(
+        capture_fn=lambda: capture, quality=strict_quality, event_store=events
+    )
+
+    listener.handle_command({"requestId": "r-ev2"})
+
+    event = events.events[0]
+    assert event["ok"] is True
+    assert "code" not in event
+    assert "error" not in event
+
+
+def test_retry_history_records_every_attempt_with_its_reason(tmp_path, strict_quality):
+    """재시도 3회 = 이력 3건. 실패분은 사유를 달고, 마지막 성공분만 ok=True."""
+    from src.vision.capture_flow import RetryPolicy
+
+    captures = [
+        write_capture(tmp_path, "a.png", 5),
+        write_capture(tmp_path, "b.png", 250),
+        write_capture(tmp_path, "c.png", 128),
+    ]
+    events = RecordingEventStore()
+    listener = make_listener(
+        capture_fn=lambda: captures.pop(0),
+        quality=strict_quality,
+        event_store=events,
+        retry=RetryPolicy(enabled=True, max_attempts=3, delay_sec=0.0, backoff=False),
+        sleep_fn=lambda _s: None,
+    )
+
+    result = listener.handle_command({"requestId": "r-ev3"})
+
+    assert result["status"] == "OK"
+    assert result["attempts"] == 3
+    assert [e["ok"] for e in events.events] == [False, False, True]
+    assert [e.get("code") for e in events.events] == [
+        "IMAGE_TOO_DARK",
+        "IMAGE_TOO_BRIGHT",
+        None,
+    ]
 
 
 # --- 팩토리 배선 -----------------------------------------------------------

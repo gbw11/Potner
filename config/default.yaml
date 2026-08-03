@@ -147,6 +147,24 @@ camera:
     max_bright_ratio: 0.5       # 흰색 픽셀 허용 비율 (초과 시 과노출)
     sample_step: 4              # N픽셀마다 1개 샘플링 (1 이면 전수 검사)
     on_failure: reject          # reject: 후속 분석/업로드 차단 | warn: 경고만 하고 통과
+  # 촬영 실패 시 자동 재시도 (src/vision/capture_flow.py)
+  # 재시도 대상: 카메라 오류 / 촬영 실패 / 이미지 저장 실패 / 밝기 검사 탈락
+  # 재시도 안 함: 잘못된 requestId·페이로드, 카메라 비활성(camera.enabled=false)
+  #               — 다시 찍어도 결과가 같다
+  # 이 섹션을 통째로 지우면 재시도 없이 1회만 촬영한다 (구버전 동작).
+  retry:
+    enabled: true
+    max_attempts: 3             # 최초 촬영 포함 총 시도 횟수 (1 이면 재시도 없음)
+    delay_sec: 1.0              # 재시도 전 대기 (초)
+    backoff: true               # true: 1s → 2s → 4s 지수 증가 | false: 매번 delay_sec
+    backoff_max_sec: 8.0        # 백오프 상한 (0 이하면 상한 없음)
+    retry_on_quality: true      # 밝기 탈락(저조도/과노출)도 재촬영할지
+    verify_saved_file: true     # 촬영 후 파일이 실제로 저장됐는지(존재·크기>0) 확인
+    # true 로 하면 재촬영으로 버려진 중간 실패 이미지를 삭제한다. 마지막 1장은 항상 남긴다
+    # (서버 회신에 path 를 싣는다). 삭제해도 index.jsonl 항목은 남으므로 주의.
+    discard_failed_images: false
+    # 재시도 중에는 카메라 락을 계속 쥔다 → 그 사이 들어온 촬영 명령은 BUSY 로 회신된다.
+    # 최악 소요 = max_attempts x (촬영시간 + delay). 값을 키울 때 이 점을 고려할 것.
 
 # 급수용 다이어프램 펌프 — L298N 경유 (PC mock 모드에선 가동 로그만 출력)
 pump:
