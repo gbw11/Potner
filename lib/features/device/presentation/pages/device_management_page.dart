@@ -702,15 +702,19 @@ class _RobotCard extends ConsumerWidget {
     }
   }
 
+  /// 서버는 행을 지우지 않고 해제 시각만 남긴다. 측정 이력은 원래 식물에 그대로 있고, 해제된
+  /// 코드는 곧바로 다시 등록할 수 있다. 그래서 "삭제" 가 아니라 "해제" 로 말한다 — 영구 삭제로
+  /// 읽히면 사용자가 되돌릴 수 없다고 오해한다.
   Future<void> _confirmAndDelete(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('디바이스 삭제'),
+        title: const Text('기기 해제'),
         content: Text(
-          '${robot.name}을(를) 삭제하면 연결된 장치와 식물 배정 정보를 더 이상 사용할 수 없어요. '
-          '정말 삭제할까요?',
+          '${robot.name}의 연결을 해제하면 하위 장치와 식물 배정이 함께 풀려요. '
+          '지금까지 쌓인 측정 기록은 그대로 남고, 같은 코드로 다시 등록할 수 있어요.\n\n'
+          '등록해 둔 위치와 좌표는 따라오지 않으니 다시 입력해야 해요.',
         ),
         actions: [
           TextButton(
@@ -722,7 +726,7 @@ class _RobotCard extends ConsumerWidget {
             key: const Key('delete_robot_confirm'),
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('삭제'),
+            child: const Text('해제'),
           ),
         ],
       ),
@@ -738,7 +742,7 @@ class _RobotCard extends ConsumerWidget {
       }
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('${robot.name}을(를) 삭제했어요.')));
+        ..showSnackBar(SnackBar(content: Text('${robot.name}의 연결을 해제했어요.')));
     } catch (error) {
       if (!context.mounted) {
         return;
@@ -747,7 +751,7 @@ class _RobotCard extends ConsumerWidget {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(plantErrorMessage(error, '디바이스를 삭제하지 못했습니다.')),
+            content: Text(plantErrorMessage(error, '기기를 해제하지 못했습니다.')),
           ),
         );
     } finally {

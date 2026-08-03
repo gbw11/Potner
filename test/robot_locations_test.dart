@@ -84,7 +84,8 @@ void main() {
       await _pumpToLocations(tester);
 
       expect(find.text('스테이션·위치 설정'), findsOneWidget);
-      expect(find.text('급수 스테이션'), findsOneWidget);
+      // 급수뿐 아니라 촬영·송풍도 같은 자리에서 이루어지므로 라벨에 '급수' 를 넣지 않는다.
+      expect(find.text('스테이션'), findsOneWidget);
       expect(find.text('대기 장소'), findsOneWidget);
       expect(find.text('햇빛 자리'), findsOneWidget);
       expect(find.text('마중 지점'), findsOneWidget);
