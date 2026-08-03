@@ -23,12 +23,15 @@ class FakePhotoRepository implements PhotoRepository {
         ).subtract(const Duration(days: 3)),
         thumbnailUrl: 'https://images.test/old-thumb.jpg',
         originalUrl: 'https://images.test/old.jpg',
+        // 타임랩스는 재생용 축소본을 쓴다. 원본은 한 장에 수 MB 라 연속 재생에 못 쓴다.
+        playbackUrl: 'https://images.test/old-play.jpg',
       ),
       PlantPhoto(
         photoId: 'photo-new',
         photoDate: DateTime(today.year, today.month, today.day),
         thumbnailUrl: 'https://images.test/new-thumb.jpg',
         originalUrl: 'https://images.test/new.jpg',
+        playbackUrl: 'https://images.test/new-play.jpg',
       ),
     ];
   }

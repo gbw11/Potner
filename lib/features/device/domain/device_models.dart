@@ -86,15 +86,19 @@ extension RobotLocationTypeSpec on RobotLocationType {
     RobotLocationType.greeting => 'GREETING',
   };
 
+  // 서버 enum 이 WATER_STATION 인 것은 급수만 있던 시절(V21)에 붙은 이름이다. 그 뒤 송풍(V22)과
+  // 촬영이 같은 자리를 쓰게 됐지만 종류를 늘리지 않았다 — 펌프·팬·카메라가 모두 스테이션의
+  // 라즈베리에 붙어 있어 물리적으로 한 곳이기 때문이다. 사용자에게는 세 가지를 다 하는 자리로
+  // 보여야 하므로 라벨에서 '급수' 를 뺀다.
   String get label => switch (this) {
-    RobotLocationType.waterStation => '급수 스테이션',
+    RobotLocationType.waterStation => '스테이션',
     RobotLocationType.home => '대기 장소',
     RobotLocationType.sunlight => '햇빛 자리',
     RobotLocationType.greeting => '마중 지점',
   };
 
   String get description => switch (this) {
-    RobotLocationType.waterStation => '물을 보충하는 곳이에요. 스테이션 코드가 필요해요.',
+    RobotLocationType.waterStation => '급수·촬영·송풍을 하는 자리예요. 스테이션 코드가 필요해요.',
     RobotLocationType.home => '할 일이 없을 때 돌아가 쉬는 곳이에요.',
     RobotLocationType.sunlight => '광량이 모자라면 여기로 데려가요.',
     RobotLocationType.greeting => '사용자를 맞으러 나가는 자리예요.',
