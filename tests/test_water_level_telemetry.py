@@ -222,60 +222,55 @@ def _publisher(**kwargs) -> MqttTelemetryPublisher:
     )
 
 
-def test_build_messages_water_present_true_is_one():
+def test_water_present_true_reports_water_low_false():
+    """물 있음 → waterLow=false 도 발행한다 (서버 플래그 해제용, 규약 요구사항)."""
     messages = _publisher().build_messages(
         {"temperature_c": 23.4, "humidity_pct": 51.2, "water_present": True}
     )
 
     assert len(messages) == 3
-    types_ = [p["sensorType"] for _, p in messages]
-    assert types_ == ["TEMPERATURE", "HUMIDITY", "WATER_LEVEL"]
-    water = messages[-1][1]
-    assert water["value"] == 1.0
-    assert water["unit"] == "BOOLEAN"
+    topic, payload = messages[-1]
+    assert topic == "potner/device/raspberry-01/status/water-low"
+    assert payload["waterLow"] is False
+    assert payload["deviceId"] == "raspberry-01"
+    assert set(payload) == {"messageId", "deviceId", "waterLow", "measuredAt"}
 
 
-def test_build_messages_water_present_false_is_zero():
+def test_water_present_false_reports_water_low_true():
     messages = _publisher().build_messages(
         {"temperature_c": None, "humidity_pct": None, "water_present": False}
     )
 
     assert len(messages) == 1
-    payload = messages[0][1]
-    assert payload["sensorType"] == "WATER_LEVEL"
-    assert payload["value"] == 0.0
-    assert payload["unit"] == "BOOLEAN"
-    assert payload["deviceId"] == "raspberry-01"
+    topic, payload = messages[0]
+    assert topic.endswith("/status/water-low")  # 텔레메트리 토픽이 아니다
+    assert payload["waterLow"] is True
+    assert "sensorType" not in payload  # WaterLowMessage 는 텔레메트리 스키마가 아님
 
 
 def test_build_messages_water_present_none_is_skipped():
+    """센서 없음/실패(None)는 미발행 — waterLow=false(물 있음)로 오인시키지 않는다."""
     messages = _publisher().build_messages(
         {"temperature_c": 20.0, "humidity_pct": 40.0, "water_present": None}
     )
-    types_ = [p["sensorType"] for _, p in messages]
-    assert types_ == ["TEMPERATURE", "HUMIDITY"]
+    assert all(not topic.endswith("/status/water-low") for topic, _ in messages)
+    assert len(messages) == 2
 
 
-def test_build_messages_telemetry_off_skips_water_level():
-    publisher = _publisher(water_level_telemetry=False)
+def test_build_messages_report_off_skips_water_low():
+    publisher = _publisher(water_low_enabled=False)
     messages = publisher.build_messages(
         {"temperature_c": 20.0, "humidity_pct": 40.0, "water_present": True}
     )
-    types_ = [p["sensorType"] for _, p in messages]
-    assert types_ == ["TEMPERATURE", "HUMIDITY"]
+    assert all(not topic.endswith("/status/water-low") for topic, _ in messages)
 
 
-def test_build_messages_type_and_unit_from_config():
-    """서버 SensorType enum 이 다르면 config 만 바꿔도 되는지 확인."""
-    publisher = _publisher(
-        water_level_type="WATER_TANK_LEVEL",
-        water_level_unit="BOOL",
-    )
-    messages = publisher.build_messages({"water_present": True})
+def test_water_low_topic_override():
+    """토픽은 mqtt.water_low_topic 으로 바꿀 수 있어야 한다 (규약 변경 시 config 만 수정)."""
+    publisher = _publisher(water_low_topic="potner/device/raspberry-01/custom/water")
+    messages = publisher.build_messages({"water_present": False})
 
-    payload = messages[0][1]
-    assert payload["sensorType"] == "WATER_TANK_LEVEL"
-    assert payload["unit"] == "BOOL"
+    assert messages[0][0] == "potner/device/raspberry-01/custom/water"
 
 
 def test_build_mqtt_publisher_reads_water_level_config(monkeypatch):
@@ -284,20 +279,17 @@ def test_build_mqtt_publisher_reads_water_level_config(monkeypatch):
     monkeypatch.delenv("DEVICE_ID", raising=False)
     publisher = build_mqtt_publisher(
         {
-            "mqtt": {"enabled": False, "host": "broker.example", "device_id": "raspberry-01"},
-            "sensors": {
-                "water_level": {
-                    "enabled": True,
-                    "telemetry": False,
-                    "telemetry_type": "TANK_LEVEL",
-                    "telemetry_unit": "FLAG",
-                }
+            "mqtt": {
+                "enabled": False,
+                "host": "broker.example",
+                "device_id": "raspberry-01",
+                "water_low_topic": "potner/device/raspberry-01/status/water-low",
             },
+            "sensors": {"water_level": {"enabled": True, "report": False}},
         }
     )
-    assert publisher.water_level_telemetry is False
-    assert publisher.water_level_type == "TANK_LEVEL"
-    assert publisher.water_level_unit == "FLAG"
+    assert publisher.water_low_enabled is False
+    assert publisher.water_low_topic == "potner/device/raspberry-01/status/water-low"
 
 
 def test_build_mqtt_publisher_defaults_without_section(monkeypatch):
@@ -307,9 +299,9 @@ def test_build_mqtt_publisher_defaults_without_section(monkeypatch):
     publisher = build_mqtt_publisher(
         {"mqtt": {"enabled": False, "host": "broker.example", "device_id": "raspberry-01"}}
     )
-    assert publisher.water_level_telemetry is True
-    assert publisher.water_level_type == "WATER_LEVEL"
-    assert publisher.water_level_unit == "BOOLEAN"
+    assert publisher.water_low_enabled is True
+    # 토픽 미지정 시 서버 구독 패턴(potner/device/+/status/water-low)에 맞는 기본값
+    assert publisher.water_low_topic == "potner/device/raspberry-01/status/water-low"
 
 
 # --- config 계약 (tests/test_brightness_check.py 의 yaml 계약 테스트 선례) -----
@@ -330,6 +322,6 @@ def test_project_yaml_water_level_section_loads():
         assert section["pin"] == 27  # BCM GPIO27 (물리 13번)
         # 실물 확인(2026-08-03): 접점 닫힘 = 물 없음 → invert 는 True 여야 한다
         assert section["invert"] is True, f"{path}: invert 실측값이 바뀌었는지 확인"
-        assert section["telemetry"] is True
-        assert section["telemetry_type"] == "WATER_LEVEL"
-        assert section["telemetry_unit"] == "BOOLEAN"
+        assert section["report"] is True
+        # 서버(WaterLowTopicParser)가 정확히 이 패턴을 구독한다
+        assert cfg["mqtt"]["water_low_topic"] == "potner/device/raspberry-01/status/water-low"

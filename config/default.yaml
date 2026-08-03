@@ -43,11 +43,10 @@ sensors:
     driver: float_switch  # float_switch | mock (platform: mock 이면 항상 mock)
     pin: 27               # BCM. 물리 13번 핀
     invert: true          # 실물 확인(2026-08-03): 접점 닫힘 = 물 없음 → 해석 반전
-    telemetry: true       # false 면 수집(CSV)은 하되 MQTT 발행만 끈다
-    # telemetry_type WATER_LEVEL 은 서버 SensorType enum 에 추가 확인 필요 —
-    # 서버 enum 이 다르면 코드 말고 여기만 고친다.
-    telemetry_type: WATER_LEVEL
-    telemetry_unit: BOOLEAN
+    # 서버 규약(Server-develop d4f9219): 텔레메트리가 아니라 전용 상태 토픽
+    # potner/device/{id}/status/water-low 로 waterLow 불리언을 보고한다.
+    # false 도 매 주기 발행 (서버 플래그 해제용, 처리 멱등).
+    report: true          # false 면 수집(CSV)은 하되 MQTT 보고만 끈다
 
 # 로컬 규칙 판단 임계값 (LLM 호출 전 단계)
 status_rules:
@@ -238,3 +237,5 @@ mqtt:
   heartbeat_interval_sec: 30
   telemetry_topic: potner/device/raspberry-01/sensor/telemetry
   heartbeat_topic: potner/device/raspberry-01/status/heartbeat
+  # 급수 스테이션 물부족 보고 (sensors.water_level 활성 시, waterLow 불리언)
+  water_low_topic: potner/device/raspberry-01/status/water-low

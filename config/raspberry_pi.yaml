@@ -44,11 +44,10 @@ sensors:
     pin: 27               # BCM GPIO27 (물리 13번). 펌프(17/18)·팬(23)·DHT(4)와 안 겹침
     invert: true          # 실물 확인(2026-08-03): 이 장착에서는 접점 닫힘 = 물 없음.
                           # 센서를 재장착하면 cli/water_level watch 로 극성 재확인 후 갱신
-    telemetry: true       # false 면 수집(CSV)은 하되 MQTT 발행만 끈다
-    # telemetry_type WATER_LEVEL 은 서버 SensorType enum 에 추가 확인 필요 —
-    # 서버 enum 이 다르면 코드 말고 여기만 고친다.
-    telemetry_type: WATER_LEVEL
-    telemetry_unit: BOOLEAN
+    # 서버 규약(Server-develop d4f9219): 텔레메트리가 아니라 전용 상태 토픽
+    # potner/device/{id}/status/water-low 로 waterLow 불리언을 보고한다.
+    # false 도 매 주기 발행 (서버 플래그 해제용, 처리 멱등).
+    report: true          # false 면 수집(CSV)은 하되 MQTT 보고만 끈다
 
 status_rules:
   temperature_c:
@@ -250,6 +249,8 @@ mqtt:
   heartbeat_interval_sec: 30  # 서버는 90초 무소식이면 OFFLINE 처리
   telemetry_topic: potner/device/raspberry-01/sensor/telemetry
   heartbeat_topic: potner/device/raspberry-01/status/heartbeat
+  # 급수 스테이션 물부족 보고 (sensors.water_level 활성 시, waterLow 불리언)
+  water_low_topic: potner/device/raspberry-01/status/water-low
   # 서버 → Pi 급수 명령 ({"ml": 150, "requestId": "..."}), Pi → 서버 결과 회신
   water_command_topic: potner/device/raspberry-01/command/water
   water_result_topic: potner/device/raspberry-01/result/water

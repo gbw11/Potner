@@ -31,6 +31,8 @@
 
 - 텔레메트리: `potner/device/raspberry-01/sensor/telemetry`
 - 하트비트: `potner/device/raspberry-01/status/heartbeat` (30초)
+- 물부족 보고: `…/status/water-low` — `{messageId, deviceId, waterLow(bool), measuredAt}`,
+  false 도 매 주기 발행 (서버 `WaterLowMessage`, Server-develop `d4f9219`)
 - 급수 명령/결과: `…/command/water`, `…/result/water`
 - 촬영 명령/결과: `…/command/capture`, `…/result/capture`
 
