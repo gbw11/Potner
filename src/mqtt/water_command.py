@@ -111,8 +111,13 @@ class WaterCommandListener:
         client.on_message = self._on_message
 
         def _on_connect(c, _userdata, _flags, reason_code, _props=None) -> None:
+            # 접속 실패에도 on_connect 가 불린다 — 그대로 subscribe 하면 조용히 실패한다
+            if getattr(reason_code, "is_failure", False):
+                log.error(f"MQTT 접속 실패: {reason_code}")
+                return
             # 재접속 시에도 구독 유지
             c.subscribe(self.command_topic, qos=self.qos)
+            log.info(f"구독 시작: {self.command_topic} (결과 회신 → {self.result_topic})")
 
         client.on_connect = _on_connect
         client.connect(self.host, self.port, keepalive=60)
@@ -271,7 +276,9 @@ def build_water_listener(
         mqtt_cfg.get("water_command_topic") or f"potner/device/{topic_device}/command/water"
     )
     result_topic = str(
-        mqtt_cfg.get("water_result_topic") or f"potner/device/{topic_device}/command/water/result"
+        # 서버 규약은 result/water (55b35be). yaml 이 없을 때의 폴백도 규약과 맞춰 둔다
+        mqtt_cfg.get("water_result_topic")
+        or f"potner/device/{topic_device}/result/water"
     )
 
     return WaterCommandListener(

@@ -87,9 +87,16 @@ def main() -> int:
     if water_listener is not None:
         try:
             water_listener.start()
-            water_note = f"on {water_listener.command_topic}"
+            # 펌프 드라이버명을 배너에 남긴다 — 실기에서 mock 이 물려 있으면 바로 드러난다
+            pump_name = type(water_listener.pump).__name__
+            water_note = f"on {water_listener.command_topic} pump={pump_name}"
         except Exception as exc:  # noqa: BLE001 — 급수 실패해도 수집은 계속
             log.warning(f"water listener unavailable: {exc}")
+            # 리스너를 버리기 전에 GPIO 를 놓아준다 (안 하면 핀이 잡힌 채로 남는다)
+            try:
+                water_listener.pump.close()
+            except Exception:  # noqa: BLE001
+                pass
             water_listener = None
 
     capture_note = "off"

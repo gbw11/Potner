@@ -152,7 +152,9 @@ def test_build_capture_listener_requires_mqtt_and_camera(monkeypatch):
     listener = build_capture_listener(base, capture_fn=capture)
     assert listener is not None
     assert listener.command_topic == "potner/device/raspberry-01/command/capture"
-    assert listener.result_topic == "potner/device/raspberry-01/command/capture/result"
+    # 서버 규약(55b35be)은 result/capture. yaml 에 키가 없는 config/default.yaml 경로가
+    # 이 폴백을 그대로 쓰므로, 폴백이 규약과 어긋나면 결과가 엉뚱한 토픽으로 나간다.
+    assert listener.result_topic == "potner/device/raspberry-01/result/capture"
     assert listener.device_id == "raspberry-01"
 
     no_mqtt = {**base, "mqtt": {**base["mqtt"], "enabled": False}}
