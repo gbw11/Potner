@@ -13,6 +13,23 @@ abstract final class AppColors {
   static const error = Color(0xFFBA1A1A);
 }
 
+/// 앱 전체 글꼴 배율이다.
+///
+/// 개별 `fontSize` 를 하나하나 올리지 않고 배율로 처리한다. 글자 크기를 지정한 곳이 화면마다
+/// 흩어져 있어 일부만 올리면 크기 관계가 깨지고, 배율은 지정 방식과 무관하게 모든 글자에
+/// 똑같이 적용되므로 디자인의 크기 비율이 그대로 유지된다.
+///
+/// [minimum] 을 1.0 보다 크게 둬서 OS 설정이 기본이어도 앱은 그보다 크게 그린다. [maximum] 은
+/// 사용자가 접근성 설정으로 글꼴을 아무리 키워도 이 값에서 멈춘다는 뜻이다 — 제한이 없으면
+/// 고정 높이 안의 글자가 넘쳐 "BOTTOM OVERFLOWED BY n PIXELS" 가 뜬다.
+///
+/// [maximum] 까지 화면이 깨지지 않는 것은 `test/text_scale_test.dart` 가 지킨다. 이 값을
+/// 올리려면 그 테스트를 먼저 통과시켜야 한다.
+abstract final class AppTextScale {
+  static const minimum = 1.1;
+  static const maximum = 1.3;
+}
+
 abstract final class AppTheme {
   static ThemeData get light {
     final colorScheme = ColorScheme.fromSeed(

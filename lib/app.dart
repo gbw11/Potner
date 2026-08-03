@@ -63,6 +63,21 @@ class _PotnerAppState extends ConsumerState<PotnerApp> {
       theme: AppTheme.light,
       scaffoldMessengerKey: _messengerKey,
       routerConfig: router,
+      // 글꼴 배율을 여기서 한 번에 정한다. 화면마다 흩어진 fontSize 를 건드리지 않고도 모든
+      // 글자가 같은 비율로 커지므로 디자인의 크기 관계가 유지된다. 상한을 두는 이유는
+      // AppTextScale 에 적어 두었다.
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: media.textScaler.clamp(
+              minScaleFactor: AppTextScale.minimum,
+              maxScaleFactor: AppTextScale.maximum,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
   }
 }
