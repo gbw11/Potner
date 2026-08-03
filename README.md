@@ -6,6 +6,18 @@ Potner의 초기 서버 구성은 Spring Boot backend, MySQL, Mosquitto, Nginx�
 [docs/BACKEND.md](docs/BACKEND.md)** 를 보십시오. 도메인 모델, 판정 계산식, API 목록, 설정 프로퍼티,
 반복해서 부딪힌 제약과 그 결정 이유가 정리되어 있습니다.
 
+### 문서 목록
+
+| 문서 | 무엇을 다루는가 | 누가 보는가 |
+| --- | --- | --- |
+| 이 README | 인프라 구성, 배포 절차, 운영 명령 | 서버·인프라 |
+| [docs/BACKEND.md](docs/BACKEND.md) | 도메인 모델, 판정 계산식, API 목록, 설정 | 서버·앱 |
+| [docs/DEVICE-MQTT.md](docs/DEVICE-MQTT.md) | 장치 공통 MQTT 계약과 설계 근거 | 장치 전체 |
+| [docs/DEVICE-RASPBERRY.md](docs/DEVICE-RASPBERRY.md) | 라즈베리가 할 일, 현재 상태, 남은 작업 | 라즈베리 담당 |
+| [docs/DEVICE-JETSON.md](docs/DEVICE-JETSON.md) | 젯슨이 할 일, 현재 상태, 남은 작업 | 젯슨 담당 |
+
+문서끼리 어긋나면 **코드가 기준**입니다.
+
 ## 아키텍처
 
 ```text
