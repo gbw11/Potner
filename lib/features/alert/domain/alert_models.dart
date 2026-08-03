@@ -1,10 +1,16 @@
 /// 알림을 발생시킨 판정 지표다. 서버가 모르는 값이 와도 죽지 않도록 unknown 을 둔다.
+///
+/// 서버 `AlertMetricType` 과 짝을 맞춘다. 여기 없는 지표는 unknown 으로 떨어져 "환경을
+/// 확인해 주세요" 라는 뭉뚱그린 문구가 되므로, 서버가 지표를 늘리면 이 목록도 같이 늘려야
+/// 한다 — unknown 은 앱이 죽지 않게 하는 장치일 뿐 표시할 문구로 쓸 것이 아니다.
 enum AlertMetric {
   temperature,
   humidity,
   soilMoisture,
   dailyLight,
   photoperiod,
+  stationWaterLow,
+  drainageTray,
   unknown,
 }
 
@@ -58,6 +64,13 @@ class PlantAlert {
         deviation == AlertDeviation.high
             ? '$plantName의 일조 시간이 목표보다 길었어요.'
             : '$plantName의 일조 시간이 부족했어요.',
+      // 아래 둘은 방향이 하나뿐이라 deviation 을 보지 않는다. 물 부족은 부족일 때만,
+      // 배수트레이는 찼을 때만 열린다 — 서버가 그 반대로는 알림을 만들지 않는다.
+      // 측정값도 없다(불리언 보고라 저장할 수치가 없다). _value 를 쓰지 않는 이유다.
+      AlertMetric.stationWaterLow =>
+        '스테이션에 물이 부족해요. $plantName의 급수를 위해 물을 보충해 주세요.',
+      AlertMetric.drainageTray =>
+        '$plantName의 배수트레이에 물이 찼어요. 넘치지 않도록 비워 주세요.',
       AlertMetric.unknown => '$plantName의 환경을 확인해 주세요.',
     };
   }

@@ -55,6 +55,8 @@ class AlertApi {
       'SOIL_MOISTURE' => AlertMetric.soilMoisture,
       'DAILY_LIGHT' => AlertMetric.dailyLight,
       'PHOTOPERIOD' => AlertMetric.photoperiod,
+      'STATION_WATER_LOW' => AlertMetric.stationWaterLow,
+      'DRAINAGE_TRAY' => AlertMetric.drainageTray,
       _ => AlertMetric.unknown,
     };
   }

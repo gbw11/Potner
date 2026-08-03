@@ -20,6 +20,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NotificationChannels.ensureCreated(applicationContext)
         geofenceManager = HomeGeofenceManager(applicationContext)
     }
 

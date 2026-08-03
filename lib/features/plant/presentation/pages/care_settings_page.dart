@@ -80,7 +80,13 @@ class _CareFormState extends ConsumerState<_CareForm> {
   late RangeValues? _temperature;
   late RangeValues? _humidity;
   late RangeValues? _illuminance;
-  late double? _wateringMl;
+  /// 1회 급수량이다. null 을 두지 않는다 — 값이 없다고 슬라이더를 감추면 값을 넣을 방법이
+  /// 사라진다. 저장된 값이 없으면 아래 기본값에서 시작한다.
+  late double _wateringMl;
+
+  /// 저장된 급수량이 없을 때 슬라이더가 시작할 값이다. 라즈베리파이 펌프의 1회 기본값
+  /// (pump.default_ml)과 같게 둔다. 장치 쪽 안전 상한은 500ml 다.
+  static const _defaultWateringMl = 200.0;
   late final TextEditingController _cycleController;
   bool _isSaving = false;
 
@@ -99,7 +105,7 @@ class _CareFormState extends ConsumerState<_CareForm> {
       _profile.illuminanceMinLux,
       _profile.illuminanceMaxLux,
     );
-    _wateringMl = _profile.recommendedWateringMl;
+    _wateringMl = _profile.recommendedWateringMl ?? _defaultWateringMl;
     _cycleController = TextEditingController(
       text: _profile.wateringCycleDays == null
           ? ''
@@ -194,19 +200,23 @@ class _CareFormState extends ConsumerState<_CareForm> {
                   enabled: !_isSaving,
                   onChanged: (values) => setState(() => _illuminance = values),
                 ),
-              if (_wateringMl != null)
-                _SingleSliderSection(
-                  sectionKey: const Key('care_watering_ml'),
-                  icon: Icons.local_drink_outlined,
-                  title: '물의 양',
-                  value: _wateringMl!,
-                  min: 0,
-                  max: 1000,
-                  divisions: 100,
-                  format: (value) => '${value.round()}ml',
-                  enabled: !_isSaving,
-                  onChanged: (value) => setState(() => _wateringMl = value),
-                ),
+              // 값이 없어도 슬라이더를 그린다. 감추면 값을 넣을 방법이 없어지고, 급수량이
+              // 비어 있으면 자동 급수가 무엇을 줄지 정하지 못한다.
+              _SingleSliderSection(
+                sectionKey: const Key('care_watering_ml'),
+                icon: Icons.local_drink_outlined,
+                title: '물의 양',
+                value: _wateringMl,
+                min: 0,
+                max: 1000,
+                divisions: 100,
+                format: (value) => '${value.round()}ml',
+                enabled: !_isSaving,
+                onChanged: (value) => setState(() => _wateringMl = value),
+                note: _profile.recommendedWateringMl == null
+                    ? '아직 저장된 급수량이 없어요. 저장하면 이 값으로 설정됩니다.'
+                    : null,
+              ),
               _CardSection(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -495,6 +505,7 @@ class _SingleSliderSection extends StatelessWidget {
     required this.format,
     required this.enabled,
     required this.onChanged,
+    this.note,
   });
 
   final Key sectionKey;
@@ -507,6 +518,10 @@ class _SingleSliderSection extends StatelessWidget {
   final String Function(double value) format;
   final bool enabled;
   final ValueChanged<double> onChanged;
+
+  /// 슬라이더 아래에 붙일 한 줄 설명이다. 저장된 값이 없을 때 지금 보이는 값이 무엇인지
+  /// 밝히는 데 쓴다.
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -538,6 +553,15 @@ class _SingleSliderSection extends StatelessWidget {
             label: format(value),
             onChanged: enabled ? onChanged : null,
           ),
+          if (note != null)
+            Text(
+              note!,
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 12,
+                height: 1.45,
+              ),
+            ),
         ],
       ),
     );

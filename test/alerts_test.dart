@@ -70,6 +70,37 @@ void main() {
 
     expect(alertRepository.readAlertIds, ['alert-active']);
   });
+
+  testWidgets('왼쪽으로 밀면 알림이 사라지고 읽음으로 처리된다', (tester) async {
+    final (alertRepository, _) = await _pumpToAlerts(tester);
+
+    await tester.drag(
+      find.byKey(const Key('alert_card_alert-active')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('alert_card_alert-active')), findsNothing);
+    // 치운 것은 확인한 것으로 본다. 안 읽음으로 남으면 홈 배지만 켜져 있고 사용자는 무엇이
+    // 남았는지 찾을 수 없다.
+    expect(alertRepository.readAlertIds, ['alert-active']);
+    expect(find.text('알림을 치웠어요.'), findsOneWidget);
+  });
+
+  testWidgets('되돌리기를 누르면 치운 알림이 돌아온다', (tester) async {
+    // 스와이프는 눌러서 확인하는 동작이 없어 오조작이 쉽다.
+    await _pumpToAlerts(tester);
+
+    await tester.drag(
+      find.byKey(const Key('alert_card_alert-active')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('되돌리기'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('alert_card_alert-active')), findsOneWidget);
+  });
 }
 
 class _FakeAuthRepository implements AuthRepository {

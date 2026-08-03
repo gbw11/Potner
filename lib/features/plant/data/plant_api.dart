@@ -98,6 +98,14 @@ class PlantApi {
     }
   }
 
+  Future<void> sendRepottingReminder(String plantId) async {
+    try {
+      await _dio.post<Object?>('plants/$plantId/repot-reminder');
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   Future<PlantDetail> getPlantDetail(String plantId) async {
     try {
       final response = await _dio.get<Object?>('plants/$plantId');

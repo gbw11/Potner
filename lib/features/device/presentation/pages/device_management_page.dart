@@ -11,6 +11,7 @@ import 'package:potner_app/features/command/domain/command_models.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
+import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 
 final robotsProvider = FutureProvider.autoDispose<List<ManagedRobot>>((ref) {
@@ -367,6 +368,13 @@ class _DeviceCommandDebugPanelState
                   ),
               ],
             ),
+            const Divider(height: 26),
+            const Text(
+              '푸시 — 폰으로 바로 나갑니다',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            _RepottingReminderButton(plantId: assigned.assignedPlantId!),
           ],
           const SizedBox(height: 8),
           const Text(
@@ -375,6 +383,63 @@ class _DeviceCommandDebugPanelState
             style: TextStyle(color: AppColors.textMuted, fontSize: 11),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 분갈이 안내 푸시를 손으로 한 번 보낸다.
+///
+/// 장치 명령이 아니라 서버가 폰으로 보내는 알림이라 회신을 기다릴 것이 없다. 그래서
+/// [DeviceCommandDebugController] 의 상태를 쓰지 않고 자기 상태만 갖는다 — 진행 중인 명령
+/// 폴링을 이 발송이 끊어서도 안 된다.
+///
+/// 시기 판정은 서버가 하지 않고 이력도 남기지 않으므로 누를 때마다 나간다.
+class _RepottingReminderButton extends ConsumerStatefulWidget {
+  const _RepottingReminderButton({required this.plantId});
+
+  final String plantId;
+
+  @override
+  ConsumerState<_RepottingReminderButton> createState() =>
+      _RepottingReminderButtonState();
+}
+
+class _RepottingReminderButtonState
+    extends ConsumerState<_RepottingReminderButton> {
+  bool _sending = false;
+
+  Future<void> _send() async {
+    setState(() => _sending = true);
+    String message;
+    try {
+      await ref
+          .read(plantRepositoryProvider)
+          .sendRepottingReminder(widget.plantId);
+      message = '분갈이 알림을 보냈어요. 폰의 알림을 확인해 주세요.';
+    } catch (error) {
+      message = plantErrorMessage(error, '분갈이 알림을 보내지 못했습니다.');
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _sending = false);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        key: const Key('device_repotting_reminder_debug'),
+        // 테마가 minimumSize 를 Size.fromHeight(56) 으로 둬서 기본값이면 가로를 꽉 채운다.
+        style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+        onPressed: _sending ? null : _send,
+        icon: const Icon(Icons.yard_outlined),
+        label: Text(_sending ? '보내는 중…' : '분갈이 알림'),
       ),
     );
   }
