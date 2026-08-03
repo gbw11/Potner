@@ -51,6 +51,15 @@ backend:
 events:
   path: data/events.jsonl
 
+# 애플리케이션 로그 (표준 logging + 회전 파일). 모듈은 logging.getLogger(__name__) 만 쓴다.
+# systemd 로 띄우면 콘솔 출력은 journald 로도 함께 들어간다.
+logging:
+  level: INFO          # DEBUG | INFO | WARNING | ERROR
+  console: true
+  path: data/app.log   # null 이면 파일 로그 비활성 (콘솔만)
+  max_bytes: 1048576   # 1MB 마다 회전
+  backup_count: 5      # app.log.1 ~ app.log.5
+
 llm:
   enabled: true
   provider: gms

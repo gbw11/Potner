@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import signal
 import sys
 import time
@@ -9,8 +10,11 @@ from pathlib import Path
 from src.collector import Collector
 from src.config import load_config
 from src.device import resolve_device_id
+from src.logging_setup import setup_logging
 from src.mqtt import build_capture_listener, build_mqtt_publisher, build_water_listener
 from src.transport import build_spring_publisher
+
+log = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +40,7 @@ def main() -> int:
         return 1
 
     config = load_config(config_path)
+    setup_logging(config)
     device_id = resolve_device_id((config.get("mqtt") or {}).get("device_id"))
     collector = Collector(config)
     publisher = build_spring_publisher(config)
@@ -67,7 +72,7 @@ def main() -> int:
                 f"hb={mqtt_publisher.heartbeat_interval_sec:.0f}s"
             )
         except Exception as exc:  # noqa: BLE001
-            print(f"warn: mqtt connect failed (will retry): {exc}")
+            log.warning(f"mqtt connect failed (will retry): {exc}")
             mqtt_note = f"retrying {mqtt_publisher.host}:{mqtt_publisher.port}"
     water_note = "off"
     if water_listener is not None:
@@ -75,7 +80,7 @@ def main() -> int:
             water_listener.start()
             water_note = f"on {water_listener.command_topic}"
         except Exception as exc:  # noqa: BLE001 — 급수 실패해도 수집은 계속
-            print(f"warn: water listener unavailable: {exc}")
+            log.warning(f"water listener unavailable: {exc}")
             water_listener = None
 
     capture_note = "off"
@@ -84,10 +89,10 @@ def main() -> int:
             capture_listener.start()
             capture_note = f"on {capture_listener.command_topic}"
         except Exception as exc:  # noqa: BLE001 — 촬영 실패해도 수집은 계속
-            print(f"warn: capture listener unavailable: {exc}")
+            log.warning(f"capture listener unavailable: {exc}")
             capture_listener = None
 
-    print(
+    log.info(
         f"platform={config.get('platform')} device_id={device_id} interval={interval}s "
         f"storage={config.get('storage', {}).get('path')} "
         f"backend={'on ' + publisher.url if publisher.enabled else 'off'} "
@@ -106,7 +111,7 @@ def main() -> int:
                 if not mqtt_publisher.enabled
                 else (f"ok({mqtt.count})" if mqtt.ok else mqtt.message)
             )
-            print(
+            log.info(
                 f"[{row['timestamp']}] device={device_id} "
                 f"T={row['temperature_c']}C H={row['humidity_pct']}% "
                 f"| spring={pub_note} mqtt={mqtt_status}"
