@@ -125,6 +125,9 @@ void main() {
     expect(find.text('Potner와 함께할 준비, 완료!'), findsOneWidget);
     expect(find.text('회원가입이 완료되었어요!'), findsOneWidget);
 
+    // 가입 완료 화면은 스크롤된다. 글꼴 배율 때문에 버튼이 접힌 아래로 내려갈 수 있다.
+    await tester.ensureVisible(find.byKey(const Key('signup_complete_later')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('signup_complete_later')));
     await tester.pumpAndSettle();
 

@@ -503,6 +503,9 @@ class _PlantSelector extends StatelessWidget {
                 isExpanded: true,
                 icon: const Icon(Icons.keyboard_arrow_down_rounded),
                 borderRadius: BorderRadius.circular(18),
+                // 항목이 '내 식물' + 별명 두 줄이라 기본 높이(48)에 글꼴을 키운 두 줄이
+                // 안 들어간다. null 로 두면 항목이 자기 높이를 갖는다.
+                itemHeight: null,
                 items: [
                   for (final plant in plants)
                     DropdownMenuItem<String>(

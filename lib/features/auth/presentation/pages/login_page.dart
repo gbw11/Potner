@@ -126,8 +126,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
               ),
               const SizedBox(height: 22),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              // Row 가 아니라 Wrap 이다. 글꼴을 키우면 두 요소가 한 줄에 안 들어가는데,
+              // Row 는 그때 넘치고 Wrap 은 줄을 바꾼다.
+              Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text(
                     '계정이 없으신가요?',
