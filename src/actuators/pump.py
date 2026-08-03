@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import time
 
 from .base import WaterPump
+
+log = logging.getLogger(__name__)
 
 
 def _park_with_pulldown(pins: list[int]) -> None:
@@ -18,7 +21,7 @@ def _park_with_pulldown(pins: list[int]) -> None:
         for pin in pins:
             InputDevice(pin, pull_up=False).close()
     except Exception as exc:  # noqa: BLE001 — 주차 실패해도 종료는 계속
-        print(f"warn: GPIO pull-down parking failed: {exc}")
+        log.warning(f"GPIO pull-down parking failed: {exc}")
 
 
 class L298NWaterPump(WaterPump):
