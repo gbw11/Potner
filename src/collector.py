@@ -30,6 +30,7 @@ class Collector:
         climate = self._safe_read(self.sensors.climate)
         light = self._safe_read(self.sensors.light)
         soil = self._safe_read(self.sensors.soil)
+        water_level = self._safe_read_water_level(self.sensors.water_level)
 
         row: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -38,6 +39,7 @@ class Collector:
             "light_lux": None if light is None else light.lux,
             "soil_raw": None if soil is None else soil.raw,
             "soil_moisture_pct": None if soil is None else soil.moisture_pct,
+            "water_present": None if water_level is None else water_level.water_present,
             "camera_path": None,
             "camera_ok": None,
         }
@@ -80,8 +82,25 @@ class Collector:
             print(f"warn: {name}.read failed: {exc}")
             return None
 
+    @staticmethod
+    def _safe_read_water_level(sensor: Any) -> Any:
+        """수위 센서는 뜨개 출렁임을 흡수하는 read_stable(다수결)로 읽는다."""
+        if sensor is None:
+            return None
+        try:
+            return sensor.read_stable()
+        except Exception as exc:  # noqa: BLE001 — 개별 센서 읽기 실패 시 None
+            name = type(sensor).__name__
+            print(f"warn: {name}.read_stable failed: {exc}")
+            return None
+
     def close(self) -> None:
-        for sensor in (self.sensors.climate, self.sensors.light, self.sensors.soil):
+        for sensor in (
+            self.sensors.climate,
+            self.sensors.light,
+            self.sensors.soil,
+            self.sensors.water_level,
+        ):
             close = getattr(sensor, "close", None)
             if callable(close):
                 close()

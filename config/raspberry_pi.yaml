@@ -33,6 +33,23 @@ sensors:
     dry_raw: 20000
     wet_raw: 8000
 
+  # 수위 센서(플로트 스위치 5CFS-YZ-1, GND(물리9)+GPIO27(물리13) 2선) — src/sensors/water_level.py
+  # collector 가 매 주기 read_stable(다수결)로 읽어 row.water_present 에 기록하고,
+  # MQTT 텔레메트리로 온습도와 함께 발행한다 (bool → 1.0/0.0).
+  # 주의: collector 가 이 핀을 잡으면 cli/water_level 단독 실행은 GPIO busy 로 실패 —
+  #       단독 테스트는 collector 서비스(systemd)를 중지한 뒤 할 것.
+  water_level:
+    enabled: true
+    driver: float_switch  # float_switch | mock
+    pin: 27               # BCM GPIO27 (물리 13번). 펌프(17/18)·팬(23)·DHT(4)와 안 겹침
+    invert: true          # 실물 확인(2026-08-03): 이 장착에서는 접점 닫힘 = 물 없음.
+                          # 센서를 재장착하면 cli/water_level watch 로 극성 재확인 후 갱신
+    telemetry: true       # false 면 수집(CSV)은 하되 MQTT 발행만 끈다
+    # telemetry_type WATER_LEVEL 은 서버 SensorType enum 에 추가 확인 필요 —
+    # 서버 enum 이 다르면 코드 말고 여기만 고친다.
+    telemetry_type: WATER_LEVEL
+    telemetry_unit: BOOLEAN
+
 status_rules:
   temperature_c:
     low: 15
