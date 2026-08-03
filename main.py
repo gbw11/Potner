@@ -131,6 +131,7 @@ def main() -> int:
             log.info(
                 f"[{row['timestamp']}] device={device_id} "
                 f"T={row['temperature_c']}C H={row['humidity_pct']}% "
+                f"water_present={row.get('water_present')} "
                 f"| spring={pub_note} mqtt={mqtt_status}"
             )
             if args.once:
