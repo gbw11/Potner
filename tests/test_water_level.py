@@ -217,3 +217,74 @@ def test_cli_no_invert_flag_restores_no_semantics(fake_gpiozero, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["raw_closed"] is False
     assert payload["water_present"] is False  # 열림 + NO 원래 해석 = 물 없음
+
+
+def test_cli_read_uses_read_stable_majority(fake_gpiozero, capsys):
+    """read 서브커맨드는 단발 read 가 아니라 read_stable 다수결로 판정해야 한다.
+
+    첫 표(열림)와 다수결(닫힘)이 다른 시퀀스를 넣어, 단발 read 였다면
+    False 가 나올 상황에서 True 가 나오는지로 구분한다.
+    """
+    from cli.water_level import main
+
+    original_button = fake_gpiozero.Button
+
+    def button_with_slosh(*args, **kwargs):
+        button = original_button(*args, **kwargs)
+        button.seq = [False, True, True, False, True]  # 닫힘 3표 / 열림 2표, 첫 표는 열림
+        return button
+
+    fake_gpiozero.Button = button_with_slosh
+
+    # read_stable 기본 표 간 대기(0.06s x 4 = 0.24s)는 실제로 흘러가지만 무시할 수준
+    assert main(["read", "--no-invert"]) == 0
+    button = FakeButton.instances[0]
+    assert button.seq == []  # 5표를 전부 소비했다 = 다수결 경로
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["raw_closed"] is True  # 단발 read 였다면 첫 표 False
+    assert payload["water_present"] is True
+
+
+# ------------------------------------------------------------------ HoldFilter
+
+
+def test_hold_filter_blip_shorter_than_hold_is_dropped():
+    """hold 미만 유지 후 원래 상태로 복귀하면 변화로 치지 않는다 (후보 폐기)."""
+    from cli.water_level import HoldFilter
+
+    filt = HoldFilter(hold_sec=2.0, initial=False)
+    assert filt.update(True, 0.0) is False  # 후보 등록
+    assert filt.update(True, 1.5) is False  # 아직 hold 미만
+    assert filt.update(False, 1.8) is False  # 복귀 → 후보 폐기, 출력 없음
+    assert filt.update(True, 3.0) is False  # 새 후보는 처음부터 다시 센다
+    assert filt.update(True, 4.9) is False  # 3.0 기준 1.9초 < 2.0초
+    assert filt.state is False
+
+
+def test_hold_filter_confirms_exactly_once_after_hold():
+    """hold 이상 유지되면 정확히 1회만 변화로 확정한다."""
+    from cli.water_level import HoldFilter
+
+    filt = HoldFilter(hold_sec=2.0, initial=False)
+    assert filt.update(True, 0.0) is False
+    assert filt.update(True, 1.0) is False
+    assert filt.update(True, 2.0) is True  # 경계 포함(>= hold) 확정
+    assert filt.state is True
+    assert filt.update(True, 3.0) is False  # 유지 중 재출력 없음
+    assert filt.update(True, 10.0) is False
+
+
+def test_hold_filter_reconfirm_after_change_follows_same_rule():
+    """확정 이후의 재변화도 동일한 hold 규칙을 따른다."""
+    from cli.water_level import HoldFilter
+
+    filt = HoldFilter(hold_sec=1.0, initial=False)
+    assert filt.update(True, 0.0) is False
+    assert filt.update(True, 1.0) is True  # 1차 확정: False -> True
+
+    assert filt.update(False, 2.0) is False  # 되돌아가는 방향도 후보부터
+    assert filt.update(True, 2.5) is False  # 복귀 → 후보 폐기
+    assert filt.update(False, 3.0) is False  # 다시 처음부터
+    assert filt.update(False, 3.9) is False
+    assert filt.update(False, 4.0) is True  # 2차 확정: True -> False
+    assert filt.state is False

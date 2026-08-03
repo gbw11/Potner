@@ -12,7 +12,8 @@ Pi 실행 예 (프로젝트 루트에서):
 
 PC 흐름 확인:
   python -m cli.water_level read --mock
-  python -m cli.water_level watch --mock       # read 마다 닫힘/열림 교대
+  python -m cli.water_level watch --mock       # toggle mock은 read 마다 교대 → hold 필터에 걸려
+                                               # 변화가 안 찍히는 것이 정상 (필터 동작 증거)
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 if not __package__:  # `python cli/water_level.py` 직접 실행 시 프로젝트 루트를 경로에 추가
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -34,6 +36,39 @@ from src.sensors.water_level import (
     MockFloatSwitchSensor,
     WaterLevelReading,
 )
+
+
+class HoldFilter:
+    """watch 용 유지시간 필터 — 새 상태가 hold_sec 동안 연속 유지될 때만 변화로 확정한다.
+
+    뜨개가 출렁이면 접점이 짧게 여닫히는데 그 순간값을 전부 출력하면 혼란스럽다.
+    반대 상태가 후보로 등록된 뒤 hold_sec 이 지나기 전에 원래 상태로 돌아오면
+    후보를 버린다(출력 없음). 시계를 주입받아(now 인자, 단조 시각) 실시간
+    sleep 없이 테스트할 수 있다.
+    """
+
+    def __init__(self, hold_sec: float, initial: bool) -> None:
+        self._hold_sec = hold_sec
+        self._state = initial  # 마지막으로 확정된 상태
+        self._candidate_since: Optional[float] = None  # 반대 상태 최초 관측 시각
+
+    @property
+    def state(self) -> bool:
+        """마지막으로 확정된 상태."""
+        return self._state
+
+    def update(self, raw_closed: bool, now: float) -> bool:
+        """관측값 1건을 반영하고, 확정 변화가 발생한 순간에만 True 를 돌려준다."""
+        if raw_closed == self._state:
+            self._candidate_since = None  # 유지 중 복귀 → 후보 폐기
+            return False
+        if self._candidate_since is None:
+            self._candidate_since = now
+        if now - self._candidate_since >= self._hold_sec:
+            self._state = raw_closed
+            self._candidate_since = None
+            return True
+        return False
 
 
 def _describe(reading: WaterLevelReading) -> str:
@@ -51,7 +86,8 @@ def _build_sensor(args: argparse.Namespace):
 def cmd_read(args: argparse.Namespace) -> int:
     sensor = _build_sensor(args)
     try:
-        reading = sensor.read()
+        # 다수결 안정화 읽기 — 뜨개 출렁임 순간값이 1회 판정을 흔들지 않게 한다
+        reading = sensor.read_stable()
     finally:
         sensor.close()
     print(
@@ -73,18 +109,18 @@ def cmd_watch(args: argparse.Namespace) -> int:
     pin_label = "mock" if args.mock else f"GPIO{args.pin} (물리 13번={DEFAULT_PIN} 기준)"
     # em-dash 등 cp949 밖 문자는 금지 — Windows 콘솔이 파이프 모드일 때 출력이 죽는다
     print(f"[water-level] {pin_label} 감시 시작 (Ctrl+C 로 종료)")
-    print("뜨개를 손으로 올렸다 내렸다 해보세요. 아래 출력이 즉시 따라 바뀌면 정상입니다.")
+    print(f"뜨개를 손으로 올렸다 내렸다 해보세요. 출렁임은 {args.hold:g}초 유지될 때만 변화로 표시합니다.")
     print("'물 있음/없음' 해석이 실물과 반대면 --invert 를 붙여 다시 확인하세요.\n")
 
     try:
-        last = sensor.read()
-        print(f"{datetime.now():%H:%M:%S} 현재: {_describe(last)}")
+        first = sensor.read()
+        print(f"{datetime.now():%H:%M:%S} 현재: {_describe(first)}")
+        hold = HoldFilter(args.hold, initial=first.raw_closed)
         while True:
             time.sleep(args.interval)
-            now = sensor.read()
-            if now.raw_closed != last.raw_closed:
-                print(f"{datetime.now():%H:%M:%S} 변화: {_describe(now)}")
-                last = now
+            reading = sensor.read()
+            if hold.update(reading.raw_closed, time.monotonic()):
+                print(f"{datetime.now():%H:%M:%S} 변화: {_describe(reading)}")
     except KeyboardInterrupt:
         print("\n[water-level] 종료")
         return 0
@@ -109,6 +145,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("read", parents=[common], help="1회 읽고 JSON 출력")
     watch = sub.add_parser("watch", parents=[common], help="상태 변화를 실시간 출력 (Ctrl+C 종료)")
     watch.add_argument("--interval", type=float, default=0.1, help="폴링 간격 초 (기본 0.1)")
+    watch.add_argument(
+        "--hold",
+        type=float,
+        default=2.0,
+        help="새 상태가 이 시간(초) 동안 연속 유지될 때만 변화로 표시 (기본 2.0)",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "read":
