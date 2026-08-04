@@ -22,4 +22,14 @@ public record RobotCommand(String name, Object payload) {
     public static RobotCommand expression(Object payload) {
         return new RobotCommand("expression", payload);
     }
+
+    /**
+     * 방향 버튼으로 로봇을 직접 민다. 바퀴는 젯슨에 달려 있다.
+     *
+     * <p>목적지 이동("navigate")과 토픽이 다르다. 이쪽은 지도 좌표 없이 속도만 받아 정해진
+     * 시간만큼 움직이고 스스로 멈추므로, 로봇의 처리도 자율 주행과 섞이지 않아야 한다.
+     */
+    public static RobotCommand drive(Object payload) {
+        return new RobotCommand("drive", payload);
+    }
 }
