@@ -58,6 +58,45 @@ enum DeviceCommandStatus {
 /// 누가 발행했는지다. 이력에서 "내가 안 시킨 급수"를 구분하는 근거다.
 enum CommandInitiator { user, auto, unknown }
 
+/// 방향 버튼 하나가 뜻하는 방향이다.
+///
+/// 목적지 이동([DeviceCommandType.navigate])과 다른 통로다. 그쪽은 목적지의 지도 좌표가 입력되어
+/// 있어야 발행되지만, 이쪽은 좌표를 보지 않으므로 **지도를 만들기 전에도 바퀴가 도는지 확인할 수
+/// 있다.**
+///
+/// 속도를 앱이 정하지 않는다. 사람 옆에서 움직이는 장치의 속도는 서버 설정이 유일한 출처다 —
+/// 앱에 숫자를 박아 두면 로봇이 바뀔 때 앱을 다시 배포해야 하고, 조작하는 사람이 상한을 올릴 수도
+/// 있다. 버튼 한 번에 움직이는 시간도 서버가 정하며, **로봇은 그 시간이 지나면 스스로 멈춘다.**
+enum DriveDirection {
+  forward,
+  backward,
+
+  /// 제자리 좌회전.
+  left,
+
+  /// 제자리 우회전.
+  right,
+
+  /// 정지. 남은 시간을 기다리지 않고 즉시 세운다.
+  stop;
+
+  String get wireName => switch (this) {
+    DriveDirection.forward => 'FORWARD',
+    DriveDirection.backward => 'BACKWARD',
+    DriveDirection.left => 'LEFT',
+    DriveDirection.right => 'RIGHT',
+    DriveDirection.stop => 'STOP',
+  };
+
+  String get label => switch (this) {
+    DriveDirection.forward => '전진',
+    DriveDirection.backward => '후진',
+    DriveDirection.left => '좌회전',
+    DriveDirection.right => '우회전',
+    DriveDirection.stop => '정지',
+  };
+}
+
 /// 로봇 디스플레이에 그릴 표정이다.
 ///
 /// 장치 명령([DeviceCommandType])과 다르게 다룬다. 표정은 회신 계약이 없고 이력도 남지 않으며,
