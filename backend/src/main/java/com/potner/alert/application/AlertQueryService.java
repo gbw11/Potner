@@ -83,6 +83,27 @@ public class AlertQueryService {
     }
 
     /**
+     * 사용자가 목록에서 치운다. 행을 지우지 않고 목록 조회에서만 뺀다.
+     *
+     * <p>지우면 안 되는 이유가 셋이다 — 행복도 점수가 소급해 바뀌고, 자동 급수·말리기가 다시
+     * 돌고, 그날 일기의 근거가 달라진다. V30 마이그레이션 주석에 적어 두었다.
+     */
+    @Transactional
+    public void dismiss(String userId, String alertId) {
+        Alert alert = alertRepository.findByIdAndUserId(alertId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ALERT_NOT_FOUND));
+        alert.dismiss(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
+    }
+
+    /** 치운 것을 되돌린다. 앱의 스와이프 되돌리기가 부른다. 읽음은 되돌리지 않는다. */
+    @Transactional
+    public void restore(String userId, String alertId) {
+        Alert alert = alertRepository.findByIdAndUserId(alertId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ALERT_NOT_FOUND));
+        alert.restore();
+    }
+
+    /**
      * 알림 목록에 식물 이름을 채운다. Alert가 식물을 연관으로 들고 있지 않으므로
      * 한 페이지 분량을 한 번에 조회해 N+1을 만들지 않는다.
      */
