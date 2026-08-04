@@ -147,6 +147,16 @@ potner:
     # 버튼 한 번에 움직이는 시간(ms). 짧게 끊는 것이 안전장치다 - 앱이 죽거나 와이파이가 끊겨
     # 정지 명령이 못 나가도 로봇이 이 시간 뒤에는 스스로 멈춘다.
     step-millis: ${DRIVE_STEP_MILLIS:600}
+  # 로봇 LLM 대화 이력 저장소다. 젯슨 로컬 JSON 하나뿐이던 이력을 서버로 옮긴다.
+  conversation:
+    # 앱 채팅 화면이 한 번에 받는 발화 수. 카톡처럼 위로 올릴 때 커서로 더 받는다.
+    default-page-size: ${CONVERSATION_DEFAULT_PAGE_SIZE:50}
+    # 요청이 이보다 크게 달라고 하면 이 값으로 줄인다. 발화는 무한히 쌓이는 데이터라
+    # 한 번에 다 달라고 하면 응답이 수십 MB 가 될 수 있다.
+    max-page-size: ${CONVERSATION_MAX_PAGE_SIZE:200}
+    # 젯슨이 재시작 뒤 복원할 때 받는 발화 수. 프롬프트에는 최근 10턴만 쓰이므로
+    # 그보다 넉넉하면 되고, 크게 잡으면 토큰 비용만 는다.
+    device-restore-size: ${CONVERSATION_DEVICE_RESTORE_SIZE:40}
   arrival:
     # GREETING 도착 뒤 사용자를 기다리는 시간과 이동·대기·HOME 복귀를 합친 전체 상한이다.
     welcome-wait-seconds: ${ARRIVAL_WELCOME_WAIT_SECONDS:120}

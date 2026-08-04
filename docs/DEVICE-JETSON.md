@@ -28,6 +28,7 @@
 | **수동 주행 수신 (`command/drive`)** | 🔴 **없음** | 🔴 같은 이유로 무시 — 지도 없이 바퀴를 시험할 수 있는 유일한 통로다 |
 | 로봇 행동 상태 발행 | ✅ 코드 있음 | 🔴 서버에 데이터 없음 (`current_state` 갱신 안 됨) |
 | 배터리 발행 | ✅ 코드 있음 | 🔴 서버에 데이터 없음 (`battery_percent` NULL) |
+| **대화 이력 저장** | 🟡 서버만 (section 11-1) | 🔴 젯슨 로컬 JSON 하나뿐 — 재이미징하면 사라지고, 종료를 안 누른 대화는 이미 유실 중 |
 
 ### 🔴 가장 중요한 공백 — `command/navigate`
 
@@ -326,6 +327,70 @@ potner/device/jetson-01/command/drive
 section 6 의 `mission_manager` 이야기가 그대로 적용된다. 수동 주행 중에 자율 임무가 돌면 두
 주인의 명령 사이에서 왕복한다.
 
+### 어떤 값이 오는지 — 범위를 먼저 보고 하드웨어 상한을 정한다
+
+`potner.drive.*` 가 정하며 운영 기본값은 아래다. 환경변수로 바꿀 수 있으나 서버가 상한을 걸어
+두었으니 **그 상한까지는 로봇이 견뎌야 한다.**
+
+| 값 | 기본값 | 서버가 허용하는 범위 | 환경변수 |
+|---|---|---|---|
+| `linearMps` | `0.12` m/s | `0.01` ~ `0.5` | `DRIVE_LINEAR_MPS` |
+| `angularRps` | `0.6` rad/s | `0.05` ~ `1.5` | `DRIVE_ANGULAR_RPS` |
+| `durationMs` | `600` ms | `1` ~ `3000` (설정) / `100` ~ `3000` (요청) | `DRIVE_STEP_MILLIS` |
+
+**로봇이 대비해야 하는 최대는 `linearMps` 0.5, `angularRps` 1.5, `durationMs` 3000 이다.**
+
+`durationMs` 의 하한이 둘로 갈리는 이유는 출처가 둘이기 때문이다. 설정값(`DRIVE_STEP_MILLIS`)은
+양수면 되고, 요청이 직접 주는 값은 100 이상이어야 한다(그보다 짧으면 바퀴가 반응하기 전에 끝나
+의미가 없다). 요청이 값을 주면 그것을 쓰고 생략하면 설정값이다.
+
+**앱은 `durationMs` 를 보내지 않으므로 앱에서 오는 것은 항상 설정값(운영 600ms)이다.** `STOP` 은
+언제나 `0` 이다 — 요청이 시간을 실어 보내도 무시한다.
+
+### 🔴 이 명령이 오려면 두 가지가 먼저 등록되어 있어야 한다
+
+명령이 안 온다고 수신기를 의심하기 전에 여기를 본다. 둘 중 하나라도 없으면 **서버가 발행 자체를
+하지 않고 앱에 404 를 준다** — 브로커에는 아무것도 나가지 않는다.
+
+1. 식물에 로봇이 배정되어 있어야 한다. 없으면 `PLANT_ASSIGNMENT_NOT_FOUND`
+2. 그 로봇에 **젯슨이 IoT 장치로 등록**되어 있어야 한다. 없으면 `COMMAND_DEVICE_NOT_FOUND`
+
+바퀴 달린 장치를 고르는 기준은 `navigate` 와 같다(`JETSON_ORIN`). 즉 `navigate` 가 도달하는
+장치와 `drive` 가 도달하는 장치는 항상 같다.
+
+### 수신기를 만들기 전에 페이로드를 눈으로 본다
+
+브로커를 직접 구독하면 서버가 실제로 무엇을 보내는지 확인할 수 있다. 접속 정보는 section 1 이다.
+
+```bash
+mosquitto_sub -h i15e104.p.ssafy.io -p 1884 -u <계정> -P <비밀번호> \
+  -t 'potner/device/+/command/drive' -v
+```
+
+### 발행을 일으키는 방법 — 앱
+
+**앱: 전체 메뉴 → 계정 및 설정 → 로봇 조작.** 전진·후진·좌회전·우회전과 가운데 정지가 십자로
+있다. 버튼 하나가 명령 하나다(누름 유지가 아니다). 배정된 식물이 없으면 버튼 대신 안내가 뜬다.
+
+release 빌드에서도 보인다 — 표정 버튼(section 9)과 달리 디버그 전용이 아니다.
+
+### 발행을 일으키는 방법 — API 직접 호출
+
+앱 없이 시험할 때 쓴다. 사용자 JWT 가 필요하다(로그인 응답의 accessToken).
+
+```bash
+curl -X POST "http://i15e104.p.ssafy.io/api/v1/plants/{plantId}/drive" \
+  -H "Authorization: Bearer <accessToken>" \
+  -H 'Content-Type: application/json' \
+  -d '{"direction":"FORWARD"}'
+```
+
+`202` 면 서버가 발행까지 했다는 뜻이고 로봇이 움직였다는 뜻은 아니다 — 회신 계약이 없어 서버는
+수행 여부를 모른다. `durationMs` 를 함께 주려면 `{"direction":"FORWARD","durationMs":1200}` 이다.
+
+**브로커가 꺼진 환경에서는 202 를 받고도 아무것도 나가지 않는다.** 발행기가 no-op 으로 떨어지기
+때문이다. 서버 로그를 봐야 구별된다(section 12).
+
 ---
 
 ## 7. 로봇 행동 상태
@@ -483,12 +548,164 @@ potner/device/jetson-01/result/welcome_cancel
 
 ---
 
-## 11. 안 될 때 — 로그 문구로 원인 찾기
+## 11. 센서 최신값 조회 — HTTP (✅ 서버 구현됨)
+
+젯슨의 대화 LLM 이 "지금 온도/습도 어때?" 에 실측값으로 답할 때 쓴다. 라즈베리가 잰
+온습도를 포함해 서버가 plant 단위로 합쳐 주므로 어느 장치가 쟀는지는 무관하다.
+
+```
+GET http://i15e104.p.ssafy.io/api/v1/device/sensors/current
+```
+
+| 항목 | 값 |
+|---|---|
+| 인증 헤더 | **`X-Device-Token: <uploadToken>`** — 사진 업로드와 **같은 토큰** |
+| 요청 바디·파라미터 | 없음 |
+| 성공 | **200 OK** |
+
+**`plantId` 를 보내지 않는다.** 사진 업로드와 동일하게 서버가 토큰 → 로봇 → 활성 배정
+순으로 식물을 정한다.
+
+응답은 사용자용 `GET /api/v1/plants/{plantId}/sensors/current` 와 같은 형식이다.
+시각은 모두 UTC, 4종 센서가 측정값이 없어도 항상 이 순서로 온다:
+
+```json
+{"plantId":"...","sensors":[
+ {"sensorType":"TEMPERATURE","unit":"CELSIUS","value":23.5,"measuredAt":"...",
+  "status":"NORMAL","thresholdMin":21.0,"thresholdMax":27.0},
+ {"sensorType":"HUMIDITY", ...},
+ {"sensorType":"SOIL_MOISTURE", ...},
+ {"sensorType":"ILLUMINANCE","status":"NOT_APPLICABLE", ...}]}
+```
+
+`status`: `NORMAL`/`LOW`/`HIGH`(프로필 기준 판정), `NO_DATA`(측정값 없음),
+`STALE`(15분 넘게 새 값 없음 — 옛 값으로 판정하지 않음), `NOT_APPLICABLE`(조도는 순간값 판정 안 함).
+
+| 코드 | 뜻 | 대응 |
+|---|---|---|
+| 200 | 성공 | |
+| 401 `INVALID_DEVICE_TOKEN` | 토큰 누락·오류·해제된 로봇 | 재발급 필요. 재시도 무의미 |
+| 404 `PLANT_ASSIGNMENT_NOT_FOUND` | 배정된 식물 없음 | 앱에서 배정. 재시도 무의미 |
+
+젯슨 쪽 연동은 `potner_llm` 의 `SpringSensorSource` 가 이미 지원한다 — `llm.yaml` 의
+`sensor:` 섹션에 `source: spring`, 이 URL, `token_header: X-Device-Token`, `token_env`
+(값은 .env 의 uploadToken) 만 채우면 된다.
+
+---
+
+## 11-1. LLM 대화 이력 저장·복원 — HTTP (✅ 서버 구현됨, 젯슨 연동 필요)
+
+지금 대화 이력은 젯슨 로컬 JSON(`src/potner_llm/data/conversation_history.json`) 하나뿐이다.
+**기기를 다시 이미징하면 사라지고, 앱은 대화를 볼 곳이 없다.** 그 저장소를 서버로 옮기는 경로다.
+
+인증은 센서 조회와 같은 `X-Device-Token` 이고, **어느 식물인지도 서버가 토큰 → 로봇 → 활성
+배정 순으로 정한다.** `sessionKey` 는 한 기기 안에서 갈래를 나누는 이름일 뿐 소유권 근거가
+아니다 — 그걸로 대상을 지정할 수 있으면 토큰 하나로 남의 대화를 읽거나 덮어쓸 수 있다.
+
+### 🔴 턴 단위로 보낸다 — 지금 방식과 다른 점
+
+현재 `ConversationBackend` 는 `save(session_id, 전체목록)` 으로 **대화가 끝날 때 이력 전체를
+통째로** 올린다. 결함이 둘이다.
+
+1. `_restore_history()` 가 저장된 것을 전부 불러와 이어 붙이므로, 세션이 쌓일수록 올려보내는
+   양이 계속 커진다. 30일차에는 1일차 대화까지 다시 올라간다.
+2. `end_conversation()` 을 부를 때만 저장한다. 폰에서 **종료를 누르지 않고 브라우저를 닫거나
+   로봇 전원이 꺼지면 그 대화가 통째로 사라진다.** 메모리에만 있었기 때문이다.
+
+턴이 끝날 때마다 두 줄만 보내면 둘 다 없어진다. 페이로드가 상수 크기이고, 말한 것까지는 남는다.
+
+### 저장 — 한 턴
+
+```
+POST http://i15e104.p.ssafy.io/api/v1/device/conversations/turns
+X-Device-Token: <uploadToken>
+{"sessionKey":"potner-01","userText":"지금 온도 어때?","assistantText":"22도야, 딱 좋아!"}
+```
+
+| 항목 | 값 |
+|---|---|
+| `sessionKey` | `llm.yaml` 의 `conversation.session_id`. 최대 100자 |
+| `userText` `assistantText` | 각 최대 2000자 |
+| 성공 | **200 OK** — 바디는 저장 직후의 최근 발화 목록 |
+
+**갈래를 미리 만들 필요가 없다.** 없으면 첫 발화에서 서버가 만든다.
+
+**배정된 식물이 없어도 저장된다.** 식물을 붙이기 전에 대화를 시험할 수 있어야 하고, 그때 나눈
+말을 버릴 이유가 없다. 다만 앱의 식물별 조회에서는 빠진다.
+
+### 복원 — 최근 발화
+
+```
+GET http://i15e104.p.ssafy.io/api/v1/device/conversations/messages?sessionKey=potner-01
+X-Device-Token: <uploadToken>
+```
+
+```json
+{"conversationId":"...","plantId":"...",
+ "messages":[{"seq":0,"role":"user","content":"...","createdAt":"..."},
+             {"seq":1,"role":"assistant","content":"...","createdAt":"..."}],
+ "nextBeforeSeq":0,"hasMore":false}
+```
+
+- **`messages` 는 오래된 것부터다.** `role` 도 소문자라 `ChatMessage` 목록에 그대로 넣을 수 있다.
+- 전체를 주지 않는다. 기본 40개(`potner.conversation.device-restore-size`)이고 `size` 로
+  조절한다. 프롬프트에는 `max_history_turns`(기본 10턴)만 쓰이므로 이보다 크게 받을 이유가 없다.
+- 더 오래된 것이 필요하면 `nextBeforeSeq` 를 `beforeSeq` 에 넣어 다시 부른다. `hasMore` 가
+  `false` 면 더 없다.
+- **대화가 없으면 빈 목록이다(404 아님).** 첫 대화를 시작하는 로봇이 정상 흐름과 장애를
+  구분해야 하는 상황을 만들지 않는다.
+
+`seq` 는 갈래 안에서 0 부터 늘어난다. 같은 턴을 다시 보내도 서버의 UNIQUE 제약이 중복을 막는다.
+
+| 코드 | 뜻 | 대응 |
+|---|---|---|
+| 200 | 성공 | |
+| 400 | `sessionKey` 누락, 글자 수 초과 | 요청을 고쳐야 한다. 재시도 무의미 |
+| 401 `INVALID_DEVICE_TOKEN` | 토큰 누락·오류·해제된 로봇 | 재발급 필요. 재시도 무의미 |
+
+### 젯슨 쪽에 필요한 변경
+
+`ConversationBackend` 프로토콜에 **덧붙이기**를 더하면 된다. 지금은 `load`/`save` 둘뿐인데
+`save` 의 "전체 덮어쓰기" 시그니처가 위 두 결함의 뿌리다.
+
+```python
+class ConversationBackend(Protocol):
+    def load(self, session_id): ...
+    def save(self, session_id, messages): ...
+    def append_turn(self, session_id, user_text, assistant_text): ...   # 추가
+```
+
+`DialogueService.chat_once()` 가 `_remember_turn()` 뒤에 `append_turn()` 을 부르면
+`end_conversation()` 을 기다리지 않고 저장된다. `HttpConversationBackend` 는 이미 있으므로
+URL 과 헤더만 이 계약으로 맞추면 된다.
+
+**서버 장애로 대화가 멈추면 안 된다.** 지금 `HttpConversationBackend` 가 예외를 삼키고 로그만
+남기는 방침을 그대로 유지한다 — 저장 실패가 로봇의 말문을 막을 이유가 없다.
+
+---
+
+## 12. 안 될 때 — 로그 문구로 원인 찾기
 
 ```bash
 docker logs --since 5m potner-infra-test-backend-1 2>&1 \
-  | grep -iE "sensor reading|heartbeat|robot state|battery|navigate|welcome|command result"
+  | grep -iE "sensor reading|heartbeat|robot state|battery|navigate|welcome|command result|manual drive|robot command"
 ```
+
+수동 주행(section 6-1)은 회신이 없어 **이 로그가 유일한 판단 근거다.** 네 갈래로 갈린다.
+
+| 서버 로그 | 뜻 | 다음에 볼 곳 |
+|---|---|---|
+| 아무것도 없고 앱에 404 | **배정이나 젯슨 등록이 없다** — 발행 자체를 안 했다 | section 6-1 의 등록 전제조건 |
+| `Manual drive published: ... direction=FORWARD, durationMs=600` | 서비스가 발행을 지시했다 | 아래 두 줄 중 무엇이 뒤따르는지 |
+| `Robot command not sent because MQTT is disabled: ...` | **브로커로 안 나갔다.** 발행기가 no-op | `MQTT_ENABLED` 와 브로커 자격증명 |
+| `Robot command published: topic=.../command/drive, payload=...` | 브로커로 나갔다 | 여기부터 젯슨 수신기 문제 |
+
+`Manual drive published` 다음에 오는 줄이 `not sent because MQTT is disabled` 인지
+`Robot command published` 인지가 서버·로봇 책임을 가르는 지점이다.
+
+⚠️ `Robot command published` 가 있어도 **브로커가 받았다는 증명은 아니다.** MQTT 3.1.1 에는 거부
+이유 코드가 없어 ACL 에 write 권한이 없으면 브로커가 조용히 버리고 PUBACK 은 그대로 보낸다.
+거기까지 의심되면 mosquitto 쪽에서 확인해야 한다(section 1 의 ACL).
 
 | 순서 | 검사 | 실패 시 로그 |
 |---|---|---|
@@ -519,7 +736,7 @@ GET /api/v1/plants/{plantId}/devices
 
 ---
 
-## 12. 남은 작업 정리
+## 13. 남은 작업 정리
 
 | 우선순위 | 작업 |
 |---|---|
@@ -527,10 +744,11 @@ GET /api/v1/plants/{plantId}/devices
 | 🔴 2 | **`command/drive` 수신** (section 6-1) — 회신이 없어 `navigate` 보다 훨씬 작다. 지도 없이 바퀴·`cmd_vel` 배선을 검증할 수 있어 1번의 디딤돌이 된다 |
 | 🔴 3 | **`mission_manager` 자율 임무 끄기** — 서버 명령과 충돌한다 |
 | 🔴 4 | **하트비트 안정화** — 지금 간헐적이라 앱에 OFFLINE 으로 보인다 |
-| 🟡 5 | **`status/state` 발행** — 급수 중 표정이 `VERY_HAPPY` 로 바뀌는 연출이 여기 달려 있다 |
-| 🟡 6 | **`status/battery` 발행** — 앱 장치 관리의 배터리 표시 |
-| ⚪ 7 | 조도 센서를 젯슨으로 이설 검토 — 일광 이동이 의미대로 동작하게 된다 |
-| ⚪ 8 | 귀가 마중 실기 검증 |
+| 🟡 5 | **대화 이력 저장 연동** (section 11-1) — 서버는 붙었다. 지금은 젯슨 로컬 JSON 하나뿐이라 기기를 다시 이미징하면 사라지고, 종료를 안 누르고 닫은 대화는 이미 사라지고 있다 |
+| 🟡 6 | **`status/state` 발행** — 급수 중 표정이 `VERY_HAPPY` 로 바뀌는 연출이 여기 달려 있다 |
+| 🟡 7 | **`status/battery` 발행** — 앱 장치 관리의 배터리 표시 |
+| ⚪ 8 | 조도 센서를 젯슨으로 이설 검토 — 일광 이동이 의미대로 동작하게 된다 |
+| ⚪ 9 | 귀가 마중 실기 검증 |
 
 ---
 
