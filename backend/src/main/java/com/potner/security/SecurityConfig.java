@@ -64,6 +64,7 @@ public class SecurityConfig {
                         // 장치는 사용자 JWT 를 가질 수 없다. X-Device-Token 을 서비스가 직접
                         // 검증하므로 인증이 없는 것이 아니라 인증 수단이 다른 경로다.
                         .requestMatchers(HttpMethod.POST, "/api/v1/device/photos").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/device/sensors/current").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/health",
                                 "/actuator/health").permitAll()

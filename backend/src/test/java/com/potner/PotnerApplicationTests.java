@@ -2156,6 +2156,76 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void deviceSensorCurrentIsAuthenticatedByTokenAndDerivesPlantFromAssignment() throws Exception {
+        Tokens tokens = signupAndLogin("device-sensor@example.com");
+        String plantId = createPlant(tokens, "장치 센서 식물");
+        String robotBody = mockMvc.perform(post("/api/v1/robots")
+                        .header("Authorization", "Bearer " + tokens.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceUid\":\"sensor-robot-01\",\"name\":\"센서 로봇\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String robotId = JsonPath.read(robotBody, "$.robot.robotId");
+        String uploadToken = JsonPath.read(robotBody, "$.uploadToken");
+
+        // 헤더가 아예 없어도 500 이 아니라 401 이어야 한다. 전역 예외 처리기가
+        // MissingRequestHeaderException 을 다루지 않으므로 컨트롤러가 required 헤더로
+        // 받으면 누락이 500 으로 나간다 — required=false + 서비스 blank 검사가 그 방지책이다.
+        mockMvc.perform(get("/api/v1/device/sensors/current"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_DEVICE_TOKEN"));
+
+        mockMvc.perform(get("/api/v1/device/sensors/current")
+                        .header("X-Device-Token", "wrong-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_DEVICE_TOKEN"));
+
+        // 배정이 없으면 어느 식물의 값인지 정할 수 없다.
+        mockMvc.perform(get("/api/v1/device/sensors/current")
+                        .header("X-Device-Token", uploadToken))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PLANT_ASSIGNMENT_NOT_FOUND"));
+
+        assignRobot(tokens, plantId, robotId).andExpect(status().isCreated());
+
+        // 측정값 한 건을 심어 판정까지 내려오는지 본다. sensor_reading 의
+        // source_device_id 가 iot_device 를 참조하므로 장치 행을 먼저 만든다.
+        String jetsonDeviceId = UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+                INSERT INTO iot_device (
+                    device_id,
+                    robot_id,
+                    device_uid,
+                    device_type,
+                    connection_status
+                ) VALUES (?, ?, ?, 'JETSON_ORIN', 'OFFLINE')
+                """, jetsonDeviceId, robotId, "sensor-robot-01-jetson");
+        insertReading(
+                new SensorFixture(plantId, robotId, jetsonDeviceId,
+                        "sensor-robot-01-jetson", jetsonDeviceId, "sensor-robot-01-jetson"),
+                SensorType.SOIL_MOISTURE,
+                "45.00",
+                SensorUnit.PERCENT,
+                nowUtc().minusMinutes(1)
+        );
+
+        // plantId 를 받지 않는다. 로봇의 활성 배정에서 서버가 정한다.
+        // 응답 형식은 사용자용 /plants/{plantId}/sensors/current 와 같다.
+        mockMvc.perform(get("/api/v1/device/sensors/current")
+                        .header("X-Device-Token", uploadToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plantId").value(plantId))
+                .andExpect(jsonPath("$.sensors.length()").value(4))
+                .andExpect(jsonPath("$.sensors[0].sensorType").value("TEMPERATURE"))
+                .andExpect(jsonPath("$.sensors[0].status").value("NO_DATA"))
+                .andExpect(jsonPath("$.sensors[2].sensorType").value("SOIL_MOISTURE"))
+                .andExpect(jsonPath("$.sensors[2].value").value(45.0))
+                .andExpect(jsonPath("$.sensors[2].status").value("NORMAL"))
+                .andExpect(jsonPath("$.sensors[3].sensorType").value("ILLUMINANCE"))
+                .andExpect(jsonPath("$.sensors[3].status").value("NOT_APPLICABLE"));
+    }
+
+    @Test
     void diaryGenerationIsSkippedWithoutAnLlmKeyAndWritesNothing() throws Exception {
         Tokens tokens = signupAndLogin("diary-generation@example.com");
         String plantId = createPlant(tokens, "바질이");
