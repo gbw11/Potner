@@ -185,6 +185,11 @@ heartbeat를 받으면 `iot_device`를 ONLINE으로 갱신합니다. 스케줄�
 센서 4종을 **항상 모두** 반환합니다(측정값이 없어도 항목 유지). 앱이 카드 배치를
 고정할 수 있게 하기 위함입니다.
 
+같은 응답을 장치도 받을 수 있습니다: `GET /api/v1/device/sensors/current`.
+사용자 JWT 대신 `X-Device-Token`(사진 업로드와 같은 업로드 토큰)으로 인증하고,
+plantId는 요청이 아니라 로봇의 활성 배정에서 서버가 정합니다. 젯슨의 대화 LLM이
+실측 온습도로 답하기 위한 경로입니다(`docs/DEVICE-JETSON.md` 11절).
+
 ```
 value < min          → LOW
 min ≤ value ≤ max    → NORMAL
@@ -608,6 +613,12 @@ GET    /api/v1/alerts?unreadOnly=&activeOnly=&page=&size=
 PATCH  /api/v1/alerts/{alertId}/read               → 204
 ```
 
+### 장치 (X-Device-Token 인증, 사용자 JWT 아님)
+```
+POST   /api/v1/device/photos                       라즈베리 사진 업로드
+GET    /api/v1/device/sensors/current              젯슨 LLM 센서 최신값 조회
+```
+
 ### 기타
 ```
 GET    /api/v1/health
@@ -615,6 +626,8 @@ GET    /api/v1/health
 
 **모든 식물 관련 조회는 로그인 사용자의 소유권을 검증**하며, 타인 식물은 404
 (존재 여부를 노출하지 않기 위해 403이 아닙니다). 소프트 삭제된 식물도 404입니다.
+예외는 위 장치 경로 둘뿐입니다 — 소유권 대신 장치 토큰을 검증하고, plantId를 받지
+않고 로봇의 활성 배정에서 서버가 정하므로 자기 담당 식물만 접근됩니다.
 
 OpenAPI 스펙을 파일로 뽑으려면:
 

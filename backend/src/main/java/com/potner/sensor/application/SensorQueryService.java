@@ -60,6 +60,15 @@ public class SensorQueryService {
 
     public CurrentSensorResponse getCurrentSensors(String userId, String plantId) {
         requireOwnedPlant(userId, plantId);
+        return currentSensorsForVerifiedPlant(plantId);
+    }
+
+    /**
+     * 소유권 검사를 하지 않는다. 호출자가 plantId 의 귀속을 이미 증명한 경우에만 쓴다
+     * (예: 장치 토큰 → 로봇 → 활성 배정). 사용자 요청 경로에서 직접 부르면 안 되므로
+     * 패키지 밖에 열지 않는다 — presentation 계층에서는 컴파일이 안 된다.
+     */
+    CurrentSensorResponse currentSensorsForVerifiedPlant(String plantId) {
         GrowthProfileValues profile = findAppliedProfile(plantId);
         LocalDateTime staleBefore = nowUtc().minusMinutes(properties.freshnessThresholdMinutes());
 
