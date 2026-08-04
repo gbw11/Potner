@@ -388,7 +388,7 @@ curl -X POST "http://i15e104.p.ssafy.io/api/v1/plants/{plantId}/drive" \
 수행 여부를 모른다. `durationMs` 를 함께 주려면 `{"direction":"FORWARD","durationMs":1200}` 이다.
 
 **브로커가 꺼진 환경에서는 202 를 받고도 아무것도 나가지 않는다.** 발행기가 no-op 으로 떨어지기
-때문이다. 서버 로그를 봐야 구별된다(section 11).
+때문이다. 서버 로그를 봐야 구별된다(section 12).
 
 ---
 
