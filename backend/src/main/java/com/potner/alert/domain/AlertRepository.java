@@ -56,11 +56,16 @@ public interface AlertRepository extends JpaRepository<Alert, String> {
     /**
      * 사용자 알림 목록이다. 발생 시각이 아니라 알림이 만들어진 시각 기준 최신순이며,
      * 같은 초에 만들어진 알림이 섞이지 않도록 식별자로 순서를 확정한다.
+     *
+     * <p>사용자가 치운 알림({@code dismissedAt})은 빠진다. <strong>이 조건은 여기에만 있다</strong> —
+     * 행복도 점수·자동화·일기 생성이 쓰는 다른 조회는 치운 알림도 그대로 읽어야 한다. 그 근거는
+     * V30 마이그레이션 주석에 있다.
      */
     @Query(value = """
             select a
             from Alert a
             where a.userId = :userId
+              and a.dismissedAt is null
               and (:unreadOnly = false or a.readAt is null)
               and (:activeOnly = false or a.resolvedAt is null)
             order by a.createdAt desc, a.id desc
@@ -69,6 +74,7 @@ public interface AlertRepository extends JpaRepository<Alert, String> {
             select count(a)
             from Alert a
             where a.userId = :userId
+              and a.dismissedAt is null
               and (:unreadOnly = false or a.readAt is null)
               and (:activeOnly = false or a.resolvedAt is null)
             """)
