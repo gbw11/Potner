@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:potner_app/core/notifications/push_notification_controller.dart';
 import 'package:potner_app/core/notifications/push_notification_route.dart';
@@ -63,6 +64,15 @@ class _PotnerAppState extends ConsumerState<PotnerApp> {
       theme: AppTheme.light,
       scaffoldMessengerKey: _messengerKey,
       routerConfig: router,
+      // 날짜 선택기처럼 Flutter 가 문구를 직접 만드는 위젯이 있다. 이걸 붙이지 않으면
+      // 한국어 화면 안에서 "Select date"·"CANCEL" 이 영어로 뜬다.
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('ko'), Locale('en')],
+      locale: const Locale('ko'),
       // 글꼴 배율을 여기서 한 번에 정한다. 화면마다 흩어진 fontSize 를 건드리지 않고도 모든
       // 글자가 같은 비율로 커지므로 디자인의 크기 관계가 유지된다. 상한을 두는 이유는
       // AppTextScale 에 적어 두었다.

@@ -7,6 +7,7 @@ import 'package:potner_app/features/device/presentation/pages/device_management_
 import 'package:potner_app/features/device/presentation/pages/device_registration_page.dart';
 import 'package:potner_app/features/device/presentation/pages/robot_locations_page.dart';
 import 'package:potner_app/features/command/presentation/pages/robot_drive_page.dart';
+import 'package:potner_app/features/conversation/presentation/pages/conversation_page.dart';
 import 'package:potner_app/features/arrival/presentation/arrival_setting_page.dart';
 import 'package:potner_app/features/alert/presentation/pages/alerts_page.dart';
 import 'package:potner_app/features/bloom/presentation/pages/bloom_list_page.dart';
@@ -82,6 +83,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'drive',
                         builder: (context, state) => const RobotDrivePage(),
+                      ),
+                      GoRoute(
+                        path: 'conversations',
+                        builder: (context, state) => const ConversationPage(),
                       ),
                       GoRoute(
                         path: ':robotId/locations',

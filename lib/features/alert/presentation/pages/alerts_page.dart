@@ -17,12 +17,14 @@ final alertsProvider = FutureProvider.autoDispose<List<PlantAlert>>((ref) {
 
 /// 사용자가 화면에서 치운 알림이다.
 ///
-/// 서버에 삭제 API 가 없다 — 목록 조회와 읽음 처리뿐이다. 그래서 지우는 대신 감추고 읽음으로
-/// 표시한다. 앱을 다시 켜면 돌아온다. 서버에 그대로 남아 있기 때문인데, 알림은 놓치면 안 되는
-/// 것이라 영구히 사라지는 것보다 이 편이 안전하다.
+/// 치운 알림을 화면에서 즉시 감추는 자리다.
 ///
-/// autoDispose 를 걸지 않는다. 알림 화면을 나갔다 들어올 때마다 치운 것이 되살아나면 치운
-/// 의미가 없다.
+/// 서버가 `dismissed_at` 으로 기록하므로 **다시 들어와도 돌아오지 않는다.** 이 집합은 서버 응답이
+/// 갱신되기 전까지의 즉각 반응과 되돌리기 창을 위한 것이다 — 밀어낸 카드가 다음 조회까지 남아
+/// 있으면 치운 것처럼 보이지 않는다.
+///
+/// autoDispose 를 걸지 않는다. 화면을 나갔다 들어오는 사이 서버 조회가 아직 안 끝났으면 치운 것이
+/// 잠깐 되살아나 보인다.
 final dismissedAlertIdsProvider =
     NotifierProvider<DismissedAlertIds, Set<String>>(DismissedAlertIds.new);
 
@@ -88,20 +90,42 @@ class AlertsPage extends ConsumerWidget {
           data: (items) {
             // 치우는 처리를 화면 쪽에서 한다. 카드는 밀려 나가면서 트리에서 빠지므로 그쪽
             // ref 로는 되돌리기를 처리할 수 없다.
+            /// 서버가 받아들였을 때만 카드를 내보낸다.
+            ///
+            /// 읽음 처리를 따로 부르지 않는다 — 서버가 치우기와 함께 남긴다.
+            Future<bool> confirmDismiss(PlantAlert alert) async {
+              final messenger = ScaffoldMessenger.of(context);
+              try {
+                await ref.read(alertRepositoryProvider).dismiss(alert.alertId);
+              } catch (_) {
+                messenger
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(
+                      content: Text('알림을 치우지 못했어요. 잠시 뒤 다시 시도해 주세요.'),
+                    ),
+                  );
+                return false;
+              }
+              return true;
+            }
+
             void dismiss(PlantAlert alert) {
               final dismissals = ref.read(dismissedAlertIdsProvider.notifier);
+              final messenger = ScaffoldMessenger.of(context);
+              // 서버는 이미 받아들였다. 다음 조회 전까지 화면에서 빼 둔다.
               dismissals.dismiss(alert.alertId);
-              // 치운 것은 확인한 것으로 본다. 목록에서 사라졌는데 안 읽음으로 남아 홈의
-              // 배지가 계속 켜져 있으면 사용자는 무엇이 남았는지 찾을 수 없다.
-              _markAlertRead(ref, alert);
-              ScaffoldMessenger.of(context)
+              // 홈의 안 읽음 배지가 서버에서 내려간 것을 반영해야 한다.
+              ref.invalidate(homeControllerProvider);
+              messenger
                 ..hideCurrentSnackBar()
                 ..showSnackBar(
                   SnackBar(
                     content: const Text('알림을 치웠어요.'),
                     action: SnackBarAction(
                       label: '되돌리기',
-                      onPressed: () => dismissals.restore(alert.alertId),
+                      onPressed: () =>
+                          _restoreOnServer(ref, alert, dismissals, messenger),
                     ),
                   ),
                 );
@@ -158,6 +182,7 @@ class AlertsPage extends ConsumerWidget {
                     for (final alert in active) ...[
                       _DismissibleAlert(
                         alert: alert,
+                        confirmDismiss: () => confirmDismiss(alert),
                         onDismissed: () => dismiss(alert),
                         child: _ActiveAlertCard(alert: alert),
                       ),
@@ -186,6 +211,7 @@ class AlertsPage extends ConsumerWidget {
                     for (final alert in history) ...[
                       _DismissibleAlert(
                         alert: alert,
+                        confirmDismiss: () => confirmDismiss(alert),
                         onDismissed: () => dismiss(alert),
                         child: _HistoryAlertCard(alert: alert),
                       ),
@@ -217,6 +243,30 @@ String relativeTimeLabel(DateTime utcTime) {
   return '${elapsed.inDays}일 전';
 }
 
+/// 되돌리기다. 화면을 먼저 되살리고 서버에 알린다.
+///
+/// 여기서는 먼저 되살려도 된다. 치우기와 달리 `Dismissible` 이 이미 트리에서 빠진 뒤라, 목록에
+/// 다시 넣는 것은 새 위젯을 만드는 일이다.
+Future<void> _restoreOnServer(
+  WidgetRef ref,
+  PlantAlert alert,
+  DismissedAlertIds dismissals,
+  ScaffoldMessengerState messenger,
+) async {
+  dismissals.restore(alert.alertId);
+  try {
+    await ref.read(alertRepositoryProvider).restore(alert.alertId);
+  } catch (_) {
+    // 서버에는 치운 채로 남았다. 다음 조회에서 다시 사라지므로 그 사실을 알린다.
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('되돌리지 못했어요. 새로 고치면 다시 사라집니다.')));
+    return;
+  }
+  ref.invalidate(alertsProvider);
+  ref.invalidate(homeControllerProvider);
+}
+
 Future<void> _markAlertRead(WidgetRef ref, PlantAlert alert) async {
   if (alert.read) {
     return;
@@ -232,19 +282,25 @@ Future<void> _markAlertRead(WidgetRef ref, PlantAlert alert) async {
 
 /// 왼쪽으로 밀어 알림을 치운다.
 ///
-/// 서버에서 지우는 것이 아니라 감추고 읽음으로 표시하는 것이다. 오른쪽으로 미는 방향은 두지
-/// 않는다 — 방향마다 다른 뜻을 주면 어느 쪽이 무엇인지 기억해야 한다.
+/// 서버에서 지우는 것이 아니라 목록에서만 빼는 것이다. 오른쪽으로 미는 방향은 두지 않는다 —
+/// 방향마다 다른 뜻을 주면 어느 쪽이 무엇인지 기억해야 한다.
 ///
 /// 치우는 동작을 자기가 하지 않고 [onDismissed] 로 받는다. 밀려 나간 순간 이 위젯은 트리에서
 /// 빠지므로, 여기서 잡은 `ref` 로 스낵바의 되돌리기를 처리하면 이미 해제된 ref 를 쓰게 된다.
+///
+/// [confirmDismiss] 로 서버 응답을 먼저 받는다. 먼저 감추고 실패하면 되살리는 방식은 쓸 수 없다 —
+/// 밀려 나간 `Dismissible` 을 같은 자리에 되돌리면 Flutter 가 "A dismissed Dismissible widget is
+/// still part of the tree" 로 단정한다. 거절되면 카드가 제자리로 돌아온다.
 class _DismissibleAlert extends StatelessWidget {
   const _DismissibleAlert({
     required this.alert,
+    required this.confirmDismiss,
     required this.onDismissed,
     required this.child,
   });
 
   final PlantAlert alert;
+  final Future<bool> Function() confirmDismiss;
   final VoidCallback onDismissed;
   final Widget child;
 
@@ -262,6 +318,7 @@ class _DismissibleAlert extends StatelessWidget {
         ),
         child: const Icon(Icons.check_rounded, color: AppColors.textMuted),
       ),
+      confirmDismiss: (_) => confirmDismiss(),
       onDismissed: (_) => onDismissed(),
       child: child,
     );

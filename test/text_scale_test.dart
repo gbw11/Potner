@@ -8,6 +8,8 @@ import 'package:potner_app/features/auth/domain/auth_repository.dart';
 import 'package:potner_app/features/auth/domain/user.dart';
 import 'package:potner_app/features/bloom/data/bloom_repository_impl.dart';
 import 'package:potner_app/features/command/data/command_repository_impl.dart';
+import 'package:potner_app/features/conversation/data/conversation_repository_impl.dart';
+import 'package:potner_app/features/conversation/domain/conversation_models.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/diary/data/diary_repository_impl.dart';
 import 'package:potner_app/features/home/data/home_repository_impl.dart';
@@ -17,6 +19,7 @@ import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 import 'support/fake_alert_repository.dart';
 import 'support/fake_bloom_repository.dart';
 import 'support/fake_command_repository.dart';
+import 'support/fake_conversation_repository.dart';
 import 'support/fake_device_repository.dart';
 import 'support/fake_diary_repository.dart';
 import 'support/fake_home_repository.dart';
@@ -62,6 +65,27 @@ Future<void> _pumpFresh(WidgetTester tester) async {
         deviceRepositoryProvider.overrideWithValue(FakeDeviceRepository()),
         deviceCommandRepositoryProvider.overrideWithValue(
           FakeDeviceCommandRepository(),
+        ),
+        // 빈 대화가 아니라 말풍선이 그려진 상태로 본다. 배율이 올라갈 때 넘칠 위험은 말풍선과
+        // 날짜 구분선·시각 표시가 한 줄에 놓이는 자리에 있다.
+        conversationRepositoryProvider.overrideWithValue(
+          FakeConversationRepository()
+            ..pages[null] = ConversationMessagePage(
+              messages: conversationMessages([
+                (
+                  seq: 0,
+                  mine: true,
+                  content: '지금 온도랑 습도 어때? 물은 언제 줬어?',
+                  utc: DateTime.utc(2026, 8, 4, 1, 5),
+                ),
+                (
+                  seq: 1,
+                  mine: false,
+                  content: '온도 22도에 습도 55%야. 딱 좋아! 물은 어제 받았어.',
+                  utc: DateTime.utc(2026, 8, 4, 1, 6),
+                ),
+              ]),
+            ),
         ),
       ],
       child: const PotnerApp(),
@@ -125,6 +149,7 @@ void main() {
     'menu_item_repotting',
     'menu_item_devices',
     'menu_item_robot_drive',
+    'menu_item_conversations',
     'menu_item_alert_history',
     'menu_item_care_settings',
     'menu_item_environment',

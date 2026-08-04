@@ -30,6 +30,26 @@ class AlertApi {
     }
   }
 
+  /// 목록에서 치운다. 서버는 행을 지우지 않고 목록 조회에서만 뺀다.
+  ///
+  /// 읽음 처리를 따로 부를 필요가 없다 — 서버가 함께 남긴다.
+  Future<void> dismiss(String alertId) async {
+    try {
+      await _dio.patch<Object?>('alerts/$alertId/dismiss');
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
+  /// 치운 것을 되돌린다. 읽음은 되돌아오지 않는다.
+  Future<void> restore(String alertId) async {
+    try {
+      await _dio.delete<Object?>('alerts/$alertId/dismiss');
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   PlantAlert _parseAlert(Object? value) {
     final alert = _asMap(value);
     return PlantAlert(
