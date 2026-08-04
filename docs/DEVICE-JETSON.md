@@ -326,6 +326,70 @@ potner/device/jetson-01/command/drive
 section 6 의 `mission_manager` 이야기가 그대로 적용된다. 수동 주행 중에 자율 임무가 돌면 두
 주인의 명령 사이에서 왕복한다.
 
+### 어떤 값이 오는지 — 범위를 먼저 보고 하드웨어 상한을 정한다
+
+`potner.drive.*` 가 정하며 운영 기본값은 아래다. 환경변수로 바꿀 수 있으나 서버가 상한을 걸어
+두었으니 **그 상한까지는 로봇이 견뎌야 한다.**
+
+| 값 | 기본값 | 서버가 허용하는 범위 | 환경변수 |
+|---|---|---|---|
+| `linearMps` | `0.12` m/s | `0.01` ~ `0.5` | `DRIVE_LINEAR_MPS` |
+| `angularRps` | `0.6` rad/s | `0.05` ~ `1.5` | `DRIVE_ANGULAR_RPS` |
+| `durationMs` | `600` ms | `1` ~ `3000` (설정) / `100` ~ `3000` (요청) | `DRIVE_STEP_MILLIS` |
+
+**로봇이 대비해야 하는 최대는 `linearMps` 0.5, `angularRps` 1.5, `durationMs` 3000 이다.**
+
+`durationMs` 의 하한이 둘로 갈리는 이유는 출처가 둘이기 때문이다. 설정값(`DRIVE_STEP_MILLIS`)은
+양수면 되고, 요청이 직접 주는 값은 100 이상이어야 한다(그보다 짧으면 바퀴가 반응하기 전에 끝나
+의미가 없다). 요청이 값을 주면 그것을 쓰고 생략하면 설정값이다.
+
+**앱은 `durationMs` 를 보내지 않으므로 앱에서 오는 것은 항상 설정값(운영 600ms)이다.** `STOP` 은
+언제나 `0` 이다 — 요청이 시간을 실어 보내도 무시한다.
+
+### 🔴 이 명령이 오려면 두 가지가 먼저 등록되어 있어야 한다
+
+명령이 안 온다고 수신기를 의심하기 전에 여기를 본다. 둘 중 하나라도 없으면 **서버가 발행 자체를
+하지 않고 앱에 404 를 준다** — 브로커에는 아무것도 나가지 않는다.
+
+1. 식물에 로봇이 배정되어 있어야 한다. 없으면 `PLANT_ASSIGNMENT_NOT_FOUND`
+2. 그 로봇에 **젯슨이 IoT 장치로 등록**되어 있어야 한다. 없으면 `COMMAND_DEVICE_NOT_FOUND`
+
+바퀴 달린 장치를 고르는 기준은 `navigate` 와 같다(`JETSON_ORIN`). 즉 `navigate` 가 도달하는
+장치와 `drive` 가 도달하는 장치는 항상 같다.
+
+### 수신기를 만들기 전에 페이로드를 눈으로 본다
+
+브로커를 직접 구독하면 서버가 실제로 무엇을 보내는지 확인할 수 있다. 접속 정보는 section 1 이다.
+
+```bash
+mosquitto_sub -h i15e104.p.ssafy.io -p 1884 -u <계정> -P <비밀번호> \
+  -t 'potner/device/+/command/drive' -v
+```
+
+### 발행을 일으키는 방법 — 앱
+
+**앱: 전체 메뉴 → 계정 및 설정 → 로봇 조작.** 전진·후진·좌회전·우회전과 가운데 정지가 십자로
+있다. 버튼 하나가 명령 하나다(누름 유지가 아니다). 배정된 식물이 없으면 버튼 대신 안내가 뜬다.
+
+release 빌드에서도 보인다 — 표정 버튼(section 9)과 달리 디버그 전용이 아니다.
+
+### 발행을 일으키는 방법 — API 직접 호출
+
+앱 없이 시험할 때 쓴다. 사용자 JWT 가 필요하다(로그인 응답의 accessToken).
+
+```bash
+curl -X POST "http://i15e104.p.ssafy.io/api/v1/plants/{plantId}/drive" \
+  -H "Authorization: Bearer <accessToken>" \
+  -H 'Content-Type: application/json' \
+  -d '{"direction":"FORWARD"}'
+```
+
+`202` 면 서버가 발행까지 했다는 뜻이고 로봇이 움직였다는 뜻은 아니다 — 회신 계약이 없어 서버는
+수행 여부를 모른다. `durationMs` 를 함께 주려면 `{"direction":"FORWARD","durationMs":1200}` 이다.
+
+**브로커가 꺼진 환경에서는 202 를 받고도 아무것도 나가지 않는다.** 발행기가 no-op 으로 떨어지기
+때문이다. 서버 로그를 봐야 구별된다(section 12).
+
 ---
 
 ## 7. 로봇 행동 상태
@@ -532,8 +596,24 @@ GET http://i15e104.p.ssafy.io/api/v1/device/sensors/current
 
 ```bash
 docker logs --since 5m potner-infra-test-backend-1 2>&1 \
-  | grep -iE "sensor reading|heartbeat|robot state|battery|navigate|welcome|command result"
+  | grep -iE "sensor reading|heartbeat|robot state|battery|navigate|welcome|command result|manual drive|robot command"
 ```
+
+수동 주행(section 6-1)은 회신이 없어 **이 로그가 유일한 판단 근거다.** 네 갈래로 갈린다.
+
+| 서버 로그 | 뜻 | 다음에 볼 곳 |
+|---|---|---|
+| 아무것도 없고 앱에 404 | **배정이나 젯슨 등록이 없다** — 발행 자체를 안 했다 | section 6-1 의 등록 전제조건 |
+| `Manual drive published: ... direction=FORWARD, durationMs=600` | 서비스가 발행을 지시했다 | 아래 두 줄 중 무엇이 뒤따르는지 |
+| `Robot command not sent because MQTT is disabled: ...` | **브로커로 안 나갔다.** 발행기가 no-op | `MQTT_ENABLED` 와 브로커 자격증명 |
+| `Robot command published: topic=.../command/drive, payload=...` | 브로커로 나갔다 | 여기부터 젯슨 수신기 문제 |
+
+`Manual drive published` 다음에 오는 줄이 `not sent because MQTT is disabled` 인지
+`Robot command published` 인지가 서버·로봇 책임을 가르는 지점이다.
+
+⚠️ `Robot command published` 가 있어도 **브로커가 받았다는 증명은 아니다.** MQTT 3.1.1 에는 거부
+이유 코드가 없어 ACL 에 write 권한이 없으면 브로커가 조용히 버리고 PUBACK 은 그대로 보낸다.
+거기까지 의심되면 mosquitto 쪽에서 확인해야 한다(section 1 의 ACL).
 
 | 순서 | 검사 | 실패 시 로그 |
 |---|---|---|
