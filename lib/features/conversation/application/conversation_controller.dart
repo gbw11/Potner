@@ -18,6 +18,9 @@ class ConversationState {
     this.hasMore = false,
     this.isLoadingOlder = false,
     this.message,
+    this.isJumping = false,
+    this.jumpTargetSeq,
+    this.jumpNotice,
   });
 
   final ConversationPhase phase;
@@ -33,7 +36,30 @@ class ConversationState {
   /// 첫 로딩 실패 문구다. 이전 대화 추가 실패에는 쓰지 않는다 — 이미 보이는 대화를 지우면 안 된다.
   final String? message;
 
+  /// 고른 날짜까지 거슬러 받는 중이다. 여러 페이지를 이어 받으므로 진행 표시가 필요하다.
+  final bool isJumping;
+
+  /// 화면을 옮길 대상 발화의 seq 다. 화면이 그 자리로 스크롤한 뒤 비운다.
+  final int? jumpTargetSeq;
+
+  /// "그 날은 대화가 없어요" 처럼 이동하지 못한 이유다. 한 번 보여주고 비운다.
+  final String? jumpNotice;
+
   bool get isEmpty => phase == ConversationPhase.ready && messages.isEmpty;
+
+  /// 화면에 담긴 가장 오래된 발화의 로컬 날짜다. 날짜 선택기의 하한으로 쓴다.
+  DateTime? get oldestLocalDate => messages.isEmpty
+      ? null
+      : _localDate(messages.last.createdAt);
+
+  DateTime? get newestLocalDate => messages.isEmpty
+      ? null
+      : _localDate(messages.first.createdAt);
+
+  static DateTime _localDate(DateTime utc) {
+    final local = utc.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
 
   ConversationState copyWith({
     ConversationPhase? phase,
@@ -41,6 +67,13 @@ class ConversationState {
     bool? hasMore,
     bool? isLoadingOlder,
     String? message,
+    bool? isJumping,
+    // 이동 대상과 안내는 한 번 쓰고 비워야 하므로 null 로 지울 수 있어야 한다. 다른 필드처럼
+    // `?? this.x` 로 두면 null 을 넘겨도 옛 값이 살아남아 같은 자리로 계속 스크롤한다.
+    bool clearJumpTarget = false,
+    int? jumpTargetSeq,
+    bool clearJumpNotice = false,
+    String? jumpNotice,
   }) {
     return ConversationState(
       phase: phase ?? this.phase,
@@ -48,6 +81,11 @@ class ConversationState {
       hasMore: hasMore ?? this.hasMore,
       isLoadingOlder: isLoadingOlder ?? this.isLoadingOlder,
       message: message ?? this.message,
+      isJumping: isJumping ?? this.isJumping,
+      jumpTargetSeq: clearJumpTarget
+          ? null
+          : (jumpTargetSeq ?? this.jumpTargetSeq),
+      jumpNotice: clearJumpNotice ? null : (jumpNotice ?? this.jumpNotice),
     );
   }
 }
@@ -134,6 +172,90 @@ class ConversationController extends Notifier<ConversationState> {
     } finally {
       _inFlight = false;
     }
+  }
+
+  /// 고른 날짜의 첫 발화로 옮긴다.
+  ///
+  /// 그 날짜가 아직 안 받아진 상태면 닿을 때까지 이전 페이지를 이어 받는다. 서버에 "그 날로
+  /// 건너뛰기" 가 없어서인데, 거슬러 받는 동안 지나온 날짜의 발화가 모두 메모리에 남으므로
+  /// 도착 뒤 아래로 스크롤하면 그 사이 날짜가 그대로 이어진다 — 사용자가 기대하는 움직임이
+  /// 추가 요청 없이 나온다.
+  ///
+  /// [maxPages] 는 안전장치다. 서버가 `hasMore` 를 잘못 주거나 커서가 제자리를 돌면 무한히
+  /// 요청하게 된다.
+  Future<void> jumpToDate(DateTime localDate, {int maxPages = 40}) async {
+    final target = DateTime(localDate.year, localDate.month, localDate.day);
+    state = state.copyWith(clearJumpNotice: true, clearJumpTarget: true);
+
+    var pages = 0;
+    while (_firstSeqOn(target) == null &&
+        state.hasMore &&
+        pages < maxPages) {
+      // 이미 받은 것보다 최신 날짜를 골랐다면 더 받아도 나오지 않는다.
+      final oldest = state.oldestLocalDate;
+      if (oldest != null && oldest.isBefore(target)) {
+        break;
+      }
+      state = state.copyWith(isJumping: true);
+      final before = state.messages.length;
+      await loadOlder();
+      pages++;
+      // 더 받았는데 늘지 않으면 커서가 제자리다. 여기서 끊지 않으면 maxPages 까지 헛돈다.
+      if (state.messages.length == before) {
+        break;
+      }
+    }
+
+    final seq = _firstSeqOn(target);
+    if (seq == null) {
+      state = state.copyWith(
+        isJumping: false,
+        jumpNotice: _noticeFor(target),
+        clearJumpTarget: true,
+      );
+      return;
+    }
+    state = state.copyWith(
+      isJumping: false,
+      jumpTargetSeq: seq,
+      clearJumpNotice: true,
+    );
+  }
+
+  /// 화면이 이동을 마친 뒤 부른다. 비우지 않으면 목록이 다시 그려질 때마다 같은 자리로 끌려간다.
+  void clearJumpTarget() {
+    if (state.jumpTargetSeq != null) {
+      state = state.copyWith(clearJumpTarget: true);
+    }
+  }
+
+  void clearJumpNotice() {
+    if (state.jumpNotice != null) {
+      state = state.copyWith(clearJumpNotice: true);
+    }
+  }
+
+  /// 그 날짜의 **첫** 발화 seq 다. messages 는 최신순이므로 뒤에서부터 찾으면 그 날의 처음이다.
+  int? _firstSeqOn(DateTime target) {
+    int? found;
+    for (final message in state.messages) {
+      final local = message.createdAt.toLocal();
+      if (local.year == target.year &&
+          local.month == target.month &&
+          local.day == target.day) {
+        found = message.seq;
+      }
+    }
+    return found;
+  }
+
+  String _noticeFor(DateTime target) {
+    final label = '${target.month}월 ${target.day}일';
+    final oldest = state.oldestLocalDate;
+    if (oldest != null && target.isBefore(oldest) && !state.hasMore) {
+      return '$label 에는 대화가 없어요. 가장 오래된 대화는 ${oldest.month}월 ${oldest.day}일이에요.';
+    }
+    return '$label 에는 나눈 대화가 없어요.';
   }
 
   String _messageFor(Object error) {

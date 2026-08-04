@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/conversation/application/conversation_controller.dart';
@@ -23,29 +24,38 @@ class ConversationPage extends ConsumerStatefulWidget {
 }
 
 class _ConversationPageState extends ConsumerState<ConversationPage> {
-  final _scrollController = ScrollController();
+  /// 인덱스로 옮길 수 있는 컨트롤러다. `ScrollController` 는 픽셀 오프셋만 받는데, 말풍선 높이가
+  /// 글 길이마다 달라 "그 날 첫 발화" 의 오프셋을 계산할 수 없다.
+  final _itemScrollController = ItemScrollController();
+  final _itemPositionsListener = ItemPositionsListener.create();
   String? _requestedPlantId;
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
+    _itemPositionsListener.itemPositions.addListener(_onPositionsChanged);
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _itemPositionsListener.itemPositions.removeListener(_onPositionsChanged);
     super.dispose();
   }
 
-  /// `reverse: true` 목록이라 **끝(maxScrollExtent)이 화면 위쪽**이다. 위로 올릴수록 이 값에
-  /// 가까워지므로, 남은 거리가 짧아지면 이전 대화를 미리 받는다.
-  void _onScroll() {
-    if (!_scrollController.hasClients) {
+  /// 목록의 끝(가장 오래된 쪽)이 보이기 시작하면 이전 대화를 미리 받는다.
+  ///
+  /// `reverse: true` 라 화면 위쪽이 큰 인덱스다. 보이는 것 중 가장 큰 인덱스가 마지막 항목에
+  /// 가까워지면 더 받는다.
+  void _onPositionsChanged() {
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) {
       return;
     }
-    final position = _scrollController.position;
-    if (position.maxScrollExtent - position.pixels < 300) {
+    final lastVisible = positions
+        .map((position) => position.index)
+        .reduce((a, b) => a > b ? a : b);
+    final state = ref.read(conversationControllerProvider);
+    if (lastVisible >= state.messages.length - 3) {
       ref.read(conversationControllerProvider.notifier).loadOlder();
     }
   }
@@ -53,6 +63,37 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   @override
   Widget build(BuildContext context) {
     final robots = ref.watch(robotsProvider);
+    final state = ref.watch(conversationControllerProvider);
+
+    // 이동 대상이 정해지면 그 자리로 옮긴다. 목록이 그려진 뒤여야 하므로 프레임 뒤로 미룬다.
+    final targetSeq = state.jumpTargetSeq;
+    if (targetSeq != null) {
+      final index = state.messages.indexWhere((m) => m.seq == targetSeq);
+      if (index >= 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_itemScrollController.isAttached) {
+            return;
+          }
+          // alignment 0 이면 그 항목이 뷰포트 시작(reverse 이므로 화면 위쪽)에 붙는다.
+          // 고른 날짜의 첫 발화가 위에 오고, 아래로 내리면 그 뒤 날짜가 이어진다.
+          _itemScrollController.jumpTo(index: index, alignment: 0);
+          ref.read(conversationControllerProvider.notifier).clearJumpTarget();
+        });
+      }
+    }
+
+    final notice = state.jumpNotice;
+    if (notice != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(notice)));
+        ref.read(conversationControllerProvider.notifier).clearJumpNotice();
+      });
+    }
 
     return Scaffold(
       key: const Key('conversation_page'),
@@ -63,6 +104,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           key: const Key('conversation_back'),
           onPressed: () => returnFromSharedPage(context, fallbackLocation: '/'),
         ),
+        actions: [
+          IconButton(
+            key: const Key('conversation_calendar_button'),
+            tooltip: '날짜로 이동',
+            // 대화가 없으면 옮길 자리가 없다.
+            onPressed: state.messages.isEmpty || state.isJumping
+                ? null
+                : () => _pickDate(state),
+            icon: const Icon(Icons.calendar_month_outlined),
+          ),
+        ],
       ),
       backgroundColor: AppColors.surfaceLow,
       body: SafeArea(
@@ -86,12 +138,38 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             _ensureLoaded(assigned.assignedPlantId!);
             return _ConversationBody(
               robot: assigned,
-              scrollController: _scrollController,
+              itemScrollController: _itemScrollController,
+              itemPositionsListener: _itemPositionsListener,
             );
           },
         ),
       ),
     );
+  }
+
+  Future<void> _pickDate(ConversationState state) async {
+    final newest = state.newestLocalDate ?? DateTime.now();
+    // 하한은 "받아 둔 가장 오래된 날" 이 아니라 그보다 넉넉히 잡는다. 더 오래된 대화는 아직
+    // 안 받았을 뿐 존재할 수 있고, 고르면 컨트롤러가 거슬러 받는다. 없으면 안내가 뜬다.
+    final first = state.hasMore
+        ? DateTime(newest.year - 2, newest.month, newest.day)
+        : (state.oldestLocalDate ?? newest);
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: newest,
+      firstDate: first,
+      lastDate: newest,
+      helpText: '날짜 선택',
+      // 달력을 먼저 보여준다. 연·월·일을 눌러 고르는 흐름이 자연스럽다.
+      initialEntryMode: DatePickerEntryMode.calendar,
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    await ref
+        .read(conversationControllerProvider.notifier)
+        .jumpToDate(picked);
   }
 
   /// 로봇 목록이 온 뒤에야 식물을 알 수 있어 build 에서 시작한다. 같은 식물로 두 번 부르지
@@ -110,11 +188,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 class _ConversationBody extends ConsumerWidget {
   const _ConversationBody({
     required this.robot,
-    required this.scrollController,
+    required this.itemScrollController,
+    required this.itemPositionsListener,
   });
 
   final ManagedRobot robot;
-  final ScrollController scrollController;
+  final ItemScrollController itemScrollController;
+  final ItemPositionsListener itemPositionsListener;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -141,9 +221,47 @@ class _ConversationBody extends ConsumerWidget {
     }
 
     final messages = state.messages;
-    return ListView.builder(
+    return Stack(
+      children: [
+        _buildList(state, messages),
+        // 날짜로 이동하는 동안은 여러 페이지를 이어 받으므로 진행을 알려야 한다.
+        if (state.isJumping)
+          const Positioned.fill(
+            child: ColoredBox(
+              color: Color(0x66000000),
+              child: Center(
+                child: Card(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
+                        SizedBox(width: 12),
+                        Text('그날 대화를 찾는 중이에요'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildList(
+    ConversationState state,
+    List<ConversationMessage> messages,
+  ) {
+    return ScrollablePositionedList.builder(
       key: const Key('conversation_list'),
-      controller: scrollController,
+      itemScrollController: itemScrollController,
+      itemPositionsListener: itemPositionsListener,
       // 채팅은 아래가 최신이다. reverse 로 두면 새 발화가 와도 스크롤이 튀지 않는다.
       reverse: true,
       padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
