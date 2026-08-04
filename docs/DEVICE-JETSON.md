@@ -28,6 +28,7 @@
 | **수동 주행 수신 (`command/drive`)** | 🔴 **없음** | 🔴 같은 이유로 무시 — 지도 없이 바퀴를 시험할 수 있는 유일한 통로다 |
 | 로봇 행동 상태 발행 | ✅ 코드 있음 | 🔴 서버에 데이터 없음 (`current_state` 갱신 안 됨) |
 | 배터리 발행 | ✅ 코드 있음 | 🔴 서버에 데이터 없음 (`battery_percent` NULL) |
+| **대화 이력 저장** | 🟡 서버만 (section 11-1) | 🔴 젯슨 로컬 JSON 하나뿐 — 재이미징하면 사라지고, 종료를 안 누른 대화는 이미 유실 중 |
 
 ### 🔴 가장 중요한 공백 — `command/navigate`
 
@@ -592,6 +593,97 @@ GET http://i15e104.p.ssafy.io/api/v1/device/sensors/current
 
 ---
 
+## 11-1. LLM 대화 이력 저장·복원 — HTTP (✅ 서버 구현됨, 젯슨 연동 필요)
+
+지금 대화 이력은 젯슨 로컬 JSON(`src/potner_llm/data/conversation_history.json`) 하나뿐이다.
+**기기를 다시 이미징하면 사라지고, 앱은 대화를 볼 곳이 없다.** 그 저장소를 서버로 옮기는 경로다.
+
+인증은 센서 조회와 같은 `X-Device-Token` 이고, **어느 식물인지도 서버가 토큰 → 로봇 → 활성
+배정 순으로 정한다.** `sessionKey` 는 한 기기 안에서 갈래를 나누는 이름일 뿐 소유권 근거가
+아니다 — 그걸로 대상을 지정할 수 있으면 토큰 하나로 남의 대화를 읽거나 덮어쓸 수 있다.
+
+### 🔴 턴 단위로 보낸다 — 지금 방식과 다른 점
+
+현재 `ConversationBackend` 는 `save(session_id, 전체목록)` 으로 **대화가 끝날 때 이력 전체를
+통째로** 올린다. 결함이 둘이다.
+
+1. `_restore_history()` 가 저장된 것을 전부 불러와 이어 붙이므로, 세션이 쌓일수록 올려보내는
+   양이 계속 커진다. 30일차에는 1일차 대화까지 다시 올라간다.
+2. `end_conversation()` 을 부를 때만 저장한다. 폰에서 **종료를 누르지 않고 브라우저를 닫거나
+   로봇 전원이 꺼지면 그 대화가 통째로 사라진다.** 메모리에만 있었기 때문이다.
+
+턴이 끝날 때마다 두 줄만 보내면 둘 다 없어진다. 페이로드가 상수 크기이고, 말한 것까지는 남는다.
+
+### 저장 — 한 턴
+
+```
+POST http://i15e104.p.ssafy.io/api/v1/device/conversations/turns
+X-Device-Token: <uploadToken>
+{"sessionKey":"potner-01","userText":"지금 온도 어때?","assistantText":"22도야, 딱 좋아!"}
+```
+
+| 항목 | 값 |
+|---|---|
+| `sessionKey` | `llm.yaml` 의 `conversation.session_id`. 최대 100자 |
+| `userText` `assistantText` | 각 최대 2000자 |
+| 성공 | **200 OK** — 바디는 저장 직후의 최근 발화 목록 |
+
+**갈래를 미리 만들 필요가 없다.** 없으면 첫 발화에서 서버가 만든다.
+
+**배정된 식물이 없어도 저장된다.** 식물을 붙이기 전에 대화를 시험할 수 있어야 하고, 그때 나눈
+말을 버릴 이유가 없다. 다만 앱의 식물별 조회에서는 빠진다.
+
+### 복원 — 최근 발화
+
+```
+GET http://i15e104.p.ssafy.io/api/v1/device/conversations/messages?sessionKey=potner-01
+X-Device-Token: <uploadToken>
+```
+
+```json
+{"conversationId":"...","plantId":"...",
+ "messages":[{"seq":0,"role":"user","content":"...","createdAt":"..."},
+             {"seq":1,"role":"assistant","content":"...","createdAt":"..."}],
+ "nextBeforeSeq":0,"hasMore":false}
+```
+
+- **`messages` 는 오래된 것부터다.** `role` 도 소문자라 `ChatMessage` 목록에 그대로 넣을 수 있다.
+- 전체를 주지 않는다. 기본 40개(`potner.conversation.device-restore-size`)이고 `size` 로
+  조절한다. 프롬프트에는 `max_history_turns`(기본 10턴)만 쓰이므로 이보다 크게 받을 이유가 없다.
+- 더 오래된 것이 필요하면 `nextBeforeSeq` 를 `beforeSeq` 에 넣어 다시 부른다. `hasMore` 가
+  `false` 면 더 없다.
+- **대화가 없으면 빈 목록이다(404 아님).** 첫 대화를 시작하는 로봇이 정상 흐름과 장애를
+  구분해야 하는 상황을 만들지 않는다.
+
+`seq` 는 갈래 안에서 0 부터 늘어난다. 같은 턴을 다시 보내도 서버의 UNIQUE 제약이 중복을 막는다.
+
+| 코드 | 뜻 | 대응 |
+|---|---|---|
+| 200 | 성공 | |
+| 400 | `sessionKey` 누락, 글자 수 초과 | 요청을 고쳐야 한다. 재시도 무의미 |
+| 401 `INVALID_DEVICE_TOKEN` | 토큰 누락·오류·해제된 로봇 | 재발급 필요. 재시도 무의미 |
+
+### 젯슨 쪽에 필요한 변경
+
+`ConversationBackend` 프로토콜에 **덧붙이기**를 더하면 된다. 지금은 `load`/`save` 둘뿐인데
+`save` 의 "전체 덮어쓰기" 시그니처가 위 두 결함의 뿌리다.
+
+```python
+class ConversationBackend(Protocol):
+    def load(self, session_id): ...
+    def save(self, session_id, messages): ...
+    def append_turn(self, session_id, user_text, assistant_text): ...   # 추가
+```
+
+`DialogueService.chat_once()` 가 `_remember_turn()` 뒤에 `append_turn()` 을 부르면
+`end_conversation()` 을 기다리지 않고 저장된다. `HttpConversationBackend` 는 이미 있으므로
+URL 과 헤더만 이 계약으로 맞추면 된다.
+
+**서버 장애로 대화가 멈추면 안 된다.** 지금 `HttpConversationBackend` 가 예외를 삼키고 로그만
+남기는 방침을 그대로 유지한다 — 저장 실패가 로봇의 말문을 막을 이유가 없다.
+
+---
+
 ## 12. 안 될 때 — 로그 문구로 원인 찾기
 
 ```bash
@@ -652,10 +744,11 @@ GET /api/v1/plants/{plantId}/devices
 | 🔴 2 | **`command/drive` 수신** (section 6-1) — 회신이 없어 `navigate` 보다 훨씬 작다. 지도 없이 바퀴·`cmd_vel` 배선을 검증할 수 있어 1번의 디딤돌이 된다 |
 | 🔴 3 | **`mission_manager` 자율 임무 끄기** — 서버 명령과 충돌한다 |
 | 🔴 4 | **하트비트 안정화** — 지금 간헐적이라 앱에 OFFLINE 으로 보인다 |
-| 🟡 5 | **`status/state` 발행** — 급수 중 표정이 `VERY_HAPPY` 로 바뀌는 연출이 여기 달려 있다 |
-| 🟡 6 | **`status/battery` 발행** — 앱 장치 관리의 배터리 표시 |
-| ⚪ 7 | 조도 센서를 젯슨으로 이설 검토 — 일광 이동이 의미대로 동작하게 된다 |
-| ⚪ 8 | 귀가 마중 실기 검증 |
+| 🟡 5 | **대화 이력 저장 연동** (section 11-1) — 서버는 붙었다. 지금은 젯슨 로컬 JSON 하나뿐이라 기기를 다시 이미징하면 사라지고, 종료를 안 누르고 닫은 대화는 이미 사라지고 있다 |
+| 🟡 6 | **`status/state` 발행** — 급수 중 표정이 `VERY_HAPPY` 로 바뀌는 연출이 여기 달려 있다 |
+| 🟡 7 | **`status/battery` 발행** — 앱 장치 관리의 배터리 표시 |
+| ⚪ 8 | 조도 센서를 젯슨으로 이설 검토 — 일광 이동이 의미대로 동작하게 된다 |
+| ⚪ 9 | 귀가 마중 실기 검증 |
 
 ---
 
