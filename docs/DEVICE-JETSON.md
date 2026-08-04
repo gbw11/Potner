@@ -415,7 +415,52 @@ potner/device/jetson-01/result/welcome_cancel
 
 ---
 
-## 11. 안 될 때 — 로그 문구로 원인 찾기
+## 11. 센서 최신값 조회 — HTTP (✅ 서버 구현됨)
+
+젯슨의 대화 LLM 이 "지금 온도/습도 어때?" 에 실측값으로 답할 때 쓴다. 라즈베리가 잰
+온습도를 포함해 서버가 plant 단위로 합쳐 주므로 어느 장치가 쟀는지는 무관하다.
+
+```
+GET http://i15e104.p.ssafy.io/api/v1/device/sensors/current
+```
+
+| 항목 | 값 |
+|---|---|
+| 인증 헤더 | **`X-Device-Token: <uploadToken>`** — 사진 업로드와 **같은 토큰** |
+| 요청 바디·파라미터 | 없음 |
+| 성공 | **200 OK** |
+
+**`plantId` 를 보내지 않는다.** 사진 업로드와 동일하게 서버가 토큰 → 로봇 → 활성 배정
+순으로 식물을 정한다.
+
+응답은 사용자용 `GET /api/v1/plants/{plantId}/sensors/current` 와 같은 형식이다.
+시각은 모두 UTC, 4종 센서가 측정값이 없어도 항상 이 순서로 온다:
+
+```json
+{"plantId":"...","sensors":[
+ {"sensorType":"TEMPERATURE","unit":"CELSIUS","value":23.5,"measuredAt":"...",
+  "status":"NORMAL","thresholdMin":21.0,"thresholdMax":27.0},
+ {"sensorType":"HUMIDITY", ...},
+ {"sensorType":"SOIL_MOISTURE", ...},
+ {"sensorType":"ILLUMINANCE","status":"NOT_APPLICABLE", ...}]}
+```
+
+`status`: `NORMAL`/`LOW`/`HIGH`(프로필 기준 판정), `NO_DATA`(측정값 없음),
+`STALE`(15분 넘게 새 값 없음 — 옛 값으로 판정하지 않음), `NOT_APPLICABLE`(조도는 순간값 판정 안 함).
+
+| 코드 | 뜻 | 대응 |
+|---|---|---|
+| 200 | 성공 | |
+| 401 `INVALID_DEVICE_TOKEN` | 토큰 누락·오류·해제된 로봇 | 재발급 필요. 재시도 무의미 |
+| 404 `PLANT_ASSIGNMENT_NOT_FOUND` | 배정된 식물 없음 | 앱에서 배정. 재시도 무의미 |
+
+젯슨 쪽 연동은 `potner_llm` 의 `SpringSensorSource` 가 이미 지원한다 — `llm.yaml` 의
+`sensor:` 섹션에 `source: spring`, 이 URL, `token_header: X-Device-Token`, `token_env`
+(값은 .env 의 uploadToken) 만 채우면 된다.
+
+---
+
+## 12. 안 될 때 — 로그 문구로 원인 찾기
 
 ```bash
 docker logs --since 5m potner-infra-test-backend-1 2>&1 \
@@ -451,7 +496,7 @@ GET /api/v1/plants/{plantId}/devices
 
 ---
 
-## 12. 남은 작업 정리
+## 13. 남은 작업 정리
 
 | 우선순위 | 작업 |
 |---|---|
