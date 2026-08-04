@@ -11,6 +11,7 @@ import 'package:potner_app/features/command/domain/command_models.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
+import 'package:potner_app/features/plant/data/plant_repository_impl.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 
 final robotsProvider = FutureProvider.autoDispose<List<ManagedRobot>>((ref) {
@@ -367,6 +368,13 @@ class _DeviceCommandDebugPanelState
                   ),
               ],
             ),
+            const Divider(height: 26),
+            const Text(
+              '푸시 — 폰으로 바로 나갑니다',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            _RepottingReminderButton(plantId: assigned.assignedPlantId!),
           ],
           const SizedBox(height: 8),
           const Text(
@@ -375,6 +383,63 @@ class _DeviceCommandDebugPanelState
             style: TextStyle(color: AppColors.textMuted, fontSize: 11),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 분갈이 안내 푸시를 손으로 한 번 보낸다.
+///
+/// 장치 명령이 아니라 서버가 폰으로 보내는 알림이라 회신을 기다릴 것이 없다. 그래서
+/// [DeviceCommandDebugController] 의 상태를 쓰지 않고 자기 상태만 갖는다 — 진행 중인 명령
+/// 폴링을 이 발송이 끊어서도 안 된다.
+///
+/// 시기 판정은 서버가 하지 않고 이력도 남기지 않으므로 누를 때마다 나간다.
+class _RepottingReminderButton extends ConsumerStatefulWidget {
+  const _RepottingReminderButton({required this.plantId});
+
+  final String plantId;
+
+  @override
+  ConsumerState<_RepottingReminderButton> createState() =>
+      _RepottingReminderButtonState();
+}
+
+class _RepottingReminderButtonState
+    extends ConsumerState<_RepottingReminderButton> {
+  bool _sending = false;
+
+  Future<void> _send() async {
+    setState(() => _sending = true);
+    String message;
+    try {
+      await ref
+          .read(plantRepositoryProvider)
+          .sendRepottingReminder(widget.plantId);
+      message = '분갈이 알림을 보냈어요. 폰의 알림을 확인해 주세요.';
+    } catch (error) {
+      message = plantErrorMessage(error, '분갈이 알림을 보내지 못했습니다.');
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _sending = false);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        key: const Key('device_repotting_reminder_debug'),
+        // 테마가 minimumSize 를 Size.fromHeight(56) 으로 둬서 기본값이면 가로를 꽉 채운다.
+        style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+        onPressed: _sending ? null : _send,
+        icon: const Icon(Icons.yard_outlined),
+        label: Text(_sending ? '보내는 중…' : '분갈이 알림'),
       ),
     );
   }
@@ -702,15 +767,19 @@ class _RobotCard extends ConsumerWidget {
     }
   }
 
+  /// 서버는 행을 지우지 않고 해제 시각만 남긴다. 측정 이력은 원래 식물에 그대로 있고, 해제된
+  /// 코드는 곧바로 다시 등록할 수 있다. 그래서 "삭제" 가 아니라 "해제" 로 말한다 — 영구 삭제로
+  /// 읽히면 사용자가 되돌릴 수 없다고 오해한다.
   Future<void> _confirmAndDelete(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('디바이스 삭제'),
+        title: const Text('기기 해제'),
         content: Text(
-          '${robot.name}을(를) 삭제하면 연결된 장치와 식물 배정 정보를 더 이상 사용할 수 없어요. '
-          '정말 삭제할까요?',
+          '${robot.name}의 연결을 해제하면 하위 장치와 식물 배정이 함께 풀려요. '
+          '지금까지 쌓인 측정 기록은 그대로 남고, 같은 코드로 다시 등록할 수 있어요.\n\n'
+          '등록해 둔 위치와 좌표는 따라오지 않으니 다시 입력해야 해요.',
         ),
         actions: [
           TextButton(
@@ -722,7 +791,7 @@ class _RobotCard extends ConsumerWidget {
             key: const Key('delete_robot_confirm'),
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('삭제'),
+            child: const Text('해제'),
           ),
         ],
       ),
@@ -738,7 +807,7 @@ class _RobotCard extends ConsumerWidget {
       }
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('${robot.name}을(를) 삭제했어요.')));
+        ..showSnackBar(SnackBar(content: Text('${robot.name}의 연결을 해제했어요.')));
     } catch (error) {
       if (!context.mounted) {
         return;
@@ -747,7 +816,7 @@ class _RobotCard extends ConsumerWidget {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(plantErrorMessage(error, '디바이스를 삭제하지 못했습니다.')),
+            content: Text(plantErrorMessage(error, '기기를 해제하지 못했습니다.')),
           ),
         );
     } finally {

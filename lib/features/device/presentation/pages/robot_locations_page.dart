@@ -13,7 +13,7 @@ final robotLocationsProvider = FutureProvider.autoDispose
       return ref.watch(deviceRepositoryProvider).getRobotLocations(robotId);
     });
 
-/// 로봇 위치 설정이다. 급수 스테이션·대기 장소·햇빛 자리·마중 지점을
+/// 로봇 위치 설정이다. 스테이션·대기 장소·햇빛 자리·마중 지점을
 /// 등록하고 RViz 에서 읽은 좌표를 입력한다.
 class RobotLocationsPage extends ConsumerWidget {
   const RobotLocationsPage({required this.robotId, super.key});
@@ -371,13 +371,14 @@ class _StationCodeDialogState extends State<_StationCodeDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('급수 스테이션 등록'),
+      title: const Text('스테이션 등록'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            '스테이션 기기의 고유번호를 입력해 주세요.\n물 부족 보고가 이 코드로 연결돼요.',
+            '급수·촬영·송풍을 하는 스테이션의 고유번호를 입력해 주세요.\n'
+            '물 부족 보고가 이 코드로 연결돼요.',
             style: TextStyle(color: AppColors.textMuted, height: 1.5),
           ),
           const SizedBox(height: 14),

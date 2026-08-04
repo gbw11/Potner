@@ -186,8 +186,10 @@ class _SignupPageState extends ConsumerState<SignupPage> {
           ),
         ),
       ),
-      footer: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      // 로그인 화면과 같은 이유로 Wrap 이다. 글꼴을 키우면 한 줄에 안 들어간다.
+      footer: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Text('이미 계정이 있으신가요?', style: Theme.of(context).textTheme.bodyMedium),
           TextButton(

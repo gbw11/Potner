@@ -46,6 +46,11 @@ class PlantRepositoryImpl implements PlantRepository {
   }
 
   @override
+  Future<void> sendRepottingReminder(String plantId) {
+    return _api.sendRepottingReminder(plantId);
+  }
+
+  @override
   Future<PlantDetail> getPlantDetail(String plantId) {
     return _api.getPlantDetail(plantId);
   }

@@ -15,6 +15,27 @@ final alertsProvider = FutureProvider.autoDispose<List<PlantAlert>>((ref) {
   return ref.watch(alertRepositoryProvider).getAlerts();
 });
 
+/// 사용자가 화면에서 치운 알림이다.
+///
+/// 서버에 삭제 API 가 없다 — 목록 조회와 읽음 처리뿐이다. 그래서 지우는 대신 감추고 읽음으로
+/// 표시한다. 앱을 다시 켜면 돌아온다. 서버에 그대로 남아 있기 때문인데, 알림은 놓치면 안 되는
+/// 것이라 영구히 사라지는 것보다 이 편이 안전하다.
+///
+/// autoDispose 를 걸지 않는다. 알림 화면을 나갔다 들어올 때마다 치운 것이 되살아나면 치운
+/// 의미가 없다.
+final dismissedAlertIdsProvider =
+    NotifierProvider<DismissedAlertIds, Set<String>>(DismissedAlertIds.new);
+
+class DismissedAlertIds extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => const {};
+
+  void dismiss(String alertId) => state = {...state, alertId};
+
+  /// 잘못 치운 것을 되돌린다. 스와이프는 눌러서 확인하는 동작이 없어 오조작이 쉽다.
+  void restore(String alertId) => state = {...state}..remove(alertId);
+}
+
 /// 알림 화면이다. 진행 중인 이상, 개화 소식, 지나간 알림 이력을 한눈에 보여 준다.
 class AlertsPage extends ConsumerWidget {
   const AlertsPage({super.key});
@@ -65,10 +86,35 @@ class AlertsPage extends ConsumerWidget {
             ),
           ),
           data: (items) {
-            final active = items
+            // 치우는 처리를 화면 쪽에서 한다. 카드는 밀려 나가면서 트리에서 빠지므로 그쪽
+            // ref 로는 되돌리기를 처리할 수 없다.
+            void dismiss(PlantAlert alert) {
+              final dismissals = ref.read(dismissedAlertIdsProvider.notifier);
+              dismissals.dismiss(alert.alertId);
+              // 치운 것은 확인한 것으로 본다. 목록에서 사라졌는데 안 읽음으로 남아 홈의
+              // 배지가 계속 켜져 있으면 사용자는 무엇이 남았는지 찾을 수 없다.
+              _markAlertRead(ref, alert);
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  SnackBar(
+                    content: const Text('알림을 치웠어요.'),
+                    action: SnackBarAction(
+                      label: '되돌리기',
+                      onPressed: () => dismissals.restore(alert.alertId),
+                    ),
+                  ),
+                );
+            }
+
+            final dismissed = ref.watch(dismissedAlertIdsProvider);
+            final visible = items.where(
+              (alert) => !dismissed.contains(alert.alertId),
+            );
+            final active = visible
                 .where((alert) => alert.active)
                 .toList(growable: false);
-            final history = items
+            final history = visible
                 .where((alert) => !alert.active)
                 .toList(growable: false);
             final bloomItems = blooms.whenOrNull(data: (data) => data) ?? [];
@@ -110,7 +156,11 @@ class AlertsPage extends ConsumerWidget {
                       title: '이상 알림',
                     ),
                     for (final alert in active) ...[
-                      _ActiveAlertCard(alert: alert),
+                      _DismissibleAlert(
+                        alert: alert,
+                        onDismissed: () => dismiss(alert),
+                        child: _ActiveAlertCard(alert: alert),
+                      ),
                       const SizedBox(height: 12),
                     ],
                     const SizedBox(height: 10),
@@ -134,7 +184,11 @@ class AlertsPage extends ConsumerWidget {
                       title: '알림 이력',
                     ),
                     for (final alert in history) ...[
-                      _HistoryAlertCard(alert: alert),
+                      _DismissibleAlert(
+                        alert: alert,
+                        onDismissed: () => dismiss(alert),
+                        child: _HistoryAlertCard(alert: alert),
+                      ),
                       const SizedBox(height: 12),
                     ],
                   ],
@@ -174,6 +228,44 @@ Future<void> _markAlertRead(WidgetRef ref, PlantAlert alert) async {
   }
   ref.invalidate(alertsProvider);
   ref.invalidate(homeControllerProvider);
+}
+
+/// 왼쪽으로 밀어 알림을 치운다.
+///
+/// 서버에서 지우는 것이 아니라 감추고 읽음으로 표시하는 것이다. 오른쪽으로 미는 방향은 두지
+/// 않는다 — 방향마다 다른 뜻을 주면 어느 쪽이 무엇인지 기억해야 한다.
+///
+/// 치우는 동작을 자기가 하지 않고 [onDismissed] 로 받는다. 밀려 나간 순간 이 위젯은 트리에서
+/// 빠지므로, 여기서 잡은 `ref` 로 스낵바의 되돌리기를 처리하면 이미 해제된 ref 를 쓰게 된다.
+class _DismissibleAlert extends StatelessWidget {
+  const _DismissibleAlert({
+    required this.alert,
+    required this.onDismissed,
+    required this.child,
+  });
+
+  final PlantAlert alert;
+  final VoidCallback onDismissed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dismissible(
+      key: ValueKey('alert_dismiss_${alert.alertId}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 22),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceLow,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Icon(Icons.check_rounded, color: AppColors.textMuted),
+      ),
+      onDismissed: (_) => onDismissed(),
+      child: child,
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -350,6 +442,8 @@ class _HistoryAlertCard extends ConsumerWidget {
       AlertMetric.soilMoisture => Icons.water_drop_outlined,
       AlertMetric.dailyLight => Icons.wb_sunny_outlined,
       AlertMetric.photoperiod => Icons.schedule_outlined,
+      AlertMetric.stationWaterLow => Icons.local_drink_outlined,
+      AlertMetric.drainageTray => Icons.delete_outline_rounded,
       AlertMetric.unknown => Icons.notifications_none_rounded,
     };
   }

@@ -28,6 +28,7 @@ import 'package:potner_app/features/plant/presentation/pages/plant_profile_page.
 import 'package:potner_app/features/plant/presentation/pages/plant_registration_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_selection_page.dart';
 import 'package:potner_app/features/plant/presentation/pages/registered_plants_page.dart';
+import 'package:potner_app/features/plant/presentation/pages/repotting_guide_page.dart';
 import 'package:potner_app/features/sensor/presentation/pages/environment_dashboard_page.dart';
 import 'package:potner_app/features/user/presentation/pages/my_page.dart';
 import 'package:potner_app/features/user/presentation/pages/notification_settings_page.dart';
@@ -209,6 +210,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+      // 분갈이 시기 푸시(data.route)가 가리키는 경로다. 탭 밖에 두는 이유는 이 화면이 특정
+      // 식물에 매이지 않는 일반 안내라 탭 어디에서 들어와도 같기 때문이다.
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/repotting',
+        builder: (context, state) => const RepottingGuidePage(),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,

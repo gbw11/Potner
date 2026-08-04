@@ -86,12 +86,17 @@ class SplashPage extends ConsumerWidget {
                                   color: AppColors.primarySoft,
                                 ),
                                 SizedBox(width: 8),
-                                Text(
-                                  '반려식물의 든든한 파트너',
-                                  style: TextStyle(
-                                    color: AppColors.textMuted,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 2,
+                                // Flexible 이라야 글꼴을 키웠을 때 줄을 바꾼다. 없으면
+                                // 자연 너비를 그대로 요구해 304px 안에서 넘친다.
+                                Flexible(
+                                  child: Text(
+                                    '반려식물의 든든한 파트너',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 2,
+                                    ),
                                   ),
                                 ),
                                 SizedBox(width: 8),

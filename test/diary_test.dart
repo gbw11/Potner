@@ -37,6 +37,9 @@ Future<void> _pumpToDiary(WidgetTester tester) async {
 
   await tester.tap(find.byKey(const Key('open_menu_button')));
   await tester.pumpAndSettle();
+  // 메뉴 항목이 늘어나면 화면 밖으로 밀린다. 눌러야 할 것을 먼저 화면 안으로 들인다.
+  await tester.ensureVisible(find.byKey(const Key('menu_item_plant_diary')));
+  await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('menu_item_plant_diary')));
   await tester.pumpAndSettle();
 }

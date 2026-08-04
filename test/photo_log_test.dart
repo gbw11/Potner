@@ -88,6 +88,52 @@ void main() {
     },
   );
 
+  testWidgets('타임랩스는 오래된 사진부터 재생하고 재생용 축소본을 쓴다', (tester) async {
+    // 디자인상 진입점은 성장 비교 화면이다 — 전·후 두 장 아래에서 전체 흐름으로 이어진다.
+    await _pumpToPhotoLog(tester);
+    await tester.tap(find.byKey(const Key('bottom_nav_home')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open_menu_button')));
+    await tester.pumpAndSettle();
+    await _tapMenuItem(tester, 'menu_item_growth_comparison');
+
+    await tester.ensureVisible(
+      find.byKey(const Key('growth_comparison_timelapse')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('growth_comparison_timelapse')));
+    // pumpAndSettle 은 쓸 수 없다. 재생 타이머가 프레임을 계속 예약해서 끝까지 돌아 버린다.
+    // 화면 전환(300ms)만 넘기고 첫 프레임에서 멈춘다.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    // 서버가 오래된 순으로 내려주므로 첫 프레임은 가장 오래된 사진이다.
+    Image frame() => tester.widget<Image>(find.byKey(const Key('timelapse_frame')));
+    expect(
+      (frame().image as NetworkImage).url,
+      'https://images.test/old-play.jpg',
+    );
+    expect(find.text('1 / 2일차'), findsOneWidget);
+
+    // 원본이 아니라 playbackUrl 을 쓴다. 원본은 수 MB 라 연속 재생에서 끊긴다.
+    expect((frame().image as NetworkImage).url, isNot(contains('old.jpg')));
+
+    // 기본 배속은 2x 라 한 프레임이 400ms 다.
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      (frame().image as NetworkImage).url,
+      'https://images.test/new-play.jpg',
+    );
+
+    // 마지막 프레임에서 멈춘다 — 반복하면 가장 최근 모습을 볼 시간이 없다.
+    await tester.pump(const Duration(seconds: 3));
+    expect(
+      (frame().image as NetworkImage).url,
+      'https://images.test/new-play.jpg',
+    );
+    expect(find.text('재생'), findsOneWidget);
+  });
+
   testWidgets('growth comparison shows before and after photos', (
     tester,
   ) async {

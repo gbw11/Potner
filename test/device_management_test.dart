@@ -133,7 +133,9 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('delete_robot_robot-1')));
     await tester.pumpAndSettle();
-    expect(find.text('디바이스 삭제'), findsOneWidget);
+    // 서버가 소프트 해제라 "삭제" 가 아니라 "해제" 로 말한다.
+    expect(find.text('기기 해제'), findsOneWidget);
+    expect(find.textContaining('같은 코드로 다시 등록할 수 있어요'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('delete_robot_confirm')));
     await tester.pumpAndSettle();
