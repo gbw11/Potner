@@ -22,4 +22,14 @@ class AlertRepositoryImpl implements AlertRepository {
   Future<void> markRead(String alertId) {
     return _api.markRead(alertId);
   }
+
+  @override
+  Future<void> dismiss(String alertId) {
+    return _api.dismiss(alertId);
+  }
+
+  @override
+  Future<void> restore(String alertId) {
+    return _api.restore(alertId);
+  }
 }

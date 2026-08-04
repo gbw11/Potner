@@ -7,6 +7,12 @@ class FakeAlertRepository implements AlertRepository {
 
   final List<PlantAlert> alerts;
   final List<String> readAlertIds = [];
+  final List<String> dismissedAlertIds = [];
+  final List<String> restoredAlertIds = [];
+
+  /// 치우기를 실패시킨다. 서버가 모르는 채로 화면에서만 사라지지 않는지 볼 때 쓴다.
+  Object? dismissError;
+  Object? restoreError;
 
   static List<PlantAlert> _defaultAlerts() {
     final now = DateTime.now().toUtc();
@@ -43,5 +49,25 @@ class FakeAlertRepository implements AlertRepository {
   @override
   Future<void> markRead(String alertId) async {
     readAlertIds.add(alertId);
+  }
+
+  @override
+  Future<void> dismiss(String alertId) async {
+    final error = dismissError;
+    if (error != null) {
+      throw error;
+    }
+    dismissedAlertIds.add(alertId);
+    // 서버는 치우기와 함께 읽음도 남긴다.
+    readAlertIds.add(alertId);
+  }
+
+  @override
+  Future<void> restore(String alertId) async {
+    final error = restoreError;
+    if (error != null) {
+      throw error;
+    }
+    restoredAlertIds.add(alertId);
   }
 }

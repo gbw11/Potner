@@ -81,15 +81,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('alert_card_alert-active')), findsNothing);
+    // 서버에 치웠다고 알려야 다시 들어와도 돌아오지 않는다. 앱 메모리에만 감추면 되살아난다.
+    expect(alertRepository.dismissedAlertIds, ['alert-active']);
     // 치운 것은 확인한 것으로 본다. 안 읽음으로 남으면 홈 배지만 켜져 있고 사용자는 무엇이
-    // 남았는지 찾을 수 없다.
+    // 남았는지 찾을 수 없다. 읽음은 서버가 치우기와 함께 남긴다.
     expect(alertRepository.readAlertIds, ['alert-active']);
     expect(find.text('알림을 치웠어요.'), findsOneWidget);
   });
 
+  /// 서버가 모르는 채로 화면에서만 사라지면 사용자는 치웠다고 믿는데 다음 조회에서 되돌아온다.
+  /// 그래서 confirmDismiss 로 응답을 먼저 받고, 거절되면 카드가 제자리로 돌아온다.
+  testWidgets('서버가 치우기를 거절하면 카드가 제자리로 돌아온다', (tester) async {
+    final (alertRepository, _) = await _pumpToAlerts(tester);
+    alertRepository.dismissError = Exception('boom');
+
+    await tester.drag(
+      find.byKey(const Key('alert_card_alert-active')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('alert_card_alert-active')), findsOneWidget);
+    expect(find.textContaining('치우지 못했어요'), findsOneWidget);
+    expect(alertRepository.dismissedAlertIds, isEmpty);
+  });
+
   testWidgets('되돌리기를 누르면 치운 알림이 돌아온다', (tester) async {
     // 스와이프는 눌러서 확인하는 동작이 없어 오조작이 쉽다.
-    await _pumpToAlerts(tester);
+    final (alertRepository, _) = await _pumpToAlerts(tester);
 
     await tester.drag(
       find.byKey(const Key('alert_card_alert-active')),
@@ -100,6 +119,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('alert_card_alert-active')), findsOneWidget);
+    // 서버에도 되돌려야 다음 조회에서 다시 사라지지 않는다.
+    expect(alertRepository.restoredAlertIds, ['alert-active']);
+  });
+
+  /// 되돌리기가 서버에서 실패하면 화면에는 돌아와 있지만 서버에는 치운 채로 남는다. 새로 고치면
+  /// 다시 사라지므로 그 사실을 알려야 한다.
+  testWidgets('되돌리기가 실패하면 새로 고치면 사라진다고 알린다', (tester) async {
+    final (alertRepository, _) = await _pumpToAlerts(tester);
+
+    await tester.drag(
+      find.byKey(const Key('alert_card_alert-active')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+    alertRepository.restoreError = Exception('boom');
+    await tester.tap(find.text('되돌리기'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('alert_card_alert-active')), findsOneWidget);
+    expect(find.textContaining('새로 고치면 다시 사라집니다'), findsOneWidget);
   });
 }
 
