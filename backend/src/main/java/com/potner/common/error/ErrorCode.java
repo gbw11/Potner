@@ -52,6 +52,9 @@ public enum ErrorCode {
     STATION_CODE_ALREADY_REGISTERED(HttpStatus.CONFLICT, "Station code already registered", "이미 등록된 스테이션 코드입니다."),
     INVALID_STATION_CODE(HttpStatus.BAD_REQUEST, "Invalid station code", "스테이션 코드는 급수 스테이션에만, 급수 스테이션에는 반드시 있어야 합니다."),
     INVALID_SENSOR_QUERY_RANGE(HttpStatus.BAD_REQUEST, "Invalid sensor query range", "센서 조회 기간이 유효하지 않습니다."),
+    // 사람이 버튼을 눌러 부른 발송에만 쓴다. 이벤트로 나가는 알림은 대상이 없으면 조용히
+    // 넘어가는 것이 맞다 - 사용자가 껐다는 뜻이지 요청이 실패한 것은 아니다.
+    PUSH_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "Push target not found", "알림을 받을 기기가 없습니다. 알림 수신 설정과 기기 등록을 확인해 주세요."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Invalid request", "요청값이 유효하지 않습니다."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied", "접근 권한이 없습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "서버 오류가 발생했습니다.");
