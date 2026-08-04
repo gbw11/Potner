@@ -56,6 +56,30 @@ class FakeDeviceCommandRepository implements DeviceCommandRepository {
     return List.of(commands);
   }
 
+  final List<({String plantId, DriveDirection direction})> driveCalls = [];
+
+  Object? driveError;
+
+  /// 응답을 늦춘다. 요청이 날아가는 중에도 다음 버튼(특히 정지)이 눌리는지 보려면 겹치는
+  /// 순간을 만들 수 있어야 한다.
+  Duration? driveDelay;
+
+  @override
+  Future<void> drive({
+    required String plantId,
+    required DriveDirection direction,
+  }) async {
+    driveCalls.add((plantId: plantId, direction: direction));
+    final delay = driveDelay;
+    if (delay != null) {
+      await Future<void>.delayed(delay);
+    }
+    final error = driveError;
+    if (error != null) {
+      throw error;
+    }
+  }
+
   final List<({String plantId, PlantExpression expression})> expressionCalls =
       [];
 

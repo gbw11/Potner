@@ -70,6 +70,21 @@ class DeviceCommandApi {
     }
   }
 
+  Future<void> drive({
+    required String plantId,
+    required DriveDirection direction,
+  }) async {
+    try {
+      // 속도와 이동 시간은 보내지 않는다. 서버 설정(potner.drive.*)이 유일한 출처다.
+      await _dio.post<Object?>(
+        'plants/$plantId/drive',
+        data: {'direction': direction.wireName},
+      );
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   DeviceCommandRecord _parseCommand(Object? value) {
     final command = _asMap(value);
     return DeviceCommandRecord(
