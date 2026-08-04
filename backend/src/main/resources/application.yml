@@ -137,6 +137,16 @@ potner:
     # 정상 종료는 과습 알림이 닫히는 것이다. 이 값은 수분 센서 고장으로 팬이 끝없이 도는 것을
     # 막는 안전장치다.
     max-auto-drying-runs-per-day: ${DEVICE_COMMAND_MAX_AUTO_DRYING_RUNS_PER_DAY:6}
+  # 앱의 방향 버튼으로 로봇을 직접 미는 조작이다. 목적지 이동과 달리 지도 좌표를 보지 않으므로
+  # SLAM 지도가 없는 자리에서도 바퀴가 도는지 확인할 수 있다.
+  drive:
+    # 사람 옆에서 움직이는 장치의 속도다. 걸어서 따라잡을 수 있는 값으로 둔다. 앱이 정하지
+    # 않는 이유는 조작하는 쪽이 상한을 올릴 수 있어서는 안 되기 때문이다.
+    linear-mps: ${DRIVE_LINEAR_MPS:0.12}
+    angular-rps: ${DRIVE_ANGULAR_RPS:0.6}
+    # 버튼 한 번에 움직이는 시간(ms). 짧게 끊는 것이 안전장치다 - 앱이 죽거나 와이파이가 끊겨
+    # 정지 명령이 못 나가도 로봇이 이 시간 뒤에는 스스로 멈춘다.
+    step-millis: ${DRIVE_STEP_MILLIS:600}
   arrival:
     # GREETING 도착 뒤 사용자를 기다리는 시간과 이동·대기·HOME 복귀를 합친 전체 상한이다.
     welcome-wait-seconds: ${ARRIVAL_WELCOME_WAIT_SECONDS:120}

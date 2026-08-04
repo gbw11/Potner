@@ -138,6 +138,7 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/command/capture      촬영 명령          파이가 구독 (16절)
   potner/device/<device_uid>/command/fan          송풍 명령          파이가 구독 (16절)
   potner/device/<device_uid>/command/navigate     이동 명령          젯슨이 구독 (16절)
+  potner/device/<device_uid>/command/drive        수동 주행 명령     젯슨이 구독 (16절, 회신 없음)
   potner/device/<device_uid>/command/welcome_start 귀가 마중 시작     젯슨이 구독
   potner/device/<device_uid>/command/welcome_cancel 귀가 마중 취소    젯슨이 구독
 ```
@@ -496,6 +497,8 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
    토양수분 HIGH 알림이 열리면 스테이션으로 데려가 송풍을 반복하고, 마르면 되돌립니다
    (`AutoDryingScheduler`). 이 수신이 없으면 이동만 하고 송풍 단계에서 타임아웃으로 멈춥니다.
 3. **라즈베리: 결과 토픽 두 줄 수정** (16절 경고).
+4. **젯슨: `command/drive` 수신** (16절 계약). 회신이 없어 1번보다 훨씬 작고, 지도 없이
+   바퀴·`cmd_vel` 배선을 검증할 수 있어 1번의 디딤돌이 됩니다.
 
 `GREETING`도 서버 명령으로 결정됐습니다. GPS 전에는 앱의 디버그 버튼이
 `POST /api/v1/arrival/events`를 호출하고, 이후 Android Geofence가 같은 API를 호출합니다.
@@ -879,6 +882,37 @@ capture_result_topic: potner/device/raspberry-01/result/capture
   보냅니다. 실패는 `ERROR` + `error` 문구(예: DOCKING_FAILED, NAVIGATION_FAILED), 이동 중
   새 명령은 `BUSY` 입니다.
 - 자율 임무는 꺼야 합니다(12절). 서버 명령만이 이동의 트리거입니다.
+
+### 수동 주행 명령 — 서버 → 젯슨 (수신 구현 필요, 회신 없음)
+
+앱의 조작 화면에서 방향 버튼을 누르면 나갑니다. **`navigate` 와 다른 토픽이고 `result/` 회신이
+없습니다.**
+
+`navigate` 는 지도 좌표가 있어야 하고 서버는 좌표가 NULL 인 목적지로 발행하지 않으므로,
+**지도를 만들기 전에는 이동을 한 발짝도 시험할 수 없습니다.** 바퀴·모터 드라이버·`cmd_vel`
+배선이 살아 있는지 확인할 통로가 필요해 좌표를 보지 않는 경로를 따로 두었습니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/drive
+{"direction": "FORWARD", "linearMps": 0.12, "angularRps": 0.00,
+ "durationMs": 600, "requestId": "<uuid>"}
+```
+
+- `direction` 은 `FORWARD`/`BACKWARD`/`LEFT`/`RIGHT`/`STOP` 이며 **로그용 이름입니다.**
+  `LEFT`·`RIGHT` 는 제자리 회전이라 `linearMps` 가 0, `STOP` 은 둘 다 0 이므로 **값을 그대로
+  `Twist` 에 옮기면 됩니다** — `direction` 으로 분기할 필요가 없습니다.
+- 부호는 ROS REP-103 입니다. `linearMps` + 가 앞, `angularRps` + 가 반시계(좌회전)입니다.
+- **`durationMs` 가 지나면 스스로 멈춰야 합니다.** 이것이 유일한 안전장치입니다 — 앱이 죽거나
+  와이파이가 끊기면 `STOP` 이 나가지 못하고, 그때 로봇을 세울 수 있는 것은 로봇 자신뿐입니다.
+  `cmd_vel` 을 한 번 발행하고 놓아두면 컨트롤러에 따라 계속 굴러갑니다.
+- 속도는 서버 설정(`potner.drive.*`)이 유일한 출처입니다. 로봇 파라미터에서 읽으면 좌표와 같은
+  문제가 생깁니다. 다만 **하드웨어 상한을 넘는 값은 깎아도 됩니다** — 상한은 로봇만 압니다.
+- `requestId` 는 **QoS 1 중복 수신을 걸러내는 용도입니다.** 같은 값이 두 번 오면 무시하세요.
+  회신이 없으므로 서버는 이 값을 대조하지 않습니다.
+- 회신이 없는 이유: 방향 버튼은 연달아 눌리는 것이 정상인데, 회신을 대조해 확정하는 흐름
+  (`device_command`)에 넣으면 같은 종류의 명령이 대기 중이라며 두 번째 누름부터 409 로 막힙니다.
+  그래서 이력도 남지 않고 서버 로그 `Manual drive published` 가 유일한 흔적입니다.
+- 자율 임무는 여기서도 꺼야 합니다(12절). 수동 주행 중에 자율 임무가 돌면 왕복합니다.
 
 ### 귀가 마중 명령 — 서버 → 젯슨
 
