@@ -147,6 +147,72 @@ class AlertQueryServiceTest {
         assertThat(alert.isRead()).isTrue();
     }
 
+    /**
+     * 목록에서 사라졌는데 안 읽음으로 남으면 홈 배지만 켜져 있고 사용자는 무엇이 남았는지 찾을
+     * 수 없다. 배지는 {@code countByUserIdAndReadAtIsNull} 로 세므로 읽음을 함께 남겨야 빠진다.
+     */
+    @Test
+    void dismissAlsoMarksReadSoTheBadgeDoesNotStayOn() {
+        Alert alert = activeAlert();
+        when(alertRepository.findByIdAndUserId(ALERT_ID, USER_ID)).thenReturn(Optional.of(alert));
+
+        alertQueryService.dismiss(USER_ID, ALERT_ID);
+
+        assertThat(alert.isDismissed()).isTrue();
+        assertThat(alert.isRead()).isTrue();
+    }
+
+    /**
+     * 치우기는 "이상이 해소됨" 이 아니다. resolvedAt 을 건드리면 자동 급수·말리기가 알림을 밀어낸
+     * 것을 해소로 읽어 체인을 다시 시작한다.
+     */
+    @Test
+    void dismissDoesNotResolveTheAlert() {
+        Alert alert = activeAlert();
+        when(alertRepository.findByIdAndUserId(ALERT_ID, USER_ID)).thenReturn(Optional.of(alert));
+
+        alertQueryService.dismiss(USER_ID, ALERT_ID);
+
+        assertThat(alert.getResolvedAt()).isNull();
+        assertThat(alert.isActive()).isTrue();
+    }
+
+    @Test
+    void dismissKeepsTheFirstDismissedAt() {
+        Alert alert = activeAlert();
+        when(alertRepository.findByIdAndUserId(ALERT_ID, USER_ID)).thenReturn(Optional.of(alert));
+
+        alertQueryService.dismiss(USER_ID, ALERT_ID);
+        LocalDateTime first = alert.getDismissedAt();
+        alertQueryService.dismiss(USER_ID, ALERT_ID);
+
+        assertThat(first).isEqualTo(LocalDateTime.of(2026, 7, 26, 0, 40));
+        assertThat(alert.getDismissedAt()).isEqualTo(first);
+    }
+
+    /** 되돌리기는 목록에만 되살린다. 실제로 봤다는 사실은 되돌리기로 사라지지 않는다. */
+    @Test
+    void restoreBringsItBackButKeepsRead() {
+        Alert alert = activeAlert();
+        when(alertRepository.findByIdAndUserId(ALERT_ID, USER_ID)).thenReturn(Optional.of(alert));
+        alertQueryService.dismiss(USER_ID, ALERT_ID);
+
+        alertQueryService.restore(USER_ID, ALERT_ID);
+
+        assertThat(alert.isDismissed()).isFalse();
+        assertThat(alert.isRead()).isTrue();
+    }
+
+    @Test
+    void dismissRejectsAlertOwnedByAnotherUser() {
+        when(alertRepository.findByIdAndUserId(ALERT_ID, USER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> alertQueryService.dismiss(USER_ID, ALERT_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(ErrorCode.ALERT_NOT_FOUND);
+    }
+
     @Test
     void markReadRejectsAlertOwnedByAnotherUser() {
         when(alertRepository.findByIdAndUserId(ALERT_ID, USER_ID)).thenReturn(Optional.empty());

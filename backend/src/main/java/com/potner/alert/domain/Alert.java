@@ -57,6 +57,15 @@ public class Alert {
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
+    /**
+     * 사용자가 목록에서 치운 시각이다. 목록 조회만 이 값을 본다.
+     *
+     * <p>행복도 점수·자동화·일기 생성은 이 값과 무관하게 알림을 읽는다. 치웠다고 지난 점수가
+     * 바뀌거나 급수가 다시 돌면 안 된다 — 그 근거는 V30 마이그레이션 주석에 있다.
+     */
+    @Column(name = "dismissed_at")
+    private LocalDateTime dismissedAt;
+
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -170,12 +179,43 @@ public class Alert {
         }
     }
 
+    /**
+     * 사용자가 목록에서 치웠음을 기록한다. 목록 조회에서만 빠지고 행은 남는다.
+     *
+     * <p>읽음도 함께 남긴다. 목록에서 사라졌는데 안 읽음으로 남으면 홈의 안 읽음 배지만 켜져 있고
+     * 사용자는 무엇이 남았는지 찾을 수 없다.
+     *
+     * <p>{@link #resolve} 와 다른 값이다. 그쪽은 "이상이 해소됨" 이라 자동 급수·말리기가 읽는
+     * 값이고, 이쪽은 "사용자가 치움" 이라 목록 조회만 본다. 재활용하면 알림을 밀어낸 것이 자동화를
+     * 다시 돌린다.
+     */
+    public void dismiss(LocalDateTime dismissedAt) {
+        if (this.dismissedAt == null) {
+            this.dismissedAt = dismissedAt;
+        }
+        markRead(dismissedAt);
+    }
+
+    /**
+     * 치운 것을 되돌린다.
+     *
+     * <p>읽음은 되돌리지 않는다. 사용자가 그 알림을 실제로 봤다는 사실은 되돌리기로 사라지지
+     * 않는다.
+     */
+    public void restore() {
+        this.dismissedAt = null;
+    }
+
     public boolean isActive() {
         return resolvedAt == null;
     }
 
     public boolean isRead() {
         return readAt != null;
+    }
+
+    public boolean isDismissed() {
+        return dismissedAt != null;
     }
 
     public String getId() {
@@ -220,6 +260,10 @@ public class Alert {
 
     public LocalDateTime getReadAt() {
         return readAt;
+    }
+
+    public LocalDateTime getDismissedAt() {
+        return dismissedAt;
     }
 
     public LocalDateTime getCreatedAt() {

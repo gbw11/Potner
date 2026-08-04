@@ -622,7 +622,27 @@ GET    /api/v1/plants/{plantId}/conversations/messages?beforeSeq=&size=
 ```
 GET    /api/v1/alerts?unreadOnly=&activeOnly=&page=&size=
 PATCH  /api/v1/alerts/{alertId}/read               → 204
+PATCH  /api/v1/alerts/{alertId}/dismiss            → 204  목록에서 치우기
+DELETE /api/v1/alerts/{alertId}/dismiss            → 204  치우기 되돌리기
 ```
+
+치우기는 **행을 지우지 않고** `alert.dismissed_at` 을 남깁니다. 목록 조회(`findOwned`)만 이 값을
+보고, 행복도 점수·자동 급수·말리기·일기 생성은 치운 알림도 그대로 읽습니다.
+
+지우면 안 되는 이유가 셋입니다.
+
+1. **행복도 점수가 소급해서 바뀝니다.** `StatusReportService` 는 점수를 저장하지 않고 조회할 때마다
+   그 날짜의 알림을 세어 100 점에서 깎습니다. 알림이 사라지면 지난 날의 점수가 올라갑니다.
+2. **자동화가 다시 돕니다.** 자동 급수·말리기는 해소되지 않은 알림을 보고 트리거되고
+   (`AutoDryingScheduler.dryOnce`), 열린 알림으로 중복 실행을 막습니다. 열린 알림을 지우면 서버는
+   이상이 없었던 것으로 보고 같은 알림을 새로 만들며 체인을 다시 시작합니다.
+3. **그날 일기의 근거가 달라집니다.** `PlantDaySummaryReader` 가 알림을 LLM 근거로 넘깁니다.
+
+`resolved_at` 을 재활용하지 않는 이유도 2번입니다. 그쪽은 "이상이 해소됨" 이라 자동화가 읽는
+값이고, `dismissed_at` 은 "사용자가 목록에서 치움" 입니다.
+
+치우기는 읽음도 함께 남깁니다 — 목록에서 사라졌는데 안 읽음으로 남으면 홈 배지만 켜져 있고
+사용자는 무엇이 남았는지 찾을 수 없습니다. 되돌리기는 읽음을 되돌리지 않습니다.
 
 ### 장치 (X-Device-Token 인증, 사용자 JWT 아님)
 ```

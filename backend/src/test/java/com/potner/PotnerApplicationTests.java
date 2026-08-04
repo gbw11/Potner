@@ -1389,6 +1389,79 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.code").value("ALERT_NOT_FOUND"));
     }
 
+    /**
+     * 앱에서 알림을 밀어 치우면 목록에서만 빠지고 행은 남는다.
+     *
+     * <p>행을 지우면 세 가지가 어긋난다 — 행복도 점수가 소급해 바뀌고(그쪽은
+     * {@code dailyStatusReportScoresThatDaysAlerts} 가 지킨다), 자동 급수·말리기가 해소되지 않은
+     * 알림을 다시 만들어 체인을 재시작하고, 그날 일기의 근거가 달라진다.
+     */
+    @Test
+    void alertDismissHidesFromInboxButKeepsTheRowAndActiveState() throws Exception {
+        SensorFixture fixture = createSensorFixture("alert-dismiss@example.com");
+        Tokens tokens = login("alert-dismiss@example.com");
+        String userId = appUserRepository.findByEmailIgnoreCase("alert-dismiss@example.com")
+                .orElseThrow()
+                .getId();
+        insertAlert(userId, fixture.plantId(), "SOIL_MOISTURE", nowUtc(), false, false);
+        String alertId = jdbcTemplate.queryForObject(
+                "SELECT alert_id FROM alert WHERE user_id = ?", String.class, userId);
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(jsonPath("$.alerts.length()").value(1))
+                .andExpect(jsonPath("$.unreadCount").value(1));
+
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/dismiss", alertId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        // 목록에서 빠진다. 안 읽음 배지도 함께 내려간다 — 목록에 없는데 배지만 켜져 있으면
+        // 사용자는 무엇이 남았는지 찾을 수 없다.
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(jsonPath("$.alerts.length()").value(0))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+
+        // 행은 남고 resolved_at 은 그대로 NULL 이다. 자동 급수·말리기가 이 값을 보므로 치우기가
+        // 여기를 건드리면 알림을 밀어낸 것이 로봇을 다시 움직인다.
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM alert WHERE alert_id = ?", Integer.class, alertId))
+                .isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT resolved_at FROM alert WHERE alert_id = ?",
+                        LocalDateTime.class, alertId))
+                .isNull();
+        LocalDateTime firstDismissedAt = jdbcTemplate.queryForObject(
+                "SELECT dismissed_at FROM alert WHERE alert_id = ?", LocalDateTime.class, alertId);
+        org.assertj.core.api.Assertions.assertThat(firstDismissedAt).isNotNull();
+
+        // 다시 치워도 처음 시각을 유지한다.
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/dismiss", alertId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT dismissed_at FROM alert WHERE alert_id = ?",
+                        LocalDateTime.class, alertId))
+                .isEqualTo(firstDismissedAt);
+
+        // 되돌리면 목록에 다시 나온다. 읽음은 되돌리지 않으므로 배지는 켜지지 않는다.
+        mockMvc.perform(delete("/api/v1/alerts/{alertId}/dismiss", alertId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(jsonPath("$.alerts.length()").value(1))
+                .andExpect(jsonPath("$.alerts[0].read").value(true))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+
+        Tokens stranger = signupAndLogin("alert-dismiss-stranger@example.com");
+        mockMvc.perform(patch("/api/v1/alerts/{alertId}/dismiss", alertId)
+                        .header("Authorization", "Bearer " + stranger.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ALERT_NOT_FOUND"));
+    }
+
     @Test
     void plantCategoryTreeGroupsSpeciesForRegistrationDropdowns() throws Exception {
         Tokens tokens = signupAndLogin("category-tree@example.com");
@@ -2632,6 +2705,15 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.happinessScore").value(95))
                 .andExpect(jsonPath("$.adjustments[*].reason").value(hasItems("BLOOMED")));
 
+        // 사용자가 알림을 목록에서 치워도 그날 점수는 그대로다. 점수는 저장되지 않고 조회할
+        // 때마다 그 날짜의 알림을 세므로, 치우기가 알림을 지우거나 이 조회에서 빠지게 만들면
+        // 지난 점수가 소급해서 올라간다. dismissed_at 을 목록 조회에서만 보는 이유다.
+        dismissAllAlerts(tokens);
+        assertStatusReport(tokens, fixture.plantId(), today)
+                .andExpect(jsonPath("$.happinessScore").value(95))
+                .andExpect(jsonPath("$.adjustments[*].reason")
+                        .value(hasItems("SOIL_MOISTURE_ALERT", "BLOOMED")));
+
         // 알림이 없던 다른 날은 이 식물의 점수에 영향을 주지 않는다.
         assertStatusReport(tokens, fixture.plantId(), today.minusDays(3))
                 .andExpect(jsonPath("$.happinessScore").value(nullValue()));
@@ -3286,6 +3368,15 @@ class PotnerApplicationTests {
                     SensorUnit.LUX,
                     start.plusSeconds(index * 600L)
             );
+        }
+    }
+
+    /** 그 사용자의 알림을 전부 목록에서 치운다. 치우기가 다른 조회에 영향을 주는지 볼 때 쓴다. */
+    private void dismissAllAlerts(Tokens tokens) throws Exception {
+        for (String alertId : jdbcTemplate.queryForList(
+                "SELECT alert_id FROM alert WHERE dismissed_at IS NULL", String.class)) {
+            mockMvc.perform(patch("/api/v1/alerts/{alertId}/dismiss", alertId)
+                    .header("Authorization", "Bearer " + tokens.accessToken()));
         }
     }
 
