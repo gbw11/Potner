@@ -607,6 +607,17 @@ GET    /api/v1/plants/{plantId}/daily-light?days=
 GET    /api/v1/plants/{plantId}/devices
 ```
 
+### 로봇 대화
+```
+GET    /api/v1/plants/{plantId}/conversations/messages?beforeSeq=&size=
+```
+
+시간순(오래된 것부터)이고 스크롤백은 커서(`beforeSeq`) 방식입니다. `page`/`size` 가 아닌 이유는
+대화가 뒤에 계속 붙기 때문입니다 — 스크롤하는 동안 새 발화가 들어오면 offset 이 밀려 같은 발화가
+두 번 보이거나 빠집니다. 응답의 `nextBeforeSeq` 를 다음 요청의 `beforeSeq` 에 넣습니다.
+
+날짜 구분선은 서버가 만들지 않습니다. `createdAt`(UTC)을 보고 앱이 묶습니다.
+
 ### 알림
 ```
 GET    /api/v1/alerts?unreadOnly=&activeOnly=&page=&size=
@@ -617,6 +628,8 @@ PATCH  /api/v1/alerts/{alertId}/read               → 204
 ```
 POST   /api/v1/device/photos                       라즈베리 사진 업로드
 GET    /api/v1/device/sensors/current              젯슨 LLM 센서 최신값 조회
+POST   /api/v1/device/conversations/turns          젯슨 LLM 대화 한 턴 저장
+GET    /api/v1/device/conversations/messages       젯슨 LLM 대화 복원
 ```
 
 ### 기타
