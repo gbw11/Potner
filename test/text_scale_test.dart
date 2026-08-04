@@ -124,6 +124,7 @@ void main() {
     'menu_item_growth_comparison',
     'menu_item_repotting',
     'menu_item_devices',
+    'menu_item_robot_drive',
     'menu_item_alert_history',
     'menu_item_care_settings',
     'menu_item_environment',

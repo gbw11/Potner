@@ -119,6 +119,12 @@ class MenuPage extends ConsumerWidget {
           action: _MenuAction.deviceManagement,
         ),
         _MenuEntry(
+          id: 'robot_drive',
+          label: '로봇 조작',
+          icon: Icons.gamepad_outlined,
+          action: _MenuAction.robotDrive,
+        ),
+        _MenuEntry(
           id: 'logout',
           label: '로그아웃',
           icon: Icons.logout_rounded,
@@ -222,6 +228,8 @@ class MenuPage extends ConsumerWidget {
         context.go(_fromMenu('/devices/register'));
       case _MenuAction.deviceManagement:
         context.go(_fromMenu('/devices'));
+      case _MenuAction.robotDrive:
+        context.go(_fromMenu('/devices/drive'));
       case _MenuAction.careSettings:
         context.go(_fromMenu('/plant-selection/care'));
       case _MenuAction.environment:
@@ -392,6 +400,7 @@ enum _MenuAction {
   registeredPlants,
   deviceRegistration,
   deviceManagement,
+  robotDrive,
   careSettings,
   environment,
   repotting,

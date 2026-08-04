@@ -41,6 +41,14 @@ class DeviceCommandRepositoryImpl implements DeviceCommandRepository {
   }
 
   @override
+  Future<void> drive({
+    required String plantId,
+    required DriveDirection direction,
+  }) {
+    return _api.drive(plantId: plantId, direction: direction);
+  }
+
+  @override
   Future<void> publishExpression({
     required String plantId,
     required PlantExpression expression,
