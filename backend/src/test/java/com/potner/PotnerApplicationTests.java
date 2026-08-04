@@ -2221,8 +2221,10 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.sensors[2].sensorType").value("SOIL_MOISTURE"))
                 .andExpect(jsonPath("$.sensors[2].value").value(45.0))
                 .andExpect(jsonPath("$.sensors[2].status").value("NORMAL"))
+                // 측정값이 아예 없으면 NO_DATA 다. NOT_APPLICABLE 은 측정값이 있는데
+                // 기준값이 없는 경우(조도 순간값 판정 안 함)에만 나온다.
                 .andExpect(jsonPath("$.sensors[3].sensorType").value("ILLUMINANCE"))
-                .andExpect(jsonPath("$.sensors[3].status").value("NOT_APPLICABLE"));
+                .andExpect(jsonPath("$.sensors[3].status").value("NO_DATA"));
     }
 
     @Test
