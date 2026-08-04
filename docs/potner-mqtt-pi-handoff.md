@@ -74,8 +74,42 @@ client_id: `raspberry-01-collector` / `-water` / `-capture` (서버 `potner-back
    서버 급수 명령 → 펌프 가동 → `result/water` 확인.
 2. **노출 확정** — `exposure_value: 0.3` 은 잠정값. 서비스 재시작 후
    `journalctl -u sensor-collector | grep 밝기` 로 평균 120~180 확인, 220 이상이면 더 낮춤.
-3. **서버 규약 확인 2건** — 급수 결과 `SKIPPED` 상태, 촬영 결과 `attempts`/`IMAGE_*` 코드.
+3. ~~서버 규약 확인 2건~~ — **2026-08-04 조사 완료.** 아래 "서버 규약 조사 결과" 절 참고.
+   촬영은 문제없고, **급수 `SKIPPED` 는 서버가 못 받는다(미해결 이슈로 승격)**.
 4. 실패 시 **가이드 7절 로그 문구 표**로 단계 특정 후 보고 (추측 금지).
+
+### 서버 규약 조사 결과 (2026-08-04)
+
+`origin/Server-develop` tip `1c4feba` 소스를 직접 읽어 확인했다. 서버 회신 스키마는
+`command/dto/CommandResultMessage.java` 이고, **javadoc 이 "장치가 회신하는 명령 결과다.
+라즈베리 구현이 기준이며 서버가 그 형식을 따른다" 고 명시**한다 — 규약의 기준은 우리 쪽이다.
+
+**촬영 — 문제 없음.** `@JsonIgnoreProperties(ignoreUnknown = true)` 라 우리가 보내는
+`attempts`·`quality`·`fileName` 처럼 스키마에 없는 필드는 **오류가 아니라 그냥 무시**된다.
+`IMAGE_*` 는 스키마의 `code` 필드로 수용되고, `DeviceCommandResultService::errorMessage()` 가
+`code: error` 형태로 앞에 붙여 진단에 쓴다. 장치 쪽 변경 필요 없음.
+
+**급수 `SKIPPED` — 불일치. 서버가 받지 못한다.**
+
+- `command/domain/DeviceCommandStatus.java::fromDeviceReport()` 의 switch 는
+  `"OK"`/`"ERROR"`/`"BUSY"` **3개만** 처리하고 나머지는 `Optional.empty()` 를 돌려준다
+  (javadoc: "장치가 모르는 값을 보내면 비어 있다 — 조용히 넘기지 않고 걸러낸다").
+- `command/application/DeviceCommandResultService.java` 67~70행이 그걸 받아
+  `CommandResultApplyOutcome.INVALID_STATUS` 로 **조기 반환**한다.
+- 그 결과 `command.applyResult(...)` 가 실행되지 않아 명령이 **비종료 상태로 남고**,
+  이어지는 `DeviceCommandCompletedEvent` 도 발행되지 않는다. 서비스 주석에 그 이벤트가
+  "자동 케어 체인이 다음 단계를 잇는 근거" 라고 적혀 있으므로, **자동 케어 체인이 그 지점에서 끊긴다.**
+
+우리 장치는 과급수 가드(`src/actuators/safety.py::WateringGuard`)가 막을 때마다 `SKIPPED` +
+`skipCode`(`TOO_SOON` 등)를 보낸다 — 추측이 아니라 `docs/loops/LOOP_3.md` **W6 에서 실제
+브로커 왕복으로 실측**한 페이로드다. 즉 서버가 급수 명령을 냈는데 마지막 급수로부터 5분이
+안 지났으면, 지금 구조에서는 그 명령이 서버에서 영원히 안 끝난 채로 남는다.
+
+**조치 방향 (미결 — 서버팀 협의 필요)**: 규약 기준이 장치이고 "가드가 막음" 은 실패(`ERROR`)와
+의미가 다르므로, `SKIPPED` 를 `ERROR` 로 낮춰 우회하지 **않는다**. 서버 enum 에 `SKIPPED` 를
+종료 상태로 추가하는 것이 맞는 방향으로 보이나, 서버 도메인 결정이라 이 브랜치에서 코드를
+바꾸지 않았다. 협의 전까지는 **급수 명령이 가드에 걸리면 서버 쪽 명령이 미종료로 남는다**는 것을
+알고 있을 것.
 
 ### 기대 시작 배너
 

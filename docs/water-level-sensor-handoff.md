@@ -75,8 +75,20 @@
 
 ## 남은 일 / 확인 필요
 
-- [ ] **물받이(두 번째 수위 센서) 미설치** — 원래 티켓 범위, 아직 미착수. 배선/픽 결정 시
-      급수대 센서와 핀 겹치지 않게 주의 (현재 GPIO27 사용 중).
+- [x] ~~**물받이(두 번째 수위 센서) 미설치**~~ — **폐기(2026-08-04 확인). 달지 않는다.**
+      서버가 센서 없이 해결했다: `origin/Server-develop` 의 `520afdf`
+      ("feat(alert): 누적 급수량으로 배수트레이 비움을 알린다", 2026-07-31 머지)가
+      `device_command.dispensed_ml` **누적량**으로 배수트레이 알림을 판정한다. 커밋 메시지 그대로 —
+      *"급수마다 실제 배출량이 device_command.dispensed_ml 에 남으므로 수위 센서를 붙이지 않고
+      판정할 수 있다 — 장치 쪽 작업이 없는 것이 이 방식의 핵심 이점이다."*
+      임계값은 고정 ml 이 아니라 `recommended_watering_ml × 배수(기본 8)` 이고, 해제는
+      `POST /plants/{plantId}/drainage-tray/emptied` 다. 서버측 파일은
+      `alert/application/DrainageTrayService.java`·`DrainageTrayEvaluationListener.java`.
+      → **GPIO 를 하나 더 쓸 일도, 배선을 늘릴 일도 없다.** 이 항목을 다시 열지 말 것.
+
+      ⚠️ 대신 **우리 쪽 `result/water` 의 `dispensedMl` 이 서버 판정의 유일한 입력**이 됐다.
+      이 필드를 빼거나 이름을 바꾸거나 0 으로 채우면 서버의 배수트레이 알림이 조용히 망가진다.
+      실제 전송값은 `docs/loops/LOOP_3.md` W5 에서 실측 확인 (`dispensedMl: 50.0`).
 - [ ] **급수 안전 게이트 미연동** — `src/actuators/safety.py::WateringGuard` 는 아직 급수대
       수위와 무관하게 동작한다. "물부족 시 급수 자동 중단" 을 추가하려면 이 게이트에
       `water_present`(또는 확정된 `waterLow`) 를 축으로 넣어야 한다.
@@ -84,8 +96,9 @@
       `WaterLowMessage` 를 받는 것까지만 확인했다. 실제 앱 푸시/알림 화면까지 뜨는지는 미확인.
 - [ ] **`hold_sec=10` 적정성** — 장기 실사용 관찰 필요. 너무 길면 알림 지연, 너무 짧으면 잔떨림
       재발 — 튜닝은 `config/raspberry_pi.yaml` `sensors.water_level.hold_sec` 값만 바꾸면 됨.
-- [ ] (기존 미해결, 이 티켓과 무관) 12V 펌프 유량 보정, 서버 규약 확인 2건(급수 `SKIPPED`,
-      촬영 `IMAGE_*`) — `docs/potner-mqtt-pi-handoff.md` 의 "남은 일" 참고.
+- [ ] (기존 미해결, 이 티켓과 무관) 12V 펌프 유량 보정 — `docs/potner-mqtt-pi-handoff.md` 의
+      "남은 일" 참고. 같이 묶여 있던 **서버 규약 확인 2건은 2026-08-04 에 조사 완료**
+      (촬영은 문제없음 / 급수 `SKIPPED` 는 서버가 거부하는 **불일치** 확인) — 같은 문서의 3번 항목 참고.
 
 ---
 
