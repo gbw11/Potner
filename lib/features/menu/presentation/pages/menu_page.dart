@@ -125,6 +125,12 @@ class MenuPage extends ConsumerWidget {
           action: _MenuAction.robotDrive,
         ),
         _MenuEntry(
+          id: 'conversations',
+          label: '로봇과 나눈 대화',
+          icon: Icons.forum_outlined,
+          action: _MenuAction.conversations,
+        ),
+        _MenuEntry(
           id: 'logout',
           label: '로그아웃',
           icon: Icons.logout_rounded,
@@ -230,6 +236,8 @@ class MenuPage extends ConsumerWidget {
         context.go(_fromMenu('/devices'));
       case _MenuAction.robotDrive:
         context.go(_fromMenu('/devices/drive'));
+      case _MenuAction.conversations:
+        context.go(_fromMenu('/devices/conversations'));
       case _MenuAction.careSettings:
         context.go(_fromMenu('/plant-selection/care'));
       case _MenuAction.environment:
@@ -401,6 +409,7 @@ enum _MenuAction {
   deviceRegistration,
   deviceManagement,
   robotDrive,
+  conversations,
   careSettings,
   environment,
   repotting,
