@@ -217,16 +217,27 @@ pump:
     soil_wet_pct: 70       # 토양수분이 이 값 이상이면 급수 스킵 (센서 없으면 이 축만 비활성)
     state_path: data/water_history.json  # 재시작해도 누적량 유지
 
-# 송풍용 시로코 팬 — IRF520 MOSFET 모듈 경유 (L298N 무관)
-# 배선(BCM): GPIO23(물리 16번) → SIG, Pi GND → 모듈 GND,
-#            팬 → V+/V-, 12V 외부전원 → VIN/GND (GND 는 Pi 와 공통)
+# 송풍용 시로코 팬 — LR7843 MOSFET 모듈 경유 (L298N 무관)
+# 배선(BCM): GPIO23(물리 16번) → 모듈 PWM, Pi GND → 모듈 GND,
+#            팬 → 출력(V+/V-), 12V 외부전원 → 입력(VIN/GND) (GND 는 Pi 와 공통)
+# 풍량 조절은 이 GPIO PWM duty 로만 한다 — 별도 속도 신호선은 없다.
 # 테스트: python -m cli.fan --config config/raspberry_pi.yaml run --sec 10 --speed 100
 fan:
   enabled: true
   driver: mosfet         # mosfet | mock
   pin: 23
   pwm_hz: 100            # PWM 주파수 (소프트웨어 PWM)
-  default_speed_pct: 100 # --speed 생략 시 풍량
+  default_speed_pct: 100 # cli/fan.py 에서 --speed 생략 시 풍량 (수동 테스트용, MQTT 와 무관)
+
+  # ▼▼▼ 앱 송풍 버튼을 눌렀을 때의 동작 — 이 두 줄만 고치면 된다 ▼▼▼
+  # 앱에는 송풍 버튼 하나만 있어서 서버가 보내는 값({"seconds": 30})은 쓰지 않고
+  # 항상 아래 풍량으로 아래 시간만큼 돌린 뒤 자동 정지한다.
+  # 2026-08-05 실측: duty 를 낮추면 기동 토크가 부족해 팬이 진동만 하고 돌지 않는다
+  # (70% = 진동만). 100% 로 기동한 뒤 감속하는 방식도 70/85/95 로 시도했지만
+  # 100% 고정이 가장 안정적이어서 풍량 조절은 쓰지 않기로 했다.
+  blow_speed_pct: 100    # 풍량 % (0~100). 낮추면 안 돌 수 있으니 실물로 확인할 것
+  blow_run_sec: 10       # 가동 시간 (초)
+  # ▲▲▲ 수정 후 배포하고 `sudo systemctl restart sensor-collector` ▲▲▲
 
 # Spring 백엔드로 온습도 JSON POST
 spring:
@@ -258,4 +269,7 @@ mqtt:
   # 서버 → Pi 촬영 명령 ({"requestId": "..."}), Pi → 서버 성공/실패 회신
   capture_command_topic: potner/device/raspberry-01/command/capture
   capture_result_topic: potner/device/raspberry-01/result/capture
+  # 서버 → Pi 팬 명령 ({"speed": 70[, "durationSec": 30]}), Pi → 서버 결과 회신
+  fan_command_topic: potner/device/raspberry-01/command/fan
+  fan_result_topic: potner/device/raspberry-01/result/fan
 

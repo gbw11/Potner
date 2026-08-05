@@ -33,7 +33,7 @@ cross-branch leftover, not this codebase.
 | `src/sensors/` | BH1750 (light), DHT22/AHT20 (climate), ADS1115 (soil), float switch (water level, `water_level.py`) drivers + `factory.py` + mock |
 | `src/actuators/` | Water pump (L298N/relay), fan (MOSFET) — see quick map below |
 | `src/vision/` | Camera capture (OV5647/Picamera2), storage/index, snapshot naming — see quick map below |
-| `src/mqtt/` | Broker client, telemetry/heartbeat publisher, water & capture command listeners |
+| `src/mqtt/` | Broker client, telemetry/heartbeat publisher, water/capture/fan command listeners |
 | `src/events/` | JSONL event log (state changes, used for report/diary context) |
 | `src/status/` | Threshold-based normal/abnormal rules (`rules.py`) + labels (`models.py`) — judgment is always local, never LLM |
 | `src/dialogue/`, `src/llm/` | brief/report/chat orchestration + OpenAI-compatible (GMS) client, tool use, template fallback |
@@ -96,6 +96,11 @@ These hold in the current code; if you're about to change one, that's a delibera
 - On the Pi, an inherited `DEVICE_ID` env var silently overrides the yaml `mqtt.device_id` with the board
   serial, which the server then rejects as unregistered — `unset DEVICE_ID` before running
   (`docs/potner-mqtt-pi-handoff.md`).
+- The fan command listener **deliberately ignores the server payload's values**. The app has one 송풍
+  button, so the server sends only `{"seconds": N, "requestId": …}` and the device decides everything:
+  `fan.blow_speed_pct` (100) for `fan.blow_run_sec` (10s). Only `requestId` is echoed back. Don't "fix"
+  this into honoring `seconds` — 30s was rejected as too long, and duty below 100% makes the fan vibrate
+  without spinning (`src/mqtt/fan_command.py`, `docs/potner-mqtt-pi-handoff.md`).
 - Mosquitto ACL denials are silent: a denied `read` still returns SUBACK "Granted" with no message ever
   delivered. Don't assume a command listener is broken from code alone — verify with a round-trip publish
   test first (`docs/potner-mqtt-pi-handoff.md`, `pump-watering-status`/`capture-command-status` history).

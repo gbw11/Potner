@@ -203,7 +203,7 @@ class Fan(ABC):
         self.set_speed(0.0)
 
     def run_for(self, seconds: float, speed_pct: float = 100.0) -> None:
-        """seconds 동안 speed_pct 로 가동 후 정지 (blocking, 테스트용)."""
+        """seconds 동안 speed_pct 로 가동 후 정지 (blocking)."""
         if seconds <= 0:
             raise ValueError(f"가동 시간은 0보다 커야 합니다: {seconds}")
         import time

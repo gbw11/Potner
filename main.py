@@ -11,7 +11,12 @@ from src.collector import Collector
 from src.config import load_config
 from src.device import resolve_device_id
 from src.logging_setup import setup_logging
-from src.mqtt import build_capture_listener, build_mqtt_publisher, build_water_listener
+from src.mqtt import (
+    build_capture_listener,
+    build_fan_listener,
+    build_mqtt_publisher,
+    build_water_listener,
+)
 from src.transport import build_spring_publisher
 
 log = logging.getLogger(__name__)
@@ -60,6 +65,7 @@ def main() -> int:
         if args.once
         else build_capture_listener(config, capture_fn=collector.capture_once)
     )
+    fan_listener = None if args.once else build_fan_listener(config)
     running = True
 
     def _stop(_signum, _frame) -> None:
@@ -108,11 +114,27 @@ def main() -> int:
             log.warning(f"capture listener unavailable: {exc}")
             capture_listener = None
 
+    fan_note = "off"
+    if fan_listener is not None:
+        try:
+            fan_listener.start()
+            # 팬 드라이버명을 배너에 남긴다 — 실기에서 mock 이 물려 있으면 바로 드러난다
+            fan_name = type(fan_listener.fan).__name__
+            fan_note = f"on {fan_listener.command_topic} fan={fan_name}"
+        except Exception as exc:  # noqa: BLE001 — 팬 실패해도 수집은 계속
+            log.warning(f"fan listener unavailable: {exc}")
+            # 리스너를 버리기 전에 GPIO 를 놓아준다 (안 하면 핀이 잡힌 채로 남는다)
+            try:
+                fan_listener.fan.close()
+            except Exception:  # noqa: BLE001
+                pass
+            fan_listener = None
+
     log.info(
         f"platform={config.get('platform')} device_id={device_id} interval={interval}s "
         f"storage={config.get('storage', {}).get('path')} "
         f"backend={'on ' + publisher.url if publisher.enabled else 'off'} "
-        f"mqtt={mqtt_note} water={water_note} capture={capture_note}"
+        f"mqtt={mqtt_note} water={water_note} capture={capture_note} fan={fan_note}"
     )
 
     try:
@@ -140,6 +162,9 @@ def main() -> int:
             while running and time.time() < end:
                 time.sleep(0.2)
     finally:
+        if fan_listener is not None:
+            fan_listener.close()
+            fan_listener.fan.close()  # close() 가 off() 를 포함 — 종료 시 팬 정지 보장
         if capture_listener is not None:
             capture_listener.close()
         if water_listener is not None:
