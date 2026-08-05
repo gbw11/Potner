@@ -34,10 +34,22 @@ def generate_launch_description():
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(nav2_share, "launch", "bringup_launch.py")
+                os.path.join(nav2_share, "launch", "localization_launch.py")
             ),
             launch_arguments={
                 "map": LaunchConfiguration("map"),
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "params_file": nav2_params,
+                "autostart": "true",
+            }.items(),
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(
+                    bringup_share, "launch", "navigation_core.launch.py"
+                )
+            ),
+            launch_arguments={
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "params_file": nav2_params,
             }.items(),

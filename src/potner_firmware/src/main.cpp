@@ -29,9 +29,20 @@ constexpr int PIN_R_ENC_A = 36;
 constexpr int PIN_R_ENC_B = 39;
 
 // ===== 하드웨어 상수 =======================================================
-constexpr float COUNTS_PER_REV   = 1440.0f;  // FIT0403 출력축 (확정값)
+// FIT0403은 출력축 1회전당 1440 pulse이고 attachFullQuad()는
+// 각 pulse의 네 edge를 모두 세므로 소프트웨어 count는 5760입니다.
+constexpr float COUNTS_PER_REV   = 5760.0f;
 constexpr float WHEEL_DIAMETER_M = 0.060f;   // 확정 — 60mm 구동 바퀴
 constexpr float MAX_WHEEL_MPS    = 0.25f;
+
+// 로봇 전진 방향으로 각 바퀴를 손으로 돌려 측정한 하드웨어 부호입니다.
+// 누적 카운트는 장시간 운전해도 정밀도가 떨어지지 않도록 정수로 보정합니다.
+constexpr int64_t LEFT_ENCODER_SIGN  = -1;
+constexpr int64_t RIGHT_ENCODER_SIGN = +1;
+
+// 정규화한 ROS 바퀴 속도를 실제 BTS7960 출력 방향으로 변환합니다.
+constexpr float LEFT_MOTOR_OUTPUT_SIGN  = +1.0f;
+constexpr float RIGHT_MOTOR_OUTPUT_SIGN = -1.0f;
 
 constexpr int PWM_FREQ_HZ   = 20000;  // 가청 대역 밖
 constexpr int PWM_RESOLUTION = 10;    // 0~1023
@@ -51,14 +62,19 @@ constexpr uint32_t WATCHDOG_TIMEOUT_MS = 500; // 젯슨이 조용하면 멈춤
 // TODO: 실기에서 튜닝. 바퀴가 떨리면 kp를 낮추고, 목표 속도에 못 미치면
 //       ki를 조금씩 올리세요. kd는 대개 0으로 두어도 됩니다.
 constexpr float KP = 800.0f;
-constexpr float KI = 1600.0f;
+constexpr float KI = 1200.0f;
 constexpr float KD = 0.0f;
+
+// 0.03m/s 실기 시험에서 약 4초 뒤 PID duty가 0.16 부근에 도달했을 때
+// 바퀴가 움직이기 시작했습니다. 비영점 목표에만 정지 마찰 보상을 더합니다.
+constexpr float MIN_DRIVE_DUTY = 0.16f;
 
 ESP32Encoder encLeft;
 ESP32Encoder encRight;
 
 struct Wheel {
   float target_mps = 0.0f;
+  float previous_target_mps = 0.0f;
   float measured_mps = 0.0f;
   float integral = 0.0f;
   float prev_error = 0.0f;
@@ -72,12 +88,23 @@ uint32_t lastControlMs = 0;
 uint32_t lastFeedbackMs = 0;
 uint32_t lastCommandMs = 0;
 String rxBuffer;
+bool driveEnabled = false;
 
 // --------------------------------------------------------------------------
 uint8_t xorChecksum(const String &payload) {
   uint8_t value = 0;
   for (size_t i = 0; i < payload.length(); ++i) value ^= (uint8_t)payload[i];
   return value;
+}
+
+bool parseFiniteFloat(const String &text, float &value) {
+  const char *start = text.c_str();
+  char *end = nullptr;
+  float parsed = strtof(start, &end);
+
+  if (start == end || *end != '\0' || !isfinite(parsed)) return false;
+  value = parsed;
+  return true;
 }
 
 void applyPwm(int chForward, int chReverse, float duty) {
@@ -100,17 +127,35 @@ float countsToMeters(int64_t counts) {
   return (counts / COUNTS_PER_REV) * PI * WHEEL_DIAMETER_M;
 }
 
+int64_t normalizedLeftCount() {
+  return LEFT_ENCODER_SIGN * encLeft.getCount();
+}
+
+int64_t normalizedRightCount() {
+  return RIGHT_ENCODER_SIGN * encRight.getCount();
+}
+
+float minimumDriveFeedforward(float targetMps) {
+  if (targetMps > 0.0001f) return MIN_DRIVE_DUTY;
+  if (targetMps < -0.0001f) return -MIN_DRIVE_DUTY;
+  return 0.0f;
+}
+
 float updatePid(Wheel &wheel, int64_t count, float dt) {
   float travelled = countsToMeters(count - wheel.prev_count);
   wheel.prev_count = count;
   wheel.measured_mps = travelled / dt;
 
-  // 목표가 0이고 측정도 0이면 출력을 끊고 적분항을 비웁니다. 엔코더 선이
-  // 빠지면 measured가 영원히 0이라, 주행 중 최대로 감긴 적분항이 정지
-  // 명령(V,0,0)을 받아도 안 풀려서(error=0) 바퀴가 전속력으로 계속 돕니다.
-  // 실기에서 실제로 당했습니다 — 엔코더 카운트는 얼어 있는데 바퀴만 도는
-  // 로그가 그 증거였습니다.
-  if (wheel.target_mps == 0.0f && wheel.measured_mps == 0.0f) {
+  bool directionChanged =
+      wheel.target_mps * wheel.previous_target_mps < 0.0f;
+  if (directionChanged) {
+    wheel.integral = 0.0f;
+    wheel.prev_error = 0.0f;
+  }
+  wheel.previous_target_mps = wheel.target_mps;
+
+  // 한쪽 바퀴만 0인 회전 명령에서도 이전 적분값이 PWM을 만들면 안 됩니다.
+  if (fabs(wheel.target_mps) <= 0.0001f) {
     wheel.integral = 0.0f;
     wheel.prev_error = 0.0f;
     return 0.0f;
@@ -126,15 +171,25 @@ float updatePid(Wheel &wheel, int64_t count, float dt) {
   float derivative = (error - wheel.prev_error) / dt;
   wheel.prev_error = error;
 
-  float output = KP * error + KI * wheel.integral + KD * derivative;
-  return constrain(output / 1000.0f, -1.0f, 1.0f);
+  float feedback = (KP * error + KI * wheel.integral + KD * derivative) / 1000.0f;
+  float output = minimumDriveFeedforward(wheel.target_mps) + feedback;
+  return constrain(output, -1.0f, 1.0f);
 }
 
 void stopAll() {
+  driveEnabled = false;
   wheelL.target_mps = 0.0f;
   wheelR.target_mps = 0.0f;
+  wheelL.previous_target_mps = 0.0f;
+  wheelR.previous_target_mps = 0.0f;
+  wheelL.measured_mps = 0.0f;
+  wheelR.measured_mps = 0.0f;
   wheelL.integral = 0.0f;
   wheelR.integral = 0.0f;
+  wheelL.prev_error = 0.0f;
+  wheelR.prev_error = 0.0f;
+  wheelL.prev_count = normalizedLeftCount();
+  wheelR.prev_count = normalizedRightCount();
   applyPwm(CH_L_R, CH_L_L, 0.0f);
   applyPwm(CH_R_R, CH_R_L, 0.0f);
 }
@@ -158,12 +213,26 @@ void handleLine(const String &line) {
     int firstComma = payload.indexOf(',');
     int secondComma = payload.indexOf(',', firstComma + 1);
     if (secondComma < 0) return;
+    if (payload.indexOf(',', secondComma + 1) >= 0) return;
 
-    float left = payload.substring(firstComma + 1, secondComma).toFloat();
-    float right = payload.substring(secondComma + 1).toFloat();
+    String leftText = payload.substring(firstComma + 1, secondComma);
+    String rightText = payload.substring(secondComma + 1);
+    float left = 0.0f;
+    float right = 0.0f;
+    if (!parseFiniteFloat(leftText, left)) return;
+    if (!parseFiniteFloat(rightText, right)) return;
+
+    // A zero Twist is a safety stop, not a request to actively hold position.
+    // Keep PWM off until a later non-zero velocity frame arrives.
+    if (fabs(left) < 0.0001f && fabs(right) < 0.0001f) {
+      stopAll();
+      lastCommandMs = millis();
+      return;
+    }
 
     wheelL.target_mps = constrain(left, -MAX_WHEEL_MPS, MAX_WHEEL_MPS);
     wheelR.target_mps = constrain(right, -MAX_WHEEL_MPS, MAX_WHEEL_MPS);
+    driveEnabled = true;
     lastCommandMs = millis();
   }
 }
@@ -185,8 +254,8 @@ void sendFeedback() {
   int leftBumperMm = 1200;
   int rightBumperMm = 1200;
 
-  String payload = "O," + String((long)encLeft.getCount()) +
-                   "," + String((long)encRight.getCount()) +
+  String payload = "O," + String((long)normalizedLeftCount()) +
+                   "," + String((long)normalizedRightCount()) +
                    "," + String(leftBumperMm) +
                    "," + String(rightBumperMm) +
                    "," + String(millis());
@@ -235,8 +304,25 @@ void loop() {
     float dt = (now - lastControlMs) / 1000.0f;
     lastControlMs = now;
 
-    applyPwm(CH_L_R, CH_L_L, updatePid(wheelL, encLeft.getCount(), dt));
-    applyPwm(CH_R_R, CH_R_L, updatePid(wheelR, encRight.getCount(), dt));
+    if (driveEnabled) {
+      applyPwm(
+          CH_L_R, CH_L_L,
+          LEFT_MOTOR_OUTPUT_SIGN * updatePid(
+              wheelL, normalizedLeftCount(), dt));
+      applyPwm(
+          CH_R_R, CH_R_L,
+          RIGHT_MOTOR_OUTPUT_SIGN * updatePid(
+              wheelR, normalizedRightCount(), dt));
+    } else {
+      // Do not let the PID re-energize a stopped motor because a wheel moved
+      // by hand or coasted after the stop. Keep the next delta bounded too.
+      wheelL.prev_count = normalizedLeftCount();
+      wheelR.prev_count = normalizedRightCount();
+      wheelL.measured_mps = 0.0f;
+      wheelR.measured_mps = 0.0f;
+      applyPwm(CH_L_R, CH_L_L, 0.0f);
+      applyPwm(CH_R_R, CH_R_L, 0.0f);
+    }
   }
 
   if (now - lastFeedbackMs >= FEEDBACK_PERIOD_MS) {

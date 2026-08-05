@@ -44,8 +44,8 @@ class DockingServer(Node):
 
         self.declare_parameter("kp_lateral", 0.0025)
         self.declare_parameter("kp_yaw", 0.017)
-        self.declare_parameter("approach_speed", 0.12)
-        self.declare_parameter("max_angular", 0.8)
+        self.declare_parameter("approach_speed", 0.084)
+        self.declare_parameter("max_angular", 0.56)
         self.declare_parameter("target_distance", 0.15)
         self.declare_parameter("marker_lost_timeout", 2.0)
         self.declare_parameter("docking_timeout", 90.0)

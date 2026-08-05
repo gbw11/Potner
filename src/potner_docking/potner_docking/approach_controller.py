@@ -23,8 +23,8 @@ class DockingGains:
 
     kp_lateral: float = 0.0025  # 화면 좌우 오차(px) -> rad/s
     kp_yaw: float = 0.017  # 마커 기울기(deg) -> rad/s
-    approach_speed: float = 0.12  # 접근 직진 속도 (m/s)
-    max_angular: float = 0.8  # 각속도 상한 (rad/s)
+    approach_speed: float = 0.084  # 기존 대비 30% 낮춘 접근 직진 속도
+    max_angular: float = 0.56  # 기존 대비 30% 낮춘 각속도 상한
 
     yaw_blend_distance: float = 0.40  # 이 거리(m) 안쪽부터 기울기 보정 시작
     target_distance: float = 0.15  # 목표 정지 거리 (m)

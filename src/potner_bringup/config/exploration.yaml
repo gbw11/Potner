@@ -1,0 +1,43 @@
+# Potner frontier 자동 탐색 파라미터.
+
+exploration:
+  ros__parameters:
+    map_topic: /map
+    odom_topic: /odom
+    map_frame: map
+    base_frame: base_footprint
+
+    free_threshold: 20
+    occupied_threshold: 65
+    min_cluster_size: 5
+    clearance_m: 0.20
+    information_gain_weight: 1.0
+    distance_weight: 1.0
+    blocked_radius_m: 0.35
+
+    goal_timeout_s: 90.0
+    completion_hold_s: 15.0
+    max_consecutive_failures: 5
+    max_exploration_s: 1800.0
+    blacklist_ttl_s: 120.0
+
+    # slam_toolbox map_update_interval(2초)보다 길어야 정상 지도를 stale로
+    # 오판하지 않습니다.
+    map_timeout_s: 6.0
+    odom_timeout_s: 2.0
+    selection_period_s: 1.0
+    max_path_checks: 8
+    path_check_timeout_s: 10.0
+    navigation_accept_timeout_s: 10.0
+    frontier_replan_distance_m: 0.75
+    tf_timeout_s: 1.0
+    sensor_recovery_timeout_s: 10.0
+    sensor_stop_publish_period_s: 0.5
+    save_timeout_s: 30.0
+
+    map_output_dir: "~/potner_ws/maps"
+    map_name: home
+    map_save_service: /map_saver/save_map
+    serialize_service: /slam_toolbox/serialize_map
+    save_free_threshold: 0.25
+    save_occupied_threshold: 0.65

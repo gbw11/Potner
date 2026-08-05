@@ -75,6 +75,7 @@ NODES = [
     ("marker_detector", "potner_perception", "marker_detector_node"),
     ("person_detector", "potner_perception", "person_detector_node"),
     ("mqtt_bridge", "potner_bridge", "mqtt_bridge_node"),
+    ("exploration", "potner_exploration", "exploration_node"),
 ]
 
 
@@ -183,5 +184,5 @@ def test_서버로_보내는_상태_목록이_임무_상태_머신과_일치한�
 
 
 def test_엔코더_분해능은_부품_사양값이다():
-    """FIT0403 출력축 1440 CPR. 부품을 바꾸지 않는 한 손대면 안 됩니다."""
-    assert DriveConfig().counts_per_rev == 1440
+    """FIT0403 1440 pulse를 full quadrature로 세면 출력축당 5760 count입니다."""
+    assert DriveConfig().counts_per_rev == 5760

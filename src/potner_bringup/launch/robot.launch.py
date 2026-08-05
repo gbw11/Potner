@@ -58,11 +58,12 @@ def generate_launch_description():
             package="twist_mux",
             executable="twist_mux",
             parameters=[twist_mux_params],
-            remappings=[("cmd_vel_out", "cmd_vel")],
+            # 선택된 요청은 반드시 방향별 safety 필터를 거쳐 cmd_vel이 됩니다.
+            remappings=[("cmd_vel_out", "cmd_vel_requested")],
             output="screen",
         ),
 
-        # ---- 안전: 최우선 정지. 다른 무엇보다 먼저 떠 있어야 합니다.
+        # ---- 안전: 요청 방향을 검증해 최종 cmd_vel을 발행합니다.
         Node(
             package="potner_mission",
             executable="safety",

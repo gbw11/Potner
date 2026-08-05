@@ -17,8 +17,8 @@ class DriveConfig:
 
     wheel_diameter: float = 0.060  # 확정 — 60mm 구동 바퀴
     wheel_separation: float = 0.200  # TODO 실측 — 좌우 바퀴 중심 간 거리 (m)
-    counts_per_rev: int = 1440  # 확정 — FIT0403 출력축 CPR
-    max_wheel_speed: float = 0.25  # 안전 제한 (m/s). 이론 최대는 약 0.48
+    counts_per_rev: int = 5760  # FIT0403 1440 pulse x attachFullQuad 4 edge
+    max_wheel_speed: float = 0.175  # 기존 0.25m/s 대비 30% 감속한 안전 상한
 
     @property
     def wheel_circumference(self) -> float:

@@ -1,16 +1,10 @@
-"""safety — 어떤 노드보다 우선하는 비상 정지 계층.
+"""선택된 주행 명령을 LiDAR와 ToF로 검증해 최종 속도를 발행합니다.
 
-LiDAR가 폴 위에 달려 있어 스캔 평면 아래는 통째로 사각지대입니다. 문턱,
-슬리퍼, 반려동물 밥그릇, 낮은 테이블 다리가 전부 안 보입니다. 그래서
-범퍼의 ToF 센서를 LiDAR와 함께 봅니다.
-
-정지 방식은 twist_mux 를 씁니다. 이 노드는 cmd_vel_safety 에 0을 계속
-발행하기만 하고, twist_mux 가 최고 우선순위로 이 토픽을 통과시키면서
-Nav2와 도킹 노드의 명령을 자동으로 차단합니다. 모터를 직접 건드리거나
-전역 플래그를 손으로 관리하지 않는 이유가 이것입니다.
+twist_mux는 Nav2, 도킹, 수동 명령 중 하나를 ``cmd_vel_requested``로
+선택합니다. 이 노드는 위험한 방향의 속도 성분만 제거해 ``cmd_vel``로
+발행합니다. 따라서 전방의 정적 벽은 전진을 막지만 안전한 후진과 회전 복구는
+막지 않습니다. scan이나 선택 명령이 끊기면 fail-safe로 완전히 정지합니다.
 """
-
-import math
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -19,93 +13,138 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan, Range
 from std_msgs.msg import Bool
 
+from potner_mission.safety_policy import (
+    DirectionalSafety,
+    SafetyConfig,
+    inputs_fresh,
+    observe_scan,
+)
+
 
 class SafetyNode(Node):
     def __init__(self):
         super().__init__("safety")
 
-        self.declare_parameter("scan_stop_distance", 0.25)  # m
-        self.declare_parameter("bumper_stop_distance", 0.12)  # m
-        self.declare_parameter("front_arc_deg", 60.0)  # 정면 판정 각도 폭
-        self.declare_parameter("clear_hysteresis", 0.08)  # m, 깜빡임 방지
+        self.declare_parameter("scan_stop_distance", 0.25)
+        self.declare_parameter("bumper_stop_distance", 0.12)
+        self.declare_parameter("front_arc_deg", 60.0)
+        self.declare_parameter("rear_arc_deg", 60.0)
+        self.declare_parameter("side_arc_deg", 120.0)
+        self.declare_parameter("clear_hysteresis", 0.08)
+        self.declare_parameter("min_valid_samples", 1)
+        self.declare_parameter("scan_timeout", 0.5)
+        self.declare_parameter("command_timeout", 0.5)
         self.declare_parameter("publish_rate", 20.0)
 
-        self._scan_limit = self.get_parameter("scan_stop_distance").value
-        self._bumper_limit = self.get_parameter("bumper_stop_distance").value
-        self._front_arc = math.radians(self.get_parameter("front_arc_deg").value)
-        self._hysteresis = self.get_parameter("clear_hysteresis").value
+        self._front_arc_deg = self._param("front_arc_deg")
+        self._rear_arc_deg = self._param("rear_arc_deg")
+        self._side_arc_deg = self._param("side_arc_deg")
+        self._scan_timeout = self._param("scan_timeout")
+        self._command_timeout = self._param("command_timeout")
+        self._policy = DirectionalSafety(
+            SafetyConfig(
+                stop_distance=self._param("scan_stop_distance"),
+                bumper_stop_distance=self._param("bumper_stop_distance"),
+                clear_hysteresis=self._param("clear_hysteresis"),
+                min_valid_samples=self._param("min_valid_samples"),
+            )
+        )
 
-        self._scan_blocked = False
-        self._bumper_blocked = {"left": False, "right": False}
+        self._requested = Twist()
+        self._last_scan_at = None
+        self._last_command_at = None
 
+        self.create_subscription(
+            Twist, "cmd_vel_requested", self._on_command, 10
+        )
         self.create_subscription(
             LaserScan, "scan", self._on_scan, qos_profile_sensor_data
         )
         self.create_subscription(
-            Range, "bumper/left", lambda m: self._on_bumper("left", m),
+            Range,
+            "bumper/left",
+            lambda message: self._on_bumper("left", message),
             qos_profile_sensor_data,
         )
         self.create_subscription(
-            Range, "bumper/right", lambda m: self._on_bumper("right", m),
+            Range,
+            "bumper/right",
+            lambda message: self._on_bumper("right", message),
             qos_profile_sensor_data,
         )
 
-        self._stop_pub = self.create_publisher(Twist, "cmd_vel_safety", 10)
+        self._cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self._state_pub = self.create_publisher(Bool, "safety/blocked", 10)
 
-        period = 1.0 / self.get_parameter("publish_rate").value
-        self.create_timer(period, self._tick)
+        publish_rate = self._param("publish_rate")
+        if publish_rate <= 0.0:
+            raise ValueError("publish_rate must be positive")
+        self.create_timer(1.0 / publish_rate, self._tick)
 
-        self.get_logger().info("safety 노드 시작 — LiDAR와 범퍼를 감시합니다.")
-
-    @property
-    def blocked(self):
-        return self._scan_blocked or any(self._bumper_blocked.values())
-
-    def _on_scan(self, msg: LaserScan):
-        """정면 부채꼴 안에서 가장 가까운 유효 거리를 봅니다."""
-        nearest = math.inf
-        angle = msg.angle_min
-
-        for distance in msg.ranges:
-            if -self._front_arc / 2.0 <= angle <= self._front_arc / 2.0:
-                # inf, nan, 0 은 측정 실패값이라 버립니다. 이걸 안 거르면
-                # 0을 진짜 거리로 읽어서 로봇이 영영 못 움직입니다.
-                if msg.range_min < distance < msg.range_max and not math.isnan(distance):
-                    nearest = min(nearest, distance)
-            angle += msg.angle_increment
-
-        self._scan_blocked = self._apply_hysteresis(
-            self._scan_blocked, nearest, self._scan_limit
+        self.get_logger().info(
+            "방향별 safety 필터 시작: 위험 방향만 차단하고 안전한 복구는 허용합니다."
         )
 
-    def _on_bumper(self, side, msg: Range):
-        self._bumper_blocked[side] = self._apply_hysteresis(
-            self._bumper_blocked[side], msg.range, self._bumper_limit
-        )
+    def _param(self, name):
+        return self.get_parameter(name).value
 
-    def _apply_hysteresis(self, currently_blocked, distance, limit):
-        """경계값에서 켜졌다 꺼졌다 하는 걸 막습니다."""
-        if currently_blocked:
-            return distance <= limit + self._hysteresis
-        return distance <= limit
+    def _seconds_now(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _on_command(self, message: Twist):
+        self._requested = message
+        self._last_command_at = self._seconds_now()
+
+    def _on_scan(self, message: LaserScan):
+        clearance = observe_scan(
+            ranges=message.ranges,
+            angle_min=message.angle_min,
+            angle_increment=message.angle_increment,
+            range_min=message.range_min,
+            range_max=message.range_max,
+            front_arc_deg=self._front_arc_deg,
+            rear_arc_deg=self._rear_arc_deg,
+            side_arc_deg=self._side_arc_deg,
+        )
+        self._policy.update_scan(clearance)
+        self._last_scan_at = self._seconds_now()
+
+    def _on_bumper(self, side: str, message: Range):
+        self._policy.update_bumper(side, message.range)
 
     def _tick(self):
-        state = Bool()
-        state.data = self.blocked
-        self._state_pub.publish(state)
-
-        if not self.blocked:
-            return
-
-        # 0을 계속 발행해야 twist_mux 가 이 입력을 살아있는 것으로 보고
-        # 하위 우선순위를 계속 막아줍니다. 한 번만 쏘면 곧 풀립니다.
-        self._stop_pub.publish(Twist())
-        self.get_logger().warn(
-            f"장애물로 정지 중 (scan={self._scan_blocked}, "
-            f"bumper={self._bumper_blocked})",
-            throttle_duration_sec=2.0,
+        now = self._seconds_now()
+        fresh = inputs_fresh(
+            now=now,
+            scan_stamp=self._last_scan_at,
+            command_stamp=self._last_command_at,
+            scan_timeout=self._scan_timeout,
+            command_timeout=self._command_timeout,
         )
+
+        output = Twist()
+        reasons = ()
+        limited = not fresh
+        if fresh:
+            result = self._policy.filter(
+                self._requested.linear.x,
+                self._requested.angular.z,
+            )
+            output.linear.x = result.linear_x
+            output.angular.z = result.angular_z
+            limited = result.limited
+            reasons = result.reasons
+        else:
+            reasons = ("stale_scan_or_command",)
+
+        self._cmd_pub.publish(output)
+        self._state_pub.publish(Bool(data=limited))
+
+        if limited:
+            self.get_logger().warn(
+                "주행 안전 제한 적용: " + ", ".join(reasons),
+                throttle_duration_sec=2.0,
+            )
 
 
 def main(args=None):

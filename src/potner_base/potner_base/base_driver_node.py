@@ -2,7 +2,8 @@
 
 이 노드가 하는 일은 딱 두 가지입니다.
     1. /cmd_vel 을 받아 좌우 바퀴 속도로 바꿔 ESP32에 내려보낸다
-    2. ESP32가 올려보낸 엔코더 카운트로 /odom 과 TF(odom->base_link)를 만든다
+    2. ESP32가 올려보낸 엔코더 카운트로 /odom 과
+       TF(odom->base_footprint)를 만든다
 
 모터 PWM 생성과 바퀴 속도 PID는 전부 ESP32 펌웨어가 합니다. 젯슨은
 실시간 OS가 아니라서 여기서 PID를 돌리면 주기가 흔들립니다.
@@ -35,8 +36,9 @@ class BaseDriver(Node):
         self.declare_parameter("baud_rate", 115200)
         self.declare_parameter("wheel_diameter", 0.060)
         self.declare_parameter("wheel_separation", 0.200)
-        self.declare_parameter("counts_per_rev", 1440)
-        self.declare_parameter("max_wheel_speed", 0.25)
+        self.declare_parameter("counts_per_rev", 5760)
+        self.declare_parameter("max_wheel_speed", 0.175)
+        self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("cmd_vel_timeout", 0.5)
         self.declare_parameter("publish_rate", 30.0)
 
@@ -47,6 +49,7 @@ class BaseDriver(Node):
             max_wheel_speed=self.get_parameter("max_wheel_speed").value,
         )
         self.odom = OdometryIntegrator(self.cfg)
+        self.base_frame = self.get_parameter("base_frame").value
         self.cmd_vel_timeout = self.get_parameter("cmd_vel_timeout").value
 
         self._target = (0.0, 0.0)
@@ -172,7 +175,7 @@ class BaseDriver(Node):
         msg = Odometry()
         msg.header.stamp = stamp.to_msg()
         msg.header.frame_id = "odom"
-        msg.child_frame_id = "base_link"
+        msg.child_frame_id = self.base_frame
         msg.pose.pose.position.x = x
         msg.pose.pose.position.y = y
         msg.pose.pose.orientation.z = qz
@@ -184,7 +187,7 @@ class BaseDriver(Node):
         tf = TransformStamped()
         tf.header.stamp = stamp.to_msg()
         tf.header.frame_id = "odom"
-        tf.child_frame_id = "base_link"
+        tf.child_frame_id = self.base_frame
         tf.transform.translation.x = x
         tf.transform.translation.y = y
         tf.transform.rotation.z = qz

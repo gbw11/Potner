@@ -10,25 +10,19 @@
 twist_mux:
   ros__parameters:
     topics:
-      # 1순위 — 안전. 어떤 상황에서도 이게 최우선입니다.
-      safety:
-        topic: cmd_vel_safety
-        timeout: 0.3
-        priority: 255
-
-      # 2순위 — 사람이 앱이나 조이스틱으로 직접 조종할 때
+      # 1순위 — 사람이 앱이나 조이스틱으로 직접 조종할 때
       teleop:
         topic: cmd_vel_teleop
         timeout: 0.5
         priority: 200
 
-      # 3순위 — 스테이션 정밀 도킹. Nav2보다 위에 둡니다.
+      # 2순위 — 스테이션 정밀 도킹. Nav2보다 위에 둡니다.
       docking:
         topic: cmd_vel_docking
         timeout: 0.5
         priority: 150
 
-      # 4순위 — Nav2 자율주행 (평상시 주행)
+      # 3순위 — Nav2 자율주행 (평상시 주행)
       navigation:
         topic: cmd_vel_nav
         timeout: 0.5

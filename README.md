@@ -49,7 +49,7 @@ src/
 ├── potner_bringup/       launch 파일과 전체 파라미터
 ├── potner_perception/    YOLO 사람 인식, ArUco 마커 탐지
 ├── potner_docking/       스테이션 정밀 도킹 (마커 기반 P 제어)
-├── potner_mission/       임무 상태 머신, 최우선 안전 정지
+├── potner_mission/       임무 상태 머신, 방향별 주행 안전 필터
 ├── potner_bridge/        MQTT ↔ ROS 2 브리지 (서버·스테이션 연동)
 ├── potner_msgs/          커스텀 메시지·액션 정의
 ├── potner_llm/           LLM 응답 파이프라인 (담당: LLM 파트)
@@ -191,11 +191,12 @@ ros2 launch potner_description view_model.launch.py
 #    → docs/JETSON_DISPLAY.md
 ros2 launch potner_bringup robot.launch.py
 
-# ③ 지도 만들기 — 키보드로 천천히 몰면서 집을 한 바퀴
-ros2 launch potner_bringup slam.launch.py
-ros2 run teleop_twist_keyboard teleop_twist_keyboard \
-    --ros-args -r cmd_vel:=cmd_vel_teleop
-ros2 run nav2_map_server map_saver_cli -f ~/potner_ws/maps/home
+# ③ 지도 만들기 — frontier를 찾아 자동 탐색하고 완료 후 저장
+ros2 launch potner_bringup exploration.launch.py \
+    map_output_dir:=$HOME/potner_ws/maps map_name:=home
+
+# 수동으로 지도를 만들려면 기존 slam.launch.py + teleop 경로도 사용할 수 있습니다.
+# 자세한 자동 탐색·보정·안전 절차: docs/AUTONOMOUS_SLAM.md
 
 # ④ 자율주행
 ros2 launch potner_bringup nav2.launch.py map:=$HOME/potner_ws/maps/home.yaml
@@ -247,13 +248,21 @@ ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
 
 | 우선순위 | 토픽 | 발행 노드 |
 |---|---|---|
-| 255 | `cmd_vel_safety` | `safety` — LiDAR·범퍼 감지 시 정지 |
 | 200 | `cmd_vel_teleop` | 사람이 직접 조종 |
 | 150 | `cmd_vel_docking` | `docking_server` — 스테이션 정밀 접근 |
 | 100 | `cmd_vel_nav` | Nav2 자율주행 |
 
-최종 `/cmd_vel` 만 `base_driver` 가 받아 ESP32로 내려보냅니다. 긴급정지
-플래그를 손으로 관리하지 않는 이유가 이것입니다.
+`twist_mux`의 출력 `/cmd_vel_requested`는 곧바로 모터로 가지 않습니다.
+`safety`가 360도 LiDAR와 좌우 ToF를 확인한 뒤 최종 `/cmd_vel`을 발행하고,
+`base_driver`는 이 최종 명령만 ESP32로 내려보냅니다. 전방 벽은 전진만 막고,
+후방이 확인되면 Nav2의 저속 후진을 허용하며, 안전한 방향의 회전도 통과시킵니다.
+scan이나 선택 명령이 0.5초 이상 끊기면 모든 방향을 정지합니다.
+
+```text
+teleop / docking / Nav2 -> twist_mux -> cmd_vel_requested
+                                           |
+                         scan + ToF -> safety -> cmd_vel -> ESP32
+```
 
 ## 조립 후 반드시 채워야 할 값
 
@@ -268,7 +277,9 @@ ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
 | `marker_size` | 인쇄한 ArUco 마커 실측. 도킹 거리 오차의 원인 |
 | `focal_length_px` | `cv2.calibrateCamera` 로 BRIO 100 캘리브레이션 |
 
-`counts_per_rev: 1440` 은 FIT0403 사양에서 나온 **확정값**이니 건드리지 마세요.
+FIT0403 사양은 출력축당 1440 pulse이며, ESP32 펌웨어가 `attachFullQuad()`로
+네 edge를 모두 세기 때문에 `counts_per_rev: 5760`을 사용합니다. 펌웨어와
+Jetson 설정은 반드시 같은 값을 사용해야 합니다.
 
 ## 테스트
 

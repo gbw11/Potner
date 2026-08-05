@@ -15,6 +15,7 @@
   <exec_depend>potner_mission</exec_depend>
   <exec_depend>potner_perception</exec_depend>
   <exec_depend>potner_bridge</exec_depend>
+  <exec_depend>potner_exploration</exec_depend>
 
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>twist_mux</exec_depend>
