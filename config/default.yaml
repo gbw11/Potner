@@ -222,7 +222,11 @@ fan:
   driver: mock           # mosfet | mock (platform: mock 이면 항상 mock)
   pin: 23
   pwm_hz: 100
-  default_speed_pct: 100
+  default_speed_pct: 100 # cli/fan.py 에서 --speed 생략 시 풍량 (수동 테스트용, MQTT 와 무관)
+  # 앱 송풍 버튼을 눌렀을 때의 동작 — 서버가 보내는 값은 쓰지 않고 항상 이 값으로 가동한다
+  # 실기 실측: duty 를 낮추면 기동 토크가 부족해 진동만 한다 (70% = 진동만) → 100% 고정
+  blow_speed_pct: 100    # 풍량 % (0~100)
+  blow_run_sec: 10       # 가동 시간 (초)
 
 # potner MQTT (Pi에서 사용, mock에선 보통 비활성)
 # main.py 가 interval_sec 마다 센서값 송신 + 30초 주기 heartbeat 발행

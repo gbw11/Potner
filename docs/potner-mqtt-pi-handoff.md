@@ -35,11 +35,25 @@
   false 도 매 주기 발행 (서버 `WaterLowMessage`, Server-develop `d4f9219`)
 - 급수 명령/결과: `…/command/water`, `…/result/water`
 - 촬영 명령/결과: `…/command/capture`, `…/result/capture`
+- 팬 명령/결과: `…/command/fan`, `…/result/fan` — **앱에는 송풍 버튼 하나만 있으므로 풍량·시간은
+  기기가 정한다.** 서버 실규약은 `{"seconds": N, "requestId": "…"}` 인데(2026-08-05 실측, 풍량은
+  안 보낸다) 그 값들은 **쓰지 않고** `requestId` 만 결과에 되돌려준다. 명령이 오면 항상
+  `fan.blow_speed_pct`(100%) 로 `fan.blow_run_sec`(10초) 만큼 돌고 자동 정지
+  (`src/mqtt/fan_command.py`). 회신은 `status` + `appliedSpeedPct` + `durationSec` + `requestId`.
+  - 풍량·시간 변경은 코드가 아니라 `config/raspberry_pi.yaml` 의 저 두 줄 → 배포 → 서비스 재시작.
+  - **풍량은 100% 고정** (`blow_speed_pct: 100`). duty 를 낮추면 기동 토크가 부족해 팬이
+    진동만 하고 돌지 않는다 (2026-08-05 실측: 70% = 진동만, 100% = 회전). 100% 로 기동한 뒤
+    감속하는 방식도 70/85/95 로 시도했지만 100% 고정이 가장 안정적이어서 풍량 조절 기능
+    자체를 걷어냈다. 다시 필요하면 `Fan.run_for` 에 기동 구간을 넣는 방식이었다는 것만
+    기억할 것 (`git log --grep 기동` — `17e919e`, `ab7bb5c`).
+  - 가동 중 재요청은 `BUSY` 로 회신하고 무시한다 (버튼 연타 방지).
+  - 초기에 `speed` 를 필수로 요구했다가 서버 명령이 전부 `ERROR: invalid speed` 로 되돌아간 적
+    있음 — 그 `error` 필드는 **앱 화면에까지 노출된다**(회신 경로가 앱까지 살아있다는 증거).
 
 (결과 토픽은 서버 규약에 맞춰 `…/result/*` 로 변경됨 — `55b35be`. 단일 출처는
 `config/raspberry_pi.yaml` `mqtt:` 섹션.)
 
-client_id: `raspberry-01-collector` / `-water` / `-capture` (서버 `potner-backend-prod` 충돌 방지).
+client_id: `raspberry-01-collector` / `-water` / `-capture` / `-fan` (서버 `potner-backend-prod` 충돌 방지).
 
 ---
 
@@ -83,6 +97,7 @@ client_id: `raspberry-01-collector` / `-water` / `-capture` (서버 `potner-back
 platform=raspberry_pi device_id=raspberry-01 … mqtt=on i15e104.p.ssafy.io:1884 hb=30s
 water=on potner/device/raspberry-01/command/water
 capture=on potner/device/raspberry-01/command/capture
+fan=on potner/device/raspberry-01/command/fan fan=MosfetFan
 ```
 
 ### 기동 방법
