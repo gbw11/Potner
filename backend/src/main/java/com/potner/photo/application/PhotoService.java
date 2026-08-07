@@ -7,6 +7,7 @@ import com.potner.device.domain.PlantDeviceAssignment;
 import com.potner.device.domain.PlantDeviceAssignmentRepository;
 import com.potner.device.domain.Robot;
 import com.potner.device.domain.RobotRepository;
+import com.potner.photo.config.PhotoStorageProperties;
 import com.potner.photo.domain.PhotoSource;
 import com.potner.photo.domain.PlantPhoto;
 import com.potner.photo.domain.PlantPhotoRepository;
@@ -56,6 +57,7 @@ public class PhotoService {
     private final PhotoStorage photoStorage;
     private final DeviceUploadToken uploadTokenIssuer;
     private final SensorQueryProperties sensorQueryProperties;
+    private final PhotoStorageProperties photoProperties;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
@@ -67,6 +69,7 @@ public class PhotoService {
             PhotoStorage photoStorage,
             DeviceUploadToken uploadTokenIssuer,
             SensorQueryProperties sensorQueryProperties,
+            PhotoStorageProperties photoProperties,
             ApplicationEventPublisher eventPublisher,
             Clock clock
     ) {
@@ -77,6 +80,7 @@ public class PhotoService {
         this.photoStorage = photoStorage;
         this.uploadTokenIssuer = uploadTokenIssuer;
         this.sensorQueryProperties = sensorQueryProperties;
+        this.photoProperties = photoProperties;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
@@ -103,17 +107,20 @@ public class PhotoService {
                 : LocalDateTime.ofInstant(capturedAt.toInstant(), ZoneOffset.UTC);
         LocalDate photoDate = toServiceDate(capturedAtUtc);
 
-        // 하루 한 장이 타임랩스 프레임 간격을 일정하게 유지한다. 같은 날 두 번 올리면 거부한다.
+        // 하루 한 장이 타임랩스 프레임 간격을 일정하게 유지한다. 촬영 파이프라인을 확인하려면
+        // 하루를 기다려야 해서 기본값을 허용으로 바꿨다(potner.photo.allow-multiple-per-day).
         // 출처를 함께 보므로 사용자가 대표 사진을 올린 날에도 장치는 그날 사진을 올릴 수 있다.
-        if (photoRepository.existsByPlantIdAndSourceAndPhotoDate(
-                assignment.getPlantId(),
-                PhotoSource.DEVICE,
-                photoDate)) {
+        if (!photoProperties.allowMultiplePerDay()
+                && photoRepository.existsByPlantIdAndSourceAndPhotoDate(
+                        assignment.getPlantId(),
+                        PhotoSource.DEVICE,
+                        photoDate)) {
             throw new BusinessException(ErrorCode.PHOTO_ALREADY_EXISTS_FOR_DATE);
         }
 
         String photoId = PlantPhoto.newPhotoId();
-        PhotoStorage.StoredPhoto stored = photoStorage.store(
+        // 장치 사진만 돌린다. 카메라가 거꾸로 달려 있어 올라오는 사진이 뒤집혀 있다.
+        PhotoStorage.StoredPhoto stored = photoStorage.storeFromDevice(
                 assignment.getPlantId(),
                 photoId,
                 content
@@ -219,12 +226,16 @@ public class PhotoService {
     /**
      * 그날 장치가 찍은 사진이다. 일기 상세가 사진을 함께 보여줄 때 쓴다.
      *
-     * <p>일기가 사진을 따로 갖지 않는 이유다. 장치가 하루 한 장 찍으므로 날짜만 알면 찾을 수
-     * 있고, 사용자가 일기에 따로 올리게 하면 같은 날 사진이 둘 생겨 하루 한 장 정책과 충돌한다.
+     * <p>일기가 사진을 따로 갖지 않는 이유다. 날짜만 알면 찾을 수 있고, 사용자가 일기에 따로
+     * 올리게 하면 어느 쪽이 그날의 기록인지 정하는 규칙이 하나 더 생긴다.
+     *
+     * <p>하루 여러 장이 허용되므로 그날 <strong>마지막</strong> 사진을 쓴다. 일기는 하루를
+     * 마무리하며 쓰는 글이라 그날 가장 나중 모습이 맞다.
      */
     public Optional<PhotoResponse> findDevicePhotoOfDate(String plantId, LocalDate photoDate) {
         return photoRepository
-                .findByPlantIdAndSourceAndPhotoDate(plantId, PhotoSource.DEVICE, photoDate)
+                .findFirstByPlantIdAndSourceAndPhotoDateOrderByCapturedAtDesc(
+                        plantId, PhotoSource.DEVICE, photoDate)
                 .map(this::toResponse);
     }
 
@@ -239,7 +250,17 @@ public class PhotoService {
         return photoRepository
                 .findAllByPlantIdAndSourceAndPhotoDateIn(plantId, PhotoSource.DEVICE, photoDates)
                 .stream()
-                .collect(Collectors.toMap(PlantPhoto::getPhotoDate, this::toResponse));
+                .collect(Collectors.toMap(
+                        PlantPhoto::getPhotoDate,
+                        this::toResponse,
+                        // 하루 여러 장이면 키가 겹쳐 toMap 이 IllegalStateException 을 던진다.
+                        // 상세와 같은 규칙으로 나중에 찍은 것을 남긴다.
+                        this::pickLaterCapture));
+    }
+
+    /** 같은 날 두 장 중 나중에 찍은 것. {@code capturedAt} 이 같으면 뒤에 온 것을 쓴다. */
+    private PhotoResponse pickLaterCapture(PhotoResponse earlier, PhotoResponse later) {
+        return later.capturedAt().isBefore(earlier.capturedAt()) ? earlier : later;
     }
 
     /**

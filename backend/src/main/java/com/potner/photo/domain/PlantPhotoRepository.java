@@ -37,8 +37,15 @@ public interface PlantPhotoRepository extends JpaRepository<PlantPhoto, String> 
     /** 대표 사진으로 지정하려는 사진이 그 식물의 것인지 확인한다. 남의 사진을 걸 수 없어야 한다. */
     Optional<PlantPhoto> findByIdAndPlantId(String photoId, String plantId);
 
-    /** 일기 상세가 그날 장치 사진을 함께 보여줄 때 쓴다. 없는 날은 비어 있다. */
-    Optional<PlantPhoto> findByPlantIdAndSourceAndPhotoDate(
+    /**
+     * 일기 상세가 그날 장치 사진을 함께 보여줄 때 쓴다. 없는 날은 비어 있다.
+     *
+     * <p>{@code findBy...} 가 아니라 {@code findFirst...} 인 이유는 하루 여러 장이 허용되기
+     * 때문이다({@code potner.photo.allow-multiple-per-day}). 단수 조회로 두면 같은 날 두 장이
+     * 쌓인 순간 {@code IncorrectResultSizeDataAccessException} 이 나서 일기 화면이 통째로
+     * 죽는다. 여러 장이면 그날 마지막 사진을 보여준다.
+     */
+    Optional<PlantPhoto> findFirstByPlantIdAndSourceAndPhotoDateOrderByCapturedAtDesc(
             String plantId,
             PhotoSource source,
             LocalDate photoDate

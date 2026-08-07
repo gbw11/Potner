@@ -38,6 +38,41 @@ public record PhotoStorageProperties(
         @Positive int thumbnailMaxPixels,
 
         /** 업로드 허용 최대 바이트다. 넘으면 저장하지 않는다. */
-        @Positive long maxUploadBytes
+        @Positive long maxUploadBytes,
+
+        /**
+         * 장치 사진을 저장하기 전에 돌릴 각도다. 0·90·180·270 만 받는다.
+         *
+         * <p>카메라가 스테이션에 거꾸로 달려 있어 올라오는 사진이 180도 뒤집혀 있다. 앱에서
+         * 돌리지 않고 여기서 바로잡는 이유는 화면이 네 곳(포토 로그·상세·타임랩스·성장 비교)이라
+         * 표시하는 쪽에서 고치면 네 번 고쳐야 하고, 생장 단계 추론에 넘기는 이미지도 뒤집힌 채
+         * 남기 때문이다.
+         *
+         * <p>사용자가 올리는 대표 사진에는 적용하지 않는다. 휴대폰 사진은 정방향이다.
+         *
+         * <p>카메라를 바로 달면 {@code PHOTO_DEVICE_ROTATE_DEGREES=0} 으로 끄면 된다. 이미
+         * 저장된 사진은 다시 돌리지 않는다.
+         */
+        int deviceRotateDegrees,
+
+        /**
+         * 장치가 같은 날 사진을 여러 장 올릴 수 있는지다.
+         *
+         * <p>원래는 하루 한 장이었다. 타임랩스 프레임 간격을 일정하게 유지하기 위해서다.
+         * 촬영 파이프라인을 확인하려면 하루를 기다려야 해서 허용으로 바꿨다. 자동 촬영은
+         * "오늘 사진이 없으면" 조건이라 이 값과 무관하게 하루 한 번이고, 수동 촬영만 늘어난다.
+         *
+         * <p>원래 정책으로 되돌리려면 {@code PHOTO_ALLOW_MULTIPLE_PER_DAY=false} 다.
+         */
+        boolean allowMultiplePerDay
 ) {
+
+    public PhotoStorageProperties {
+        // 90도 단위가 아니면 이미지 크기 계산이 어긋나므로 기동 때 막는다. 사진이 저장된 뒤에
+        // 발견하면 되돌릴 수 없다.
+        if (Math.floorMod(deviceRotateDegrees, 90) != 0) {
+            throw new IllegalArgumentException(
+                    "potner.photo.device-rotate-degrees must be a multiple of 90: " + deviceRotateDegrees);
+        }
+    }
 }

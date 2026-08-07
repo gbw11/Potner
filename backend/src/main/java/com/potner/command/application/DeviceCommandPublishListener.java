@@ -41,6 +41,9 @@ public class DeviceCommandPublishListener {
                     event.poseYaw(),
                     event.requestId()
             );
+            // 지도 제작은 모드 전환이라 실을 값이 없다. 무엇을 할지는 토픽 이름이 정한다.
+            case MAPPING_START, MAPPING_SAVE, MAPPING_CANCEL ->
+                    new MappingCommandPayload(event.requestId());
         };
         commandPublisher.publish(
                 event.deviceUid(),
