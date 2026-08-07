@@ -224,6 +224,35 @@ public class PhotoService {
     }
 
     /**
+     * 포토 로그에서 사진 한 장을 지운다.
+     *
+     * <p>잘못 찍힌 사진(초점이 나갔거나 로봇이 엉뚱한 곳을 본 사진)이 타임랩스에 그대로
+     * 남아 사용자가 지울 방법이 없었다.
+     *
+     * <p>참조는 DB 가 정리한다 — {@code photo_growth_analysis} 는 {@code ON DELETE CASCADE},
+     * {@code plant.representative_photo_id} 는 {@code ON DELETE SET NULL} 이다. 다만 대표
+     * 사진이었다면 같은 트랜잭션 안에서 엔티티가 옛 값을 들고 있으므로 명시적으로 비운다.
+     *
+     * <p>파일은 행을 지운 뒤에 지운다. 순서를 바꾸면 DB 삭제가 실패했을 때 행은 남고 파일만
+     * 사라져 목록에 깨진 이미지가 뜬다.
+     */
+    @Transactional
+    public void deletePhoto(String userId, String plantId, String photoId) {
+        Plant plant = requireOwnedPlant(userId, plantId);
+        PlantPhoto photo = photoRepository.findByIdAndPlantId(photoId, plantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PHOTO_NOT_FOUND));
+
+        if (Objects.equals(plant.getRepresentativePhotoId(), photoId)) {
+            plant.changeRepresentativePhoto(null, nowUtc());
+            plantRepository.flush();
+        }
+
+        photoRepository.delete(photo);
+        photoRepository.flush();
+        photoStorage.delete(plantId, photoId);
+    }
+
+    /**
      * 그날 장치가 찍은 사진이다. 일기 상세가 사진을 함께 보여줄 때 쓴다.
      *
      * <p>일기가 사진을 따로 갖지 않는 이유다. 날짜만 알면 찾을 수 있고, 사용자가 일기에 따로

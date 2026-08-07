@@ -8,11 +8,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
@@ -57,5 +60,27 @@ public class PhotoQueryController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
     ) {
         return photoService.getPhotos(principal.userId(), plantId, from, to);
+    }
+
+    @DeleteMapping("/{photoId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(
+            summary = "성장 사진 삭제",
+            description = """
+                    포토 로그에서 사진 한 장을 지운다. 초점이 나갔거나 로봇이 엉뚱한 곳을 본
+                    사진이 타임랩스에 남는 것을 사용자가 정리할 수 있게 한다.
+
+                    되돌릴 수 없다. 파일과 행을 모두 지우며 생장 단계 판정 기록도 함께 사라진다.
+                    대표 사진으로 걸려 있었다면 지정이 해제된다.
+
+                    남의 식물 사진은 404 다. 존재 여부를 알려 주지 않는다.
+                    """
+    )
+    public void deletePhoto(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable String plantId,
+            @PathVariable String photoId
+    ) {
+        photoService.deletePhoto(principal.userId(), plantId, photoId);
     }
 }
