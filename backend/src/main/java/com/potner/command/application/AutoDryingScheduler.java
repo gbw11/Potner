@@ -27,25 +27,38 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 토양 과습을 송풍으로 말린다. 자동 급수의 대칭이다.
+ * 공기가 습하면 송풍으로 순환시킨다.
  *
  * <pre>
- * 토양수분 HIGH 알림이 열려 있음  →  이동(스테이션) → 송풍 → 이동(대기 장소)
- * 흙이 마르면 알림이 스스로 닫히고 → 다음 주기부터 아무것도 하지 않는다
+ * 습도 HIGH 알림이 열려 있음  →  이동(스테이션) → 송풍 → 이동(대기 장소)
+ * 습도가 내려가면 알림이 스스로 닫히고 → 다음 주기부터 아무것도 하지 않는다
  * </pre>
  *
- * <p><strong>알림을 상태 머신으로 재사용한다.</strong> 말리기는 "짧게 돌리고 → 수분을 다시 재고
+ * <p><strong>판정 지표가 토양수분이 아니라 공기 습도다.</strong> 원래는 토양 과습을 말리는
+ * 기능이었는데, 자동 급수가 권장량만 주고 라즈베리 쪽에도 "이미 젖었으면 급수 생략" 게이트가
+ * 있어 시스템이 스스로 과습을 만드는 경로가 없었다. 그 알림은 사람이 직접 물을 더 줬을 때만
+ * 열리므로 자동화의 대상으로 삼기에 근거가 약했다.
+ *
+ * <p>반면 공기 습도는 환경이 정하는 값이라 시스템이 통제할 수 없고, 고습에서 공기를 순환시키는
+ * 것은 곰팡이와 웃자람을 막는 원예의 기본이다. 습도는 스테이션의 라즈베리가 재므로 판정 근거도
+ * 이미 들어와 있다.
+ *
+ * <p><strong>송풍이 습도를 낮추지는 않는다.</strong> 목적이 제습이 아니라 공기 순환이라
+ * "해소될 때까지" 가 아니라 "습한 동안 주기적으로" 가 맞는 종료 모델이고, 그 상한은 아래
+ * 하루 가동 횟수가 맡는다. 알림은 환기·제습기 등으로 환경이 바뀌면 닫힌다.
+ *
+ * <p><strong>알림을 상태 머신으로 재사용한다.</strong> 송풍은 "짧게 돌리고 → 다시 재고
  * → 필요하면 또" 의 반복이라 한 번의 체인으로 끝나지 않는다. 그런데 그 반복 조건이 이미
- * {@code alert} 에 있다 — 과습 알림이 열려 있으면 아직 젖은 것이고, 히스테리시스를 넘어 마르면
- * 서버가 알림을 닫는다. 그래서 별도의 진행 상태를 저장하지 않고 주기 검사로 구현한다.
+ * {@code alert} 에 있다 — 고습 알림이 열려 있으면 아직 습한 것이고, 히스테리시스를 넘어
+ * 내려가면 서버가 알림을 닫는다. 그래서 별도의 진행 상태를 저장하지 않고 주기 검사로 구현한다.
  *
- * <p>팬이 스테이션에 고정되어 있어 송풍도 이동이 앞선다. 급수와 달리 <strong>말리는 동안 굳이
+ * <p>팬이 스테이션에 고정되어 있어 송풍도 이동이 앞선다. 급수와 달리 <strong>송풍하는 동안 굳이
  * 오가지 않는다</strong> — 대기 장소로 돌아왔다가 다음 주기에 또 오는 것은 헛걸음이라, 스테이션에
- * 머문 채로 반복 송풍하고 과습이 풀렸을 때만 복귀시킨다.
+ * 머문 채로 반복 송풍하고 습도가 내려갔을 때만 복귀시킨다.
  *
- * <p>하루 가동 횟수에 상한을 둔다. 알림이 닫히는 것이 정상 종료지만, 수분 센서가 고장 나
- * 계속 높은 값을 보내면 알림이 영영 열려 있어 팬이 끝없이 돈다. 물리 장치를 반복 구동하는
- * 자동화에는 스스로 멈추는 지점이 있어야 한다.
+ * <p>하루 가동 횟수에 상한을 둔다. 송풍으로는 습도가 내려가지 않으므로 장마철처럼 하루 종일
+ * 습한 날에는 알림이 종일 열려 있다. 센서 고장으로 높은 값이 계속 올라오는 경우도 마찬가지다.
+ * 물리 장치를 반복 구동하는 자동화에는 스스로 멈추는 지점이 있어야 한다.
  */
 @Component
 public class AutoDryingScheduler {
@@ -88,37 +101,38 @@ public class AutoDryingScheduler {
 
     /** 테스트와 스케줄러가 함께 쓴다. 송풍을 시작·계속하거나 복귀시킨 식물 수를 돌려준다. */
     public int dryOnce() {
-        List<String> overwatered = alertRepository
+        // 공기 습도로 판정한다. 토양수분이 아닌 이유는 클래스 주석에 있다.
+        List<String> humid = alertRepository
                 .findAllByMetricTypeAndDeviationAndResolvedAtIsNull(
-                        AlertMetricType.SOIL_MOISTURE, AlertDeviation.HIGH)
+                        AlertMetricType.HUMIDITY, AlertDeviation.HIGH)
                 .stream()
                 .map(alert -> alert.getPlantId())
                 .distinct()
                 .toList();
 
         int acted = 0;
-        for (String plantId : overwatered) {
+        for (String plantId : humid) {
             acted += runStep(plantId, () -> dryPlant(plantId)) ? 1 : 0;
         }
-        for (String plantId : dryingFinished(overwatered)) {
+        for (String plantId : dryingFinished(humid)) {
             acted += runStep(plantId, () -> sendHome(plantId)) ? 1 : 0;
         }
         return acted;
     }
 
     /**
-     * 말리기가 끝났는데 아직 스테이션에 서 있는 로봇을 되돌린다.
+     * 송풍이 끝났는데 아직 스테이션에 서 있는 로봇을 되돌린다.
      *
-     * <p>이 단계가 없으면 로봇이 스테이션에 방치된다. 과습이 풀리면 알림이 닫히는데 해제는
+     * <p>이 단계가 없으면 로봇이 스테이션에 방치된다. 습도가 내려가면 알림이 닫히는데 해제는
      * 이벤트를 내지 않으므로, 마지막 송풍 회신 이후에 알림이 닫힌 경우 아무도 복귀를 시키지
      * 않는다. 주기 검사가 그 틈을 메운다.
      */
-    private List<String> dryingFinished(List<String> stillOverwatered) {
+    private List<String> dryingFinished(List<String> stillHumid) {
         LocalDateTime since = nowUtc().minusDays(1);
         return commandRepository
                 .findPlantIdsByPurposeSince(CommandPurpose.DRYING, since)
                 .stream()
-                .filter(plantId -> !stillOverwatered.contains(plantId))
+                .filter(plantId -> !stillHumid.contains(plantId))
                 .toList();
     }
 
@@ -172,8 +186,8 @@ public class AutoDryingScheduler {
     /**
      * 말리기 체인의 다음 단계를 잇는다.
      *
-     * <p>송풍이 끝나도 여기서 복귀시키지 않는다. 아직 과습이면 다음 주기가 그 자리에서 다시
-     * 돌리고, 마르면 {@link #dryOnce()} 의 복귀 단계가 데려온다. 매 회차 오가면 이동이 송풍보다
+     * <p>송풍이 끝나도 여기서 복귀시키지 않는다. 아직 습하면 다음 주기가 그 자리에서 다시
+     * 돌리고, 내려가면 {@link #dryOnce()} 의 복귀 단계가 데려온다. 매 회차 오가면 이동이 송풍보다
      * 오래 걸린다.
      */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
