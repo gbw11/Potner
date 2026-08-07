@@ -31,6 +31,8 @@ def build_camera(config: dict[str, Any]) -> Optional[Camera]:
             brightness=float(cam_cfg.get("brightness", 0.1)),
             contrast=float(cam_cfg.get("contrast", 1.1)),
             saturation=float(cam_cfg.get("saturation", 1.05)),
+            awb_mode=str(cam_cfg.get("awb_mode", "auto")),
+            colour_gains=cam_cfg.get("colour_gains"),
         )
 
     raise ValueError(f"Unknown camera driver: {driver}")

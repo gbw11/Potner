@@ -157,6 +157,11 @@ camera:
   brightness: 0.12
   contrast: 1.1
   saturation: 1.05
+  # 화이트밸런스: auto | incandescent | tungsten | fluorescent | indoor | daylight | cloudy
+  awb_mode: auto
+  # 자동 AWB 로 색 캐스트(예: 녹색빛)가 안 잡히면 [red, blue] 게인을 고정한다.
+  # 실측: python -m cli.capture_photo --analyze-color
+  # colour_gains: [1.8, 1.4]
   capture_with_read: false
   capture_every_n: 1
   # 촬영 "후" 결과 이미지 밝기 검사 (src/vision/quality.py)

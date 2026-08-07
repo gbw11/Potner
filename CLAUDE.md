@@ -77,6 +77,13 @@ These hold in the current code; if you're about to change one, that's a delibera
   stops that day's automatic capture chain on an `ERROR`, so a slightly overexposed photo beats no photo.
   Real Pi captures measured 204–246 mean against a 215 ceiling tuned on synthetic images, so rejection
   would fire often. Guarded by `tests/test_brightness_check.py::test_project_yaml_quality_section_loads`.
+- `camera.colour_gains: [red, blue]` are **absolute** libcamera gains on the raw R/B channels, not a
+  relative tweak — setting them turns auto-AWB off entirely. A correction can only be derived from a photo
+  whose applied AWB gains are known (picamera2 `capture_metadata()["ColourGains"]`, surfaced by
+  `Picamera2Camera.last_metadata`). Analyzing a bare JPEG gives a *ratio* only; multiplying it against an
+  assumed 1.0 baseline produces a wildly wrong absolute value (`cli/capture_photo.py::_print_color_report`
+  refuses to print absolute gains in that case).
+
 - Photo upload (`POST /api/v1/device/photos`) has three contract details that break silently if changed —
   see the `upload:` config section, driven by `src/transport/uploader.py`:
   - The file part **must** be named `file`, and auth is the raw header `X-Device-Token` (no `Bearer`).
@@ -175,4 +182,5 @@ retry trigger, so it runs sequentially after A–D merge, not alongside them.
 | `store.py` | `CameraStore` — capture + `index.jsonl` image index + optional `EventStore` capture history |
 | `snapshot.py` | `next_capture_path()` — picamera2 entry point, delegates to `naming.py` |
 | `quality.py` | Brightness check (ok/too_dark/too_bright) — stdlib PNG decoder, optional Pillow for JPEG, `camera.quality:` config |
+| `whitebalance.py` | Colour-cast analysis + gray-world `ColourGains` suggestion — drives `camera.awb_mode` / `camera.colour_gains`, measured via `cli/capture_photo.py --analyze-color` |
 | `capture_flow.py` | `capture_with_retry()` — 촬영+저장확인+밝기검사 1회 시도를 재시도로 감싼다, `camera.retry:` config |

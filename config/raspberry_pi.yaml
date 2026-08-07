@@ -146,7 +146,8 @@ camera:
   width: 1920
   height: 1080
   camera_num: 0
-  settle_sec: 1.0
+  # AE/AWB 수렴 대기. 1.0초는 자동 화이트밸런스가 덜 수렴해 색이 튀는 경우가 있어 2.0으로 둔다.
+  settle_sec: 2.0
   # 2026-08-03 실측: EV +1.0 / brightness 0.12 조합에서 평균 밝기가 204~246 으로 떠서
   # 과노출 판정(상한 215)에 걸렸다. 어두웠던 시절 올려둔 값이라 지금 조명에선 과보정이다.
   # 잠정값 — 재촬영 후 로그의 평균 밝기가 120~180 에 들어오는지 보고 확정할 것.
@@ -154,6 +155,18 @@ camera:
   brightness: 0.0
   contrast: 1.1
   saturation: 1.05
+  # --- 색보정 (화이트밸런스) ---
+  # 기본은 카메라 자동 AWB(awb_mode: auto). OV5647 는 화면 대부분이 잎(녹색)인 장면에서
+  # 자동 AWB 가 녹색 쪽으로 수렴해 사진 전체에 녹색빛이 끼는 경우가 있다.
+  # awb_mode: auto | incandescent | tungsten | fluorescent | indoor | daylight | cloudy
+  awb_mode: auto
+  # colour_gains 를 넣으면 자동 AWB 를 끄고 [red, blue] 게인을 고정한다 (녹색빛 제거용).
+  # 값은 추측하지 말고 실측할 것:
+  #   python -m cli.capture_photo --analyze-color        # 현재 사진의 R/G/B 편차 + 권장 게인
+  #   python -m cli.capture_photo --wb-gains 1.8,1.4 --analyze-color   # 시험 촬영
+  # 식물 사진은 원래 녹색이 많아 gray-world 보정이 과할 수 있다. 잎 색까지 빠져 보이면
+  # --strength 0.5 로 다시 계산해 중간값을 쓴다.
+  # colour_gains: [1.8, 1.4]
   capture_with_read: false
   capture_every_n: 1
   # 촬영 "후" 결과 이미지 밝기 검사 (src/vision/quality.py)
@@ -212,8 +225,8 @@ pump:
   safety:
     enabled: true
     max_ml_per_dose: 500   # 1회 요청 상한 (넘으면 이 값까지만 급수)
-    min_interval_sec: 300  # 직전 급수 후 재급수 최소 간격 (서버 재전송·중복 명령 차단)
-    daily_max_ml: 1000     # 최근 24시간 누적 상한
+    min_interval_sec: 30  # 직전 급수 후 재급수 최소 간격 (서버 재전송·중복 명령 차단)
+    daily_max_ml: 50000     # 최근 24시간 누적 상한
     soil_wet_pct: 70       # 토양수분이 이 값 이상이면 급수 스킵 (센서 없으면 이 축만 비활성)
     state_path: data/water_history.json  # 재시작해도 누적량 유지
 
