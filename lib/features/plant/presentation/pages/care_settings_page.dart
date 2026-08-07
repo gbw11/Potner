@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
@@ -87,7 +86,6 @@ class _CareFormState extends ConsumerState<_CareForm> {
   /// 저장된 급수량이 없을 때 슬라이더가 시작할 값이다. 라즈베리파이 펌프의 1회 기본값
   /// (pump.default_ml)과 같게 둔다. 장치 쪽 안전 상한은 500ml 다.
   static const _defaultWateringMl = 200.0;
-  late final TextEditingController _cycleController;
   bool _isSaving = false;
 
   GrowthProfile get _profile => widget.profile;
@@ -106,17 +104,6 @@ class _CareFormState extends ConsumerState<_CareForm> {
       _profile.illuminanceMaxLux,
     );
     _wateringMl = _profile.recommendedWateringMl ?? _defaultWateringMl;
-    _cycleController = TextEditingController(
-      text: _profile.wateringCycleDays == null
-          ? ''
-          : _trimNumber(_profile.wateringCycleDays!),
-    );
-  }
-
-  @override
-  void dispose() {
-    _cycleController.dispose();
-    super.dispose();
   }
 
   static RangeValues? _range(double? min, double? max) {
@@ -217,37 +204,27 @@ class _CareFormState extends ConsumerState<_CareForm> {
                     ? '아직 저장된 급수량이 없어요. 저장하면 이 값으로 설정됩니다.'
                     : null,
               ),
+              // 급수 주기 입력을 없앴다. 서버는 이 값을 저장만 하고 어디서도 읽지 않는데,
+              // 입력 칸이 있으면 "3일마다 준다고 설정했는데 왜 안 주지" 라는 오해를 만든다.
+              // 실제 급수는 토양 수분이 기준 아래로 내려갈 때 일어난다.
               _CardSection(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    const Row(
-                      children: [
-                        Icon(
-                          Icons.event_repeat_outlined,
-                          size: 18,
-                          color: AppColors.primary,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          '물의 주기',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ],
+                    const Icon(
+                      Icons.sensors_outlined,
+                      size: 18,
+                      color: AppColors.primary,
                     ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      key: const Key('care_watering_cycle'),
-                      controller: _cycleController,
-                      enabled: !_isSaving,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(3),
-                      ],
-                      decoration: const InputDecoration(
-                        hintText: '며칠에 한 번 물을 줄까요?',
-                        suffixText: '일',
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '물은 토양 수분을 보고 자동으로 줘요. 위에서 정한 수분 범위 아래로 '
+                        '내려가면 정한 양만큼 급수합니다.',
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
                       ),
                     ),
                   ],
@@ -296,8 +273,6 @@ class _CareFormState extends ConsumerState<_CareForm> {
   }
 
   GrowthProfileUpdate _buildUpdate() {
-    final cycleText = _cycleController.text.trim();
-    final cycleDays = cycleText.isEmpty ? null : double.parse(cycleText);
     double? changed(double? current, double? original) {
       if (current == null || current == original) {
         return null;
@@ -327,7 +302,6 @@ class _CareFormState extends ConsumerState<_CareForm> {
         _wateringMl,
         _profile.recommendedWateringMl,
       ),
-      wateringCycleDays: changed(cycleDays, _profile.wateringCycleDays),
     );
   }
 

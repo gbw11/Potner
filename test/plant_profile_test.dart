@@ -170,18 +170,26 @@ void main() {
     expect(find.text('케어 설정'), findsOneWidget);
     expect(find.byKey(const Key('care_soil_moisture')), findsOneWidget);
 
-    await tester.ensureVisible(find.byKey(const Key('care_watering_cycle')));
-    await tester.enterText(find.byKey(const Key('care_watering_cycle')), '10');
-
+    // 아무것도 건드리지 않으면 보낼 값이 없으므로 요청 자체를 하지 않는다.
     await tester.ensureVisible(find.byKey(const Key('care_save')));
     await tester.tap(find.byKey(const Key('care_save')));
     await tester.pumpAndSettle();
 
-    expect(plantRepository.growthProfileUpdates, hasLength(1));
-    final update = plantRepository.growthProfileUpdates.single;
-    expect(update.wateringCycleDays, 10);
-    expect(update.soilMoistureMinPct, isNull);
-    expect(update.temperatureMinC, isNull);
+    expect(plantRepository.growthProfileUpdates, isEmpty);
+    expect(find.text('변경된 설정이 없어요.'), findsOneWidget);
+  });
+
+  testWidgets('급수 주기 입력 대신 센서로 준다는 안내가 뜬다', (tester) async {
+    // 서버가 급수 주기를 저장만 하고 읽지 않아 입력 칸을 없앴다. 칸이 남아 있으면
+    // "며칠마다 준다고 설정했는데 왜 안 주지" 라는 오해를 만든다.
+    await _pumpToProfile(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('profile_care_settings')));
+    await tester.tap(find.byKey(const Key('profile_care_settings')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('care_watering_cycle')), findsNothing);
+    expect(find.textContaining('토양 수분을 보고 자동으로'), findsOneWidget);
   });
 
   testWidgets('급수량이 비어 있어도 슬라이더가 보이고 저장하면 값이 들어간다', (tester) async {
