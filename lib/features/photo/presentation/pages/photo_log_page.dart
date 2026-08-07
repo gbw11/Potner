@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
+import 'package:potner_app/features/photo/data/photo_repository_impl.dart';
 import 'package:potner_app/features/photo/presentation/photo_providers.dart';
 import 'package:potner_app/features/plant/domain/my_plant.dart';
 import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dart';
@@ -150,6 +151,13 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
                                 '/growth/photos/${plant.plantId}/${photo.photoId}',
                               ),
                             ),
+                            // 길게 눌러 삭제한다. 탭은 이미 상세 보기라 삭제 버튼을 따로 두면
+                            // 작은 썸네일 위에 눌릴 것이 둘이 되어 오탭이 난다.
+                            onLongPress: () => _confirmDelete(
+                              plantId: plant.plantId,
+                              photoId: photo.photoId,
+                              dateLabel: photoDateLabel(photo.photoDate),
+                            ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(18),
                               child: Image.network(
@@ -181,6 +189,55 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
         ),
       ],
     );
+  }
+
+  /// 사진 삭제는 되돌릴 수 없어 한 번 묻는다.
+  ///
+  /// 성공하면 목록을 다시 불러온다 — 로컬에서 빼지 않는 이유는 타임랩스·성장 비교가
+  /// 같은 조회를 쓰기 때문이다. 한 곳만 지우면 나머지 화면이 지운 사진을 계속 그린다.
+  Future<void> _confirmDelete({
+    required String plantId,
+    required String photoId,
+    required String dateLabel,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('사진 삭제'),
+        content: Text('$dateLabel 사진을 지울까요?\n타임랩스와 성장 비교에서도 함께 사라져요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('그만두기'),
+          ),
+          FilledButton(
+            key: const Key('photo_delete_confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(photoRepositoryProvider)
+          .deletePhoto(plantId: plantId, photoId: photoId);
+      ref.invalidate(plantPhotosProvider(plantId));
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('사진을 지웠어요.')));
+    } catch (error) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(plantErrorMessage(error, '사진을 지우지 못했습니다.'))),
+        );
+    }
   }
 }
 
