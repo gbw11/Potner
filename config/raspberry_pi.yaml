@@ -148,25 +148,36 @@ camera:
   camera_num: 0
   # AE/AWB 수렴 대기. 1.0초는 자동 화이트밸런스가 덜 수렴해 색이 튀는 경우가 있어 2.0으로 둔다.
   settle_sec: 2.0
-  # 2026-08-03 실측: EV +1.0 / brightness 0.12 조합에서 평균 밝기가 204~246 으로 떠서
-  # 과노출 판정(상한 215)에 걸렸다. 어두웠던 시절 올려둔 값이라 지금 조명에선 과보정이다.
-  # 잠정값 — 재촬영 후 로그의 평균 밝기가 120~180 에 들어오는지 보고 확정할 것.
-  exposure_value: 0.3    # EV 보정 (+면 밝아짐). 여전히 밝으면 0.0 까지 내린다
-  brightness: 0.0
-  contrast: 1.1
-  saturation: 1.05
-  # --- 색보정 (화이트밸런스) ---
-  # 기본은 카메라 자동 AWB(awb_mode: auto). OV5647 는 화면 대부분이 잎(녹색)인 장면에서
-  # 자동 AWB 가 녹색 쪽으로 수렴해 사진 전체에 녹색빛이 끼는 경우가 있다.
+  # --- 톤 보정 없음 (실물 그대로) ---
+  # 2026-08-07: "사진에 어떤 색/톤 보정도 넣지 말 것" 요구로 전부 중립값(무보정)으로 고정.
+  # 값을 올리면 다시 카메라가 색을 만지기 시작하므로, 어둡다는 이유로 함부로 올리지 말 것.
+  exposure_value: 0.0    # EV 보정 없음
+  brightness: 0.0        # 밝기 오프셋 없음
+  contrast: 1.0          # 대비 보정 없음
+  saturation: 1.0        # 채도 보정 없음 (1.05 는 색을 진하게 만들어 녹색빛을 키운다)
+  # --- 화이트밸런스 ---
+  # AWB 는 "보정"이 아니라 조명색을 걷어내 실제 색으로 되돌리는 단계다. 끄면(게인 1.0) OV5647
+  # 원시 출력이 녹색 쪽으로 크게 치우쳐 오히려 더 녹색이 된다. 그래서 끄지 않고 고정한다.
+  # auto 는 잎(녹색)이 화면 대부분인 장면에서 녹색으로 수렴한다. daylight 프리셋도 실측 결과
+  # 캐스트가 남아서(아래 참조) 지금은 colour_gains 고정 경로를 쓴다.
+  # ※ colour_gains 가 설정돼 있으면 AwbEnable=False 라 이 값은 무시된다 (src/vision/camera.py).
+  #   colour_gains 를 다시 주석 처리하면 이 프리셋으로 돌아온다.
   # awb_mode: auto | incandescent | tungsten | fluorescent | indoor | daylight | cloudy
-  awb_mode: auto
+  awb_mode: daylight
   # colour_gains 를 넣으면 자동 AWB 를 끄고 [red, blue] 게인을 고정한다 (녹색빛 제거용).
-  # 값은 추측하지 말고 실측할 것:
-  #   python -m cli.capture_photo --analyze-color        # 현재 사진의 R/G/B 편차 + 권장 게인
-  #   python -m cli.capture_photo --wb-gains 1.8,1.4 --analyze-color   # 시험 촬영
-  # 식물 사진은 원래 녹색이 많아 gray-world 보정이 과할 수 있다. 잎 색까지 빠져 보이면
-  # --strength 0.5 로 다시 계산해 중간값을 쓴다.
-  # colour_gains: [1.8, 1.4]
+  # 이 값은 raw R/B 채널에 곱하는 "절대" 게인이다. 추측 금지 — 반드시 실측값을 쓸 것:
+  #   python -m cli.capture_photo --config config/raspberry_pi.yaml --analyze-color
+  #
+  # 2026-08-07 실측 A (자동 AWB 기준, gray-world R 0.882 / B 0.809):
+  #   → colour_gains: [1.548, 1.401]  ← 지금 값. 적용 후 무채색이 무채색으로 나오는 것 확인됨.
+  # 2026-08-07 실측 B (awb_mode: daylight, 적용 게인 red 1.429 / blue 1.210):
+  #   평균 RGB R 104.1 / G 116.3 / B 93.5  →  R 0.895 / B 0.804  → 권장 [1.596, 1.505]
+  #   B 는 미검증이라 채택하지 않았다. 두 측정이 파랑에서 약 7% 어긋난다 —
+  #   재측정할 일이 생기면 이 차이를 감안해 한 번에 확정할 것.
+  # 스테이션은 조명이 일정하므로 고정하는 편이 낫다 — 자동이면 날마다 색이 달라진다.
+  # 조명이 바뀌면 재측정: python -m cli.capture_photo --analyze-color
+  # 잎 색까지 빠져 허옇게 보이면 gray-world 과보정이니 게인을 낮출 것 (--strength 0.5 로 재계산).
+  colour_gains: [1.548, 1.401]
   capture_with_read: false
   capture_every_n: 1
   # 촬영 "후" 결과 이미지 밝기 검사 (src/vision/quality.py)
