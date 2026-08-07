@@ -47,4 +47,12 @@ class PhotoRepositoryImpl implements PhotoRepository {
   Future<void> clearRepresentativePhoto({required String plantId}) {
     return _api.clearRepresentativePhoto(plantId: plantId);
   }
+
+  @override
+  Future<void> deletePhoto({
+    required String plantId,
+    required String photoId,
+  }) {
+    return _api.deletePhoto(plantId: plantId, photoId: photoId);
+  }
 }

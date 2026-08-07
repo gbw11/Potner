@@ -10,6 +10,7 @@ class FakePhotoRepository implements PhotoRepository {
   final List<({String plantId, String filePath, String fileName})> uploadCalls =
       [];
   final List<String> clearCalls = [];
+  final List<({String plantId, String photoId})> deleteCalls = [];
 
   static List<PlantPhoto> _defaultPhotos() {
     final today = DateTime.now();
@@ -70,5 +71,16 @@ class FakePhotoRepository implements PhotoRepository {
   @override
   Future<void> clearRepresentativePhoto({required String plantId}) async {
     clearCalls.add(plantId);
+  }
+
+  @override
+  Future<void> deletePhoto({
+    required String plantId,
+    required String photoId,
+  }) async {
+    deleteCalls.add((plantId: plantId, photoId: photoId));
+    // 서버가 지운 뒤 목록을 다시 부르면 빠져 있어야 한다. 화면이 재조회로 갱신되므로
+    // 여기서도 실제로 빼 준다.
+    photos.removeWhere((photo) => photo.photoId == photoId);
   }
 }

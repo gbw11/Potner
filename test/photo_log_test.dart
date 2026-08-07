@@ -88,6 +88,37 @@ void main() {
     },
   );
 
+  testWidgets('사진을 길게 눌러 확인을 거쳐 지우면 목록에서 빠진다', (tester) async {
+    final photoRepository = await _pumpToPhotoLog(tester);
+
+    await tester.longPress(find.byKey(const Key('photo_card_photo-old')));
+    await tester.pumpAndSettle();
+
+    // 되돌릴 수 없으므로 한 번 묻는다.
+    expect(find.text('사진 삭제'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('photo_delete_confirm')));
+    await tester.pumpAndSettle();
+
+    expect(photoRepository.deleteCalls, hasLength(1));
+    expect(photoRepository.deleteCalls.single.photoId, 'photo-old');
+    // 로컬에서 빼지 않고 재조회로 갱신한다 — 타임랩스·성장 비교가 같은 조회를 쓴다.
+    expect(find.byKey(const Key('photo_card_photo-old')), findsNothing);
+    expect(find.byKey(const Key('photo_card_photo-new')), findsOneWidget);
+    expect(find.text('사진을 지웠어요.'), findsOneWidget);
+  });
+
+  testWidgets('삭제 확인에서 그만두면 사진이 남는다', (tester) async {
+    final photoRepository = await _pumpToPhotoLog(tester);
+
+    await tester.longPress(find.byKey(const Key('photo_card_photo-old')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('그만두기'));
+    await tester.pumpAndSettle();
+
+    expect(photoRepository.deleteCalls, isEmpty);
+    expect(find.byKey(const Key('photo_card_photo-old')), findsOneWidget);
+  });
+
   testWidgets('타임랩스는 오래된 사진부터 재생하고 재생용 축소본을 쓴다', (tester) async {
     // 디자인상 진입점은 성장 비교 화면이다 — 전·후 두 장 아래에서 전체 흐름으로 이어진다.
     await _pumpToPhotoLog(tester);
