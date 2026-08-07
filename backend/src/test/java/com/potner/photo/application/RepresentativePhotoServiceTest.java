@@ -180,6 +180,45 @@ class RepresentativePhotoServiceTest {
         verify(photoStorage, never()).store(any(), any(), any());
     }
 
+    @Test
+    void deletingAPhotoRemovesTheRowAndTheFile() {
+        givenOwnedPlant(null);
+        PlantPhoto photo = userPhoto("photo-1");
+        when(photoRepository.findByIdAndPlantId("photo-1", PLANT_ID))
+                .thenReturn(Optional.of(photo));
+
+        photoService.deletePhoto(USER_ID, PLANT_ID, "photo-1");
+
+        // 행을 먼저 지우고 파일을 지운다. 순서가 바뀌면 DB 삭제 실패 시 목록에 깨진 이미지가 남는다.
+        verify(photoRepository).delete(photo);
+        verify(photoStorage).delete(PLANT_ID, "photo-1");
+    }
+
+    @Test
+    void deletingTheRepresentativePhotoClearsTheReference() {
+        // DB 는 ON DELETE SET NULL 로 정리하지만, 같은 트랜잭션의 엔티티는 옛 값을 들고 있다.
+        Plant plant = givenOwnedPlant("photo-1");
+        when(photoRepository.findByIdAndPlantId("photo-1", PLANT_ID))
+                .thenReturn(Optional.of(userPhoto("photo-1")));
+
+        photoService.deletePhoto(USER_ID, PLANT_ID, "photo-1");
+
+        verify(plant).changeRepresentativePhoto(eq(null), any());
+    }
+
+    @Test
+    void deletingAPhotoOfAnotherPlantIsNotFound() {
+        givenOwnedPlant(null);
+        when(photoRepository.findByIdAndPlantId("photo-1", PLANT_ID))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> photoService.deletePhoto(USER_ID, PLANT_ID, "photo-1"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(ErrorCode.PHOTO_NOT_FOUND);
+        verify(photoStorage, never()).delete(any(), any());
+    }
+
     private Plant givenOwnedPlant(String representativePhotoId) {
         Plant plant = mock(Plant.class);
         lenient().when(plant.getRepresentativePhotoId()).thenReturn(representativePhotoId);
