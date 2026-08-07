@@ -116,7 +116,7 @@ class AutoDryingSchedulerTest {
 
     @Test
     void fanCompletionDoesNotSendTheRobotHomeByItself() {
-        // 아직 과습일 수 있다. 복귀는 알림이 닫힌 것을 확인한 주기 검사가 맡는다.
+        // 아직 습할 수 있다. 복귀는 알림이 닫힌 것을 확인한 주기 검사가 맡는다.
         scheduler(true).onCommandCompleted(completed(
                 DeviceCommandType.FAN, CommandPurpose.DRYING, null, DeviceCommandStatus.OK));
 
@@ -125,10 +125,10 @@ class AutoDryingSchedulerTest {
 
     @Test
     void driedPlantStillAtTheStationIsBroughtHome() {
-        // 과습이 풀리면 알림이 닫히는데 해제는 이벤트를 내지 않는다. 이 단계가 없으면 로봇이
+        // 습도가 내려가면 알림이 닫히는데 해제는 이벤트를 내지 않는다. 이 단계가 없으면 로봇이
         // 스테이션에 방치된다.
         when(alertRepository.findAllByMetricTypeAndDeviationAndResolvedAtIsNull(
-                AlertMetricType.SOIL_MOISTURE, AlertDeviation.HIGH)).thenReturn(List.of());
+                AlertMetricType.HUMIDITY, AlertDeviation.HIGH)).thenReturn(List.of());
         when(commandRepository.findPlantIdsByPurposeSince(eq(CommandPurpose.DRYING), any()))
                 .thenReturn(List.of(PLANT_ID));
         givenLastNavigate(navigateTo(RobotLocationType.WATER_STATION));
@@ -144,7 +144,7 @@ class AutoDryingSchedulerTest {
     @Test
     void driedPlantAlreadyHomeIsLeftAlone() {
         when(alertRepository.findAllByMetricTypeAndDeviationAndResolvedAtIsNull(
-                AlertMetricType.SOIL_MOISTURE, AlertDeviation.HIGH)).thenReturn(List.of());
+                AlertMetricType.HUMIDITY, AlertDeviation.HIGH)).thenReturn(List.of());
         when(commandRepository.findPlantIdsByPurposeSince(eq(CommandPurpose.DRYING), any()))
                 .thenReturn(List.of(PLANT_ID));
         givenLastNavigate(navigateTo(RobotLocationType.HOME));
@@ -217,7 +217,7 @@ class AutoDryingSchedulerTest {
         Alert alert = Alert.openStationWaterLow(USER_ID, plantId, LocalDateTime.now(
                 Clock.fixed(NOW, ZoneOffset.UTC)));
         lenient().when(alertRepository.findAllByMetricTypeAndDeviationAndResolvedAtIsNull(
-                AlertMetricType.SOIL_MOISTURE, AlertDeviation.HIGH)).thenReturn(List.of(alert));
+                AlertMetricType.HUMIDITY, AlertDeviation.HIGH)).thenReturn(List.of(alert));
         lenient().when(commandRepository.findPlantIdsByPurposeSince(any(), any()))
                 .thenReturn(List.of());
     }
