@@ -222,6 +222,15 @@ potner:
     playback-max-pixels: ${PHOTO_PLAYBACK_MAX_PIXELS:1280}
     thumbnail-max-pixels: ${PHOTO_THUMBNAIL_MAX_PIXELS:400}
     max-upload-bytes: ${PHOTO_MAX_UPLOAD_BYTES:10485760}
+    # 카메라가 스테이션에 거꾸로 달려 있어 장치 사진이 180도 뒤집혀 올라온다. 표시하는 쪽이
+    # 아니라 저장할 때 바로잡는다 — 화면이 네 곳(포토 로그·상세·타임랩스·성장 비교)이라
+    # 표시에서 고치면 네 번 고쳐야 하고, 생장 단계 추론이 읽는 재생본도 뒤집힌 채 남는다.
+    # 사용자가 올리는 대표 사진에는 적용하지 않는다. 카메라를 바로 달면 0 으로 끈다.
+    device-rotate-degrees: ${PHOTO_DEVICE_ROTATE_DEGREES:180}
+    # 원래는 하루 한 장이었다(타임랩스 프레임 간격을 일정하게 유지). 촬영 파이프라인을 확인하려면
+    # 하루를 기다려야 해서 허용으로 바꿨다. 자동 촬영은 "오늘 사진이 없으면" 조건이라 이 값과
+    # 무관하게 하루 한 번이고, 수동 촬영만 늘어난다. 되돌리려면 false.
+    allow-multiple-per-day: ${PHOTO_ALLOW_MULTIPLE_PER_DAY:true}
   vision:
     # 추론이 별도 컨테이너라 로컬과 임시 CI 컨테이너에는 떠 있지 않다. 기본값을 꺼짐으로 두어
     # 그 환경에서 분류기가 no-op 으로 떨어지게 한다. 운영 배포에서만 켠다.

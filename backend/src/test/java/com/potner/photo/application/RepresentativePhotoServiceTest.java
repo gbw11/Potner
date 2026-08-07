@@ -5,6 +5,7 @@ import com.potner.common.error.ErrorCode;
 import com.potner.device.domain.DeviceUploadToken;
 import com.potner.device.domain.PlantDeviceAssignmentRepository;
 import com.potner.device.domain.RobotRepository;
+import com.potner.photo.config.PhotoStorageProperties;
 import com.potner.photo.domain.PlantPhoto;
 import com.potner.photo.domain.PlantPhotoRepository;
 import com.potner.photo.domain.StoredPhotoPaths;
@@ -79,6 +80,7 @@ class RepresentativePhotoServiceTest {
                 photoStorage,
                 uploadTokenIssuer,
                 new SensorQueryProperties("+09:00", 15, 14, 365),
+                new PhotoStorageProperties("./data/photos", "/media", 1280, 400, 10485760L, 180, true),
                 eventPublisher,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
