@@ -2195,14 +2195,17 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.playbackUrl").value(containsString("/playback.jpg")))
                 .andExpect(jsonPath("$.originalUrl").value(containsString("/original.jpg")));
 
-        // 하루 한 장. 타임랩스 프레임 간격을 일정하게 유지하기 위함이다.
+        // 같은 날 두 번째 사진도 받는다. 하루 한 장이던 제한은
+        // potner.photo.allow-multiple-per-day 기본값이 true 로 바뀌면서 풀렸다 — 촬영
+        // 파이프라인을 확인하는 데 하루를 기다려야 했기 때문이다. false 로 두면 예전처럼
+        // PHOTO_ALREADY_EXISTS_FOR_DATE 로 거부한다.
         // 같은 서비스 타임존 날짜(07-20 KST)에 해당하는 다른 UTC 시각을 쓴다.
         mockMvc.perform(multipart("/api/v1/device/photos")
                         .file(jpegPart(120, 80))
                         .header("X-Device-Token", uploadToken)
                         .param("capturedAt", "2026-07-20T01:00:00Z"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("PHOTO_ALREADY_EXISTS_FOR_DATE"));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.photoDate").value("2026-07-20"));
 
         // 날짜 경계는 UTC 자정이 아니라 서비스 타임존 자정이다. 15:00Z 부터 다음 날이므로
         // 하루 한 장 제한에 걸리지 않는다. plant_daily_light.light_date 와 같은 규칙이다.
