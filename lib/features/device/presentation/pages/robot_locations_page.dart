@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
+import 'package:potner_app/features/command/presentation/widgets/mapping_card.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
+import 'package:potner_app/features/device/presentation/pages/device_management_page.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 
 final robotLocationsProvider = FutureProvider.autoDispose
@@ -71,6 +73,8 @@ class RobotLocationsPage extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // 좌표는 지도 위의 점이므로 지도가 먼저다. 그래서 위치 목록보다 위에 둔다.
+                      _MappingSection(robotId: robotId),
                       const Text(
                         '로봇이 오가는 위치를 등록하고 지도의 좌표를 넣어 주세요.\n'
                         '좌표가 없는 위치로는 로봇을 보낼 수 없어요.',
@@ -96,6 +100,33 @@ class RobotLocationsPage extends ConsumerWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+/// 지도 제작 카드를 로봇 정보와 함께 띄운다.
+///
+/// 명령은 식물 단위로 나가는데 이 화면은 로봇만 안다. 목록에서 이 로봇을 찾아 배정된 식물을
+/// 얻는다 — 로봇 목록은 이미 다른 화면이 쓰는 조회라 요청이 새로 늘지 않는다.
+/// 목록을 못 불러오면 카드를 감춘다. 지도 제작은 위치 설정의 선행 단계일 뿐이라, 여기서
+/// 실패 문구를 띄우면 정작 필요한 좌표 입력이 가려진다.
+class _MappingSection extends ConsumerWidget {
+  const _MappingSection({required this.robotId});
+
+  final String robotId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final robots = ref.watch(robotsProvider);
+    return robots.maybeWhen(
+      data: (items) {
+        final robot = items.where((it) => it.robotId == robotId).firstOrNull;
+        if (robot == null) {
+          return const SizedBox.shrink();
+        }
+        return MappingCard(robot: robot);
+      },
+      orElse: () => const SizedBox.shrink(),
     );
   }
 }

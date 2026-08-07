@@ -108,6 +108,9 @@ class DeviceCommandApi {
       'CAPTURE' => DeviceCommandType.capture,
       'FAN' => DeviceCommandType.fan,
       'NAVIGATE' => DeviceCommandType.navigate,
+      'MAPPING_START' => DeviceCommandType.mappingStart,
+      'MAPPING_SAVE' => DeviceCommandType.mappingSave,
+      'MAPPING_CANCEL' => DeviceCommandType.mappingCancel,
       _ => null,
     };
   }
