@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -140,6 +141,42 @@ class DeviceCommandServiceTest {
         assertThat(event.getValue().deviceUid()).isEqualTo(JETSON_UID);
         assertThat(event.getValue().poseX()).isEqualByComparingTo("1.250");
         assertThat(event.getValue().poseYaw()).isEqualByComparingTo("1.5708");
+    }
+
+    @Test
+    void mappingCommandsGoToTheJetsonWithoutADestination() {
+        // 지도 제작은 목적지도 좌표도 없다 — 지도를 그리려고 하는 일이라 좌표가 있을 수 없다.
+        // 받는 쪽은 바퀴가 달린 젯슨이고, 무엇을 할지는 토픽 이름이 정한다.
+        for (DeviceCommandType type : List.of(
+                DeviceCommandType.MAPPING_START,
+                DeviceCommandType.MAPPING_SAVE,
+                DeviceCommandType.MAPPING_CANCEL)) {
+            reset(eventPublisher);
+            givenDevices();
+            when(commandRepository.existsByPlantIdAndCommandTypeAndStatus(
+                    PLANT_ID, type, DeviceCommandStatus.ISSUED)).thenReturn(false);
+
+            DeviceCommandResponse response = service.issue(
+                    USER_ID, PLANT_ID, new IssueDeviceCommandRequest(type, null, null));
+
+            assertThat(response.destination()).isNull();
+
+            ArgumentCaptor<DeviceCommandIssuedEvent> event =
+                    ArgumentCaptor.forClass(DeviceCommandIssuedEvent.class);
+            verify(eventPublisher).publishEvent(event.capture());
+            assertThat(event.getValue().deviceUid()).isEqualTo(JETSON_UID);
+            assertThat(event.getValue().destination()).isNull();
+            assertThat(event.getValue().runSeconds()).isNull();
+            assertThat(event.getValue().requestedMl()).isNull();
+        }
+    }
+
+    @Test
+    void mappingCommandNamesMatchTheTopicSuffix() {
+        // 토픽 마지막 조각이자 결과 토픽의 짝이다. 젯슨 구독 이름과 어긋나면 명령이 조용히 사라진다.
+        assertThat(DeviceCommandType.MAPPING_START.commandName()).isEqualTo("mapping-start");
+        assertThat(DeviceCommandType.MAPPING_SAVE.commandName()).isEqualTo("mapping-save");
+        assertThat(DeviceCommandType.MAPPING_CANCEL.commandName()).isEqualTo("mapping-cancel");
     }
 
     @Test
