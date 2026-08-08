@@ -185,7 +185,16 @@ potner:
     # potner.sensor.zone-offset 과 같은 지역을 가리켜야 한다. 그쪽은 SQL 시각 연산에 쓰이므로 고정 오프셋이다.
     zone: "${DAILY_LIGHT_ZONE:Asia/Seoul}"
     light-on-threshold-lux: ${DAILY_LIGHT_ON_THRESHOLD_LUX:500}
-    max-gap-seconds: ${DAILY_LIGHT_MAX_GAP_SECONDS:600}
+    # 표본 하나가 대표할 수 있는 최대 시간이다. 정상 수집에서는 아무 일도 하지 않고
+    # (간격이 이 값보다 짧아 그대로 쓰인다) 장치가 끊겼을 때만 개입한다.
+    #
+    # 젯슨이 조도를 10초마다 보내므로 6배인 60 으로 둔다. 이전 값 600 은 젯슨이 10분간
+    # 죽어도 마지막 값이 그 10분을 다 채워, 끊김을 정상 데이터로 위장했다. 60 이면 1분만
+    # 인정되고 나머지는 커버리지에서 빠져 min-coverage-pct 판정에 드러난다.
+    #
+    # 발행 주기가 바뀌면 이 값도 함께 봐야 한다. 주기보다 작으면 초과분이 잘려 누적 광량이
+    # 계통적으로 과소 계산된다.
+    max-gap-seconds: ${DAILY_LIGHT_MAX_GAP_SECONDS:60}
     min-coverage-pct: ${DAILY_LIGHT_MIN_COVERAGE_PCT:80}
     photoperiod-tolerance-ratio: ${DAILY_LIGHT_PHOTOPERIOD_TOLERANCE_RATIO:0.2}
     max-history-days: ${DAILY_LIGHT_MAX_HISTORY_DAYS:90}
