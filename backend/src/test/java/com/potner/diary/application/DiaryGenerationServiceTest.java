@@ -191,6 +191,30 @@ class DiaryGenerationServiceTest {
     }
 
     @Test
+    void theNicknameIsLabelledAsThePlantsOwnNameNotTheUsers() {
+        // "사용자가 부르는 이름" 이라고 적었더니 모델이 사용자의 이름으로 읽었다. 실호출에서
+        // 여섯 중 둘이 틀렸다. 자기 이름으로 사용자를 부르거나("초록이, 오늘은…") 자신을
+        // 제3자로 서술했다("초록이가 남긴 사진"). 사용자 호칭은 페르소나가 따로 정한다.
+        givenGeneratable();
+        givenModelResponds("{\"title\":\"t\",\"content\":\"c\"}");
+        when(diaryService.write(any(), any(), any(), any())).thenReturn(DiaryWriteResult.WRITTEN);
+
+        generationService.generate(PLANT_ID, DATE);
+
+        ArgumentCaptor<LlmCompletionRequest> request =
+                ArgumentCaptor.forClass(LlmCompletionRequest.class);
+        verify(llmClient).complete(request.capture());
+        assertThat(request.getValue().userPrompt())
+                .contains("내 이름: 로지")
+                .doesNotContain("사용자가 부르는 이름");
+        // 라벨만으로는 부족했다. 사용자를 등장시키라고 요구하는 페르소나(미니해바라기의
+        // ending_rule, 칼란디바의 core_value)는 부를 이름이 없으면 애칭을 끌어다 쓴다.
+        assertThat(request.getValue().systemPrompt())
+                .contains("사용자를 부를 때는 '너' 만 쓴다")
+                .contains("그 이름으로 사용자를 부르면 안 된다");
+    }
+
+    @Test
     void quietDayIsToldToTheModelSoItDoesNotInventEvents() {
         when(diaryRepository.existsByPlantIdAndDiaryDate(PLANT_ID, DATE)).thenReturn(false);
         when(summaryReader.read(PLANT_ID, DATE)).thenReturn(Optional.of(new PlantDaySummary(

@@ -14,6 +14,11 @@ import org.springframework.stereotype.Component;
  * <p><strong>로봇 행동 금지가 이 프롬프트의 핵심이다.</strong> 기획 자료의 일기 예시가 전부
  * 이동과 급수를 말하는데 서버는 둘 다 하지 않는다. 같은 자료의 안전 규칙과도 어긋난다.
  * 근거에서 빼는 것만으로는 부족해 명시적으로 금지한다.
+ *
+ * <p>사용자 이름이 없다는 사실도 명시한다. 미니해바라기와 칼란디바는 페르소나가 사용자를
+ * 문장에 등장시키라고 요구하는데(각각 {@code ending_rule}, {@code core_value}) 프롬프트에
+ * 있는 고유명사는 식물 애칭뿐이다. 말하지 않으면 모델이 그 빈자리를 애칭으로 메워, 자기
+ * 이름으로 사용자를 부르거나 자신을 제3자로 서술한다. 실호출에서 두 종 모두 그렇게 나왔다.
  */
 @Component
 public class DiaryPromptFactory {
@@ -35,6 +40,7 @@ public class DiaryPromptFactory {
                 [말투]
                 - 1인칭: %s
                 - 사용자 호칭: %s
+                - 사용자를 부를 때는 '%s' 만 쓴다. 사용자의 이름은 주어지지 않는다.
                 - 기본 말투: %s
 
                 [일기 작성 방식]
@@ -56,6 +62,7 @@ public class DiaryPromptFactory {
                 - 주어진 관찰 내용만 사실로 쓴다. 주어지지 않은 사건을 지어내지 않는다.
                 - 수치나 시각이 주어지지 않았으면 임의로 만들지 않는다.
                 - 로봇은 이동, 급수, 송풍을 하지 않는다. 그런 행동을 했다고 쓰면 안 된다.
+                - 내 이름은 나를 가리킨다. 그 이름으로 사용자를 부르면 안 된다.
                 - 사용자가 돌보지 않았다고 탓하거나 죄책감을 주지 않는다.
                 - 병해나 원인을 진단하듯 단정하지 않는다.
                 - 예시 문장을 그대로 옮기지 않는다. 말투와 구조만 참고한다.
@@ -73,6 +80,9 @@ public class DiaryPromptFactory {
                         voice.narrativeRole(),
                         voice.firstPerson(),
                         voice.addressUser(),
+                        // 바로 위 줄에 한 번 더 박는다. 응원 구호처럼 사용자를 부르는 문장을
+                        // 요구하는 페르소나는 호칭을 알려주는 것만으로는 이름을 끌어다 쓴다.
+                        voice.addressUser(),
                         voice.speechStyle(),
                         voice.primaryFocus(),
                         voice.diaryStructure(),
@@ -89,7 +99,11 @@ public class DiaryPromptFactory {
     private String userPrompt(PlantDaySummary summary) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("날짜: ").append(summary.diaryDate()).append('\n');
-        prompt.append("사용자가 부르는 이름: ").append(summary.plantNickname()).append('\n');
+        // "사용자가 부르는 이름" 이라고 적었더니 모델이 사용자의 이름으로 읽었다. 자기 이름으로
+        // 사용자를 부르거나("초록이, 오늘은…") 자신을 제3자로 서술했다("초록이가 남긴 사진").
+        // 누구의 이름인지를 라벨에서 못박는다. 사용자를 어떻게 부를지는 페르소나가 정한다.
+        prompt.append("내 이름: ").append(summary.plantNickname())
+                .append(" (사용자가 나를 이렇게 부른다)").append('\n');
         prompt.append("식물 종: ").append(summary.speciesName()).append('\n');
         prompt.append("\n[오늘의 관찰]\n");
 
