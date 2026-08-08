@@ -231,6 +231,28 @@ class PlantApi {
         _optionalString(photo?['thumbnailUrl']) ??
             _optionalString(photo?['originalUrl']),
       ),
+      persona: _parsePersona(data['persona']),
+    );
+  }
+
+  /// 성격을 읽는다. 없으면 null 이다.
+  ///
+  /// 없다고 오류로 보지 않는다. 페르소나가 없는 종이 있을 수 있고, 서버가 아직 이 필드를
+  /// 내보내지 않는 배포에서도 프로필 화면 전체가 깨지면 안 된다.
+  SpeciesPersona? _parsePersona(Object? value) {
+    final persona = _nullableMap(value);
+    if (persona == null) {
+      return null;
+    }
+    return SpeciesPersona(
+      characterName: _optionalString(persona['characterName']) ?? '',
+      flowerMeaning: _optionalString(persona['flowerMeaning']) ?? '',
+      tags: _asList(persona['tags'])
+          .map((tag) => tag?.toString().trim() ?? '')
+          .where((tag) => tag.isNotEmpty)
+          .toList(growable: false),
+      concept: _optionalString(persona['concept']) ?? '',
+      coreValue: _optionalString(persona['coreValue']) ?? '',
     );
   }
 

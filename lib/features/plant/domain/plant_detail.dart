@@ -11,6 +11,7 @@ class PlantDetail {
     required this.lifeStage,
     this.adoptedDate,
     this.thumbnailUrl,
+    this.persona,
   });
 
   final String plantId;
@@ -21,6 +22,41 @@ class PlantDetail {
   final GrowthStageOption lifeStage;
   final DateTime? adoptedDate;
   final String? thumbnailUrl;
+
+  /// 종에 정해진 성격이다. 서버가 아직 배포되지 않았거나 페르소나가 없는 종이면 null 이다.
+  final SpeciesPersona? persona;
+}
+
+/// 종에 정해진 성격이다. 꽃말을 성격으로 옮긴 것으로, 일기 말투도 이걸 따른다.
+class SpeciesPersona {
+  const SpeciesPersona({
+    required this.characterName,
+    required this.flowerMeaning,
+    required this.tags,
+    required this.concept,
+    required this.coreValue,
+  });
+
+  final String characterName;
+
+  /// 대표 꽃말. 성격의 근거다.
+  final String flowerMeaning;
+
+  /// 해시태그용 짧은 키워드다. 꽃말은 여기 없어 화면이 앞에 따로 붙인다.
+  final List<String> tags;
+
+  final String concept;
+  final String coreValue;
+
+  /// 화면에 찍을 해시태그다. 꽃말을 맨 앞에 둔다. 성격의 근거라 먼저 읽혀야 한다.
+  List<String> get hashtags => [
+    if (flowerMeaning.isNotEmpty) flowerMeaning,
+    ...tags,
+  ];
+
+  /// 보여줄 것이 하나도 없으면 성격 영역을 통째로 감춘다.
+  bool get isEmpty =>
+      hashtags.isEmpty && concept.isEmpty && coreValue.isEmpty;
 }
 
 /// 식물별 적용 생육 기준이다. 케어 설정 화면이 편집하는 값만 담는다.
