@@ -33,6 +33,15 @@ public class SpeciesPersona {
     @Column(name = "persona_concept", length = 200, nullable = false)
     private String personaConcept;
 
+    /**
+     * 프로필 해시태그용 짧은 키워드다. 쉼표로 구분한다.
+     *
+     * <p>일기 프롬프트는 쓰지 않는다. 프롬프트에는 이미 같은 내용이 문장으로 들어가 있어
+     * 키워드를 더 넣으면 같은 말을 두 번 하는 셈이다. 화면 표시 전용이다.
+     */
+    @Column(name = "persona_tags", length = 200, nullable = false)
+    private String personaTags;
+
     @Column(name = "core_value", length = 200, nullable = false)
     private String coreValue;
 
@@ -92,6 +101,10 @@ public class SpeciesPersona {
 
     public String getPersonaConcept() {
         return personaConcept;
+    }
+
+    public String getPersonaTags() {
+        return personaTags;
     }
 
     public String getCoreValue() {

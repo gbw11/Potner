@@ -11,6 +11,8 @@ import com.potner.plant.domain.PlantGrowthProfileRepository;
 import com.potner.plant.domain.PlantLifeStage;
 import com.potner.plant.domain.PlantLifeStageRepository;
 import com.potner.plant.domain.PlantRepository;
+import com.potner.diary.domain.SpeciesPersona;
+import com.potner.diary.domain.SpeciesPersonaRepository;
 import com.potner.plant.domain.PlantSpecies;
 import com.potner.plant.domain.PlantSpeciesRepository;
 import com.potner.plant.domain.PlantStatus;
@@ -46,6 +48,7 @@ public class PlantManagementService {
     private final SpeciesGrowthRequirementRepository requirementRepository;
     private final PlantRepository plantRepository;
     private final PlantGrowthProfileRepository profileRepository;
+    private final SpeciesPersonaRepository personaRepository;
     private final PhotoService photoService;
     private final Clock clock;
 
@@ -56,6 +59,7 @@ public class PlantManagementService {
             SpeciesGrowthRequirementRepository requirementRepository,
             PlantRepository plantRepository,
             PlantGrowthProfileRepository profileRepository,
+            SpeciesPersonaRepository personaRepository,
             PhotoService photoService,
             Clock clock
     ) {
@@ -65,6 +69,7 @@ public class PlantManagementService {
         this.requirementRepository = requirementRepository;
         this.plantRepository = plantRepository;
         this.profileRepository = profileRepository;
+        this.personaRepository = personaRepository;
         this.photoService = photoService;
         this.clock = clock;
     }
@@ -80,6 +85,17 @@ public class PlantManagementService {
             return null;
         }
         return photoService.findResponsesByIds(java.util.List.of(photoId)).get(photoId);
+    }
+
+    /**
+     * 종에 정해진 성격을 찾는다. 없으면 null 이다.
+     *
+     * <p>없다고 예외를 내지 않는다. 종이 먼저 늘고 페르소나가 나중에 오는 구간이 있는데,
+     * 그때 성격이 없다는 이유로 프로필 조회 전체가 실패하면 안 된다. 일기 생성이 같은
+     * 상황에서 기본 화법으로 넘어가는 것과 같은 판단이다.
+     */
+    private SpeciesPersona personaOf(Plant plant) {
+        return personaRepository.findById(plant.getSpecies().getId()).orElse(null);
     }
 
     @Transactional
@@ -103,7 +119,7 @@ public class PlantManagementService {
                 now));
         PlantGrowthProfile profile = profileRepository.save(
                 PlantGrowthProfile.create(plant, requirement, now));
-        return PlantDetailResponse.from(plant, profile, representativePhotoOf(plant));
+        return PlantDetailResponse.from(plant, profile, representativePhotoOf(plant), personaOf(plant));
     }
 
     public PlantListResponse getMyPlants(String userId) {
@@ -144,7 +160,7 @@ public class PlantManagementService {
 
     public PlantDetailResponse getMyPlant(String userId, String plantId) {
         Plant plant = findOwnedPlant(userId, plantId);
-        return PlantDetailResponse.from(plant, findProfile(plantId), representativePhotoOf(plant));
+        return PlantDetailResponse.from(plant, findProfile(plantId), representativePhotoOf(plant), personaOf(plant));
     }
 
     @Transactional
@@ -157,7 +173,7 @@ public class PlantManagementService {
         if (request.adoptedDate() != null) {
             plant.updateAdoptedDate(request.adoptedDate(), now());
         }
-        return PlantDetailResponse.from(plant, findProfile(plantId), representativePhotoOf(plant));
+        return PlantDetailResponse.from(plant, findProfile(plantId), representativePhotoOf(plant), personaOf(plant));
     }
 
     @Transactional
@@ -215,7 +231,7 @@ public class PlantManagementService {
 
         plant.changeLifeStage(newLifeStage, now);
         profile.applyRequirement(requirement, now);
-        return PlantDetailResponse.from(plant, profile, representativePhotoOf(plant));
+        return PlantDetailResponse.from(plant, profile, representativePhotoOf(plant), personaOf(plant));
     }
 
     private AppUser findUser(String userId) {
