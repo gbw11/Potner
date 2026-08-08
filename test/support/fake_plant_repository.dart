@@ -135,6 +135,28 @@ final samplePlantDetail = PlantDetail(
     name: '모종기',
   ),
   adoptedDate: DateTime(2026, 3, 20),
+  persona: const SpeciesPersona(
+    characterName: '바질',
+    flowerMeaning: '좋은 소망',
+    tags: ['현실적보호자', '편안함', '규칙적돌봄'],
+    concept: '흥분하거나 과장하지 않고 필요한 돌봄을 하나씩 챙기는 현실적 보호자',
+    coreValue: '규칙적인 돌봄으로 자신과 사용자의 하루를 편안하게 만드는 것',
+  ),
+);
+
+/// 성격이 아직 없는 종이다. 서버가 이 필드를 안 내보내는 배포에서도 같은 상태가 된다.
+final samplePlantDetailWithoutPersona = PlantDetail(
+  plantId: 'plant-rose',
+  name: '로지',
+  speciesId: 'species-basil',
+  speciesName: '바질',
+  categoryName: '허브',
+  lifeStage: const GrowthStageOption(
+    lifeStageId: 'stage-seedling',
+    code: 'SEEDLING',
+    name: '모종기',
+  ),
+  adoptedDate: DateTime(2026, 3, 20),
 );
 
 const sampleGrowthProfile = GrowthProfile(

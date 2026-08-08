@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:potner_app/core/format/elapsed_label.dart';
 import 'package:potner_app/core/navigation/app_navigation_origin.dart';
 import 'package:potner_app/core/theme/app_theme.dart';
+import 'package:potner_app/features/plant/domain/plant_detail.dart';
+import 'package:potner_app/features/plant/presentation/pages/care_settings_page.dart';
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 import 'package:potner_app/features/sensor/data/sensor_repository_impl.dart';
 import 'package:potner_app/features/sensor/domain/sensor_models.dart';
@@ -83,6 +86,14 @@ class _EnvironmentDashboardPageState
       )),
     );
     final dailyLight = ref.watch(dailyLightProvider(widget.plantId));
+    // 그래프에 적정 범위를 깔기 위해 케어 설정 값을 함께 읽는다. 같은 provider 를 케어
+    // 설정 화면이 쓰고 있어 한쪽에서 저장하면 이 화면의 기준선도 따라 움직인다.
+    // 아직 안 왔거나 실패했으면 null 이다. 그래프는 기준선 없이 그린다.
+    final targetRange = ref
+        .watch(growthProfileProvider(widget.plantId))
+        .asData
+        ?.value
+        .rangeFor(_kind);
 
     return Scaffold(
       appBar: AppBar(
@@ -124,7 +135,12 @@ class _EnvironmentDashboardPageState
                       physics: const NeverScrollableScrollPhysics(),
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
-                      childAspectRatio: 1.55,
+                      // 카드 안은 라벨·값·측정 시각 세 줄이다. 높이가 남으면 값 아래가
+                      // 허옇게 비어 카드가 반쯤 빈 것처럼 보인다. 세 줄에 맞춰 조인다.
+                      //
+                      // 더 올리지 않는 이유는 글꼴 배율 때문이다. 배율을 키우면 세 줄이
+                      // 그만큼 두꺼워지는데 타일 높이는 배율을 따라가지 않아 넘친다.
+                      childAspectRatio: 1.68,
                       children: [
                         for (final sensor in sensors)
                           _CurrentSensorCard(sensor: sensor),
@@ -194,9 +210,14 @@ class _EnvironmentDashboardPageState
                         key: const Key('sensor_history_chart'),
                         series: series,
                         range: _range,
+                        // 케어 설정에 저장된 이 식물의 적정 범위다. 못 불러와도 그래프는
+                        // 그린다. 기준선이 없으면 값만 보일 뿐 화면이 비지는 않는다.
+                        target: targetRange,
                       ),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  _ChartLegend(hasTarget: targetRange != null),
                   const SizedBox(height: 26),
                   const _SectionTitle(
                     icon: Icons.wb_sunny_outlined,
@@ -258,11 +279,19 @@ class _CurrentSensorCard extends StatelessWidget {
 
   final CurrentSensor sensor;
 
+  /// '오래됨' 대신 얼마나 지났는지를 쓴다.
+  ///
+  /// '오래됨' 은 얼마나 오래됐는지를 말해주지 않아 사용자가 판단할 수 없다. 5분 전이라
+  /// 기다리면 되는 상황인지, 이틀째 끊긴 상황인지가 갈리는데 문구가 같았다. 홈이 이미
+  /// 경과 시간으로 쓰고 있어 같은 함수를 쓴다.
   (String, Color) get _statusChip => switch (sensor.level) {
     SensorLevel.low => ('낮음', AppColors.error),
     SensorLevel.high => ('높음', AppColors.error),
     SensorLevel.normal => ('정상', const Color(0xFF2E7D32)),
-    SensorLevel.stale => ('오래됨', const Color(0xFFB07E09)),
+    SensorLevel.stale => (
+      elapsedChipLabel(sensor.measuredAt),
+      const Color(0xFFB07E09),
+    ),
     SensorLevel.noData => ('측정 전', AppColors.textMuted),
     SensorLevel.notApplicable ||
     SensorLevel.unknown => ('—', AppColors.textMuted),
@@ -311,19 +340,48 @@ class _CurrentSensorCard extends StatelessWidget {
               ),
             ],
           ),
-          const Spacer(),
-          Text(
-            value == null ? '—' : _trimNumber(value),
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: AppColors.text,
+          const SizedBox(height: 10),
+          // 단위를 숫자 옆에 붙인다. 아래에 따로 두면 '55' 와 '%' 가 두 줄로 갈려
+          // 한 값이 아니라 두 정보처럼 읽힌다.
+          //
+          // Row 로 두 Text 를 나란히 두고 베이스라인을 맞춘다. 크기가 달라도 글자 밑선이
+          // 같아 '55%' 한 덩어리로 보인다.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                value == null ? '—' : _trimNumber(value),
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text,
+                ),
+              ),
+              // 값이 없으면 단위도 뜻이 없다. '— %' 는 측정값처럼 보인다.
+              if (value != null) ...[
+                const SizedBox(width: 2),
+                Text(
+                  sensor.kind.unitLabel,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          // 언제 잰 값인지 밝힌다. 상태 칩만으로는 '지금 정상' 인지 '세 시간 전에
+          // 정상이었는지' 를 구분할 수 없다.
+          //
+          // 값이 끊긴 상태(stale)면 칩이 이미 같은 문구를 쓰고 있어 여기서는 뺀다.
+          // 넣으면 한 카드에 '1일 전' 이 두 번 나온다.
+          if (sensor.measuredAt != null && sensor.level != SensorLevel.stale)
+            Text(
+              elapsedChipLabel(sensor.measuredAt),
+              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
             ),
-          ),
-          Text(
-            sensor.kind.unitLabel,
-            style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-          ),
         ],
       ),
     );
@@ -336,11 +394,41 @@ String _trimNumber(double value) {
       : value.toStringAsFixed(1);
 }
 
+/// 적정 범위다. 케어 설정에 저장된 이 식물의 기준을 그래프에 깔기 위한 것이다.
+class TargetRange {
+  const TargetRange({required this.min, required this.max});
+
+  final double min;
+  final double max;
+}
+
+/// 센서 종류별 적정 범위를 꺼낸다. 한쪽만 있으면 밴드를 그릴 수 없어 null 이다.
+extension CareTargetRange on GrowthProfile {
+  TargetRange? rangeFor(SensorKind kind) {
+    final (min, max) = switch (kind) {
+      SensorKind.soilMoisture => (soilMoistureMinPct, soilMoistureMaxPct),
+      SensorKind.temperature => (temperatureMinC, temperatureMaxC),
+      SensorKind.humidity => (humidityMinPct, humidityMaxPct),
+      SensorKind.illuminance => (illuminanceMinLux, illuminanceMaxLux),
+    };
+    if (min == null || max == null || max <= min) {
+      return null;
+    }
+    return TargetRange(min: min, max: max);
+  }
+}
+
 class _HistoryChart extends StatelessWidget {
-  const _HistoryChart({required this.series, required this.range, super.key});
+  const _HistoryChart({
+    required this.series,
+    required this.range,
+    this.target,
+    super.key,
+  });
 
   final SensorHistorySeries series;
   final HistoryRange range;
+  final TargetRange? target;
 
   @override
   Widget build(BuildContext context) {
@@ -359,21 +447,29 @@ class _HistoryChart extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          child: CustomPaint(painter: _LineChartPainter(points: points)),
+          child: CustomPaint(
+            painter: _LineChartPainter(
+              points: points,
+              unit: series.kind.unitLabel,
+              target: target,
+            ),
+          ),
         ),
         const SizedBox(height: 6),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              _timeLabel(points.first.bucketAt),
-              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-            ),
-            Text(
-              _timeLabel(points.last.bucketAt),
-              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-            ),
-          ],
+        // 가운데 시각을 하나 더 찍는다. 양 끝만 있으면 그래프의 어느 지점이 언제인지
+        // 눈으로 짚을 수가 없다.
+        Padding(
+          padding: const EdgeInsets.only(left: 42),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _AxisLabel(text: _timeLabel(points.first.bucketAt)),
+              _AxisLabel(
+                text: _timeLabel(points[points.length ~/ 2].bucketAt),
+              ),
+              _AxisLabel(text: _timeLabel(points.last.bucketAt)),
+            ],
+          ),
         ),
       ],
     );
@@ -388,11 +484,103 @@ class _HistoryChart extends StatelessWidget {
   }
 }
 
+class _AxisLabel extends StatelessWidget {
+  const _AxisLabel({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+    );
+  }
+}
+
+/// 그래프의 선과 띠가 각각 무엇인지 적는다.
+///
+/// 색만 다른 두 개의 띠를 설명 없이 두면 무엇이 평균이고 무엇이 기준인지 알 수 없다.
+class _ChartLegend extends StatelessWidget {
+  const _ChartLegend({required this.hasTarget});
+
+  final bool hasTarget;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 14,
+      runSpacing: 6,
+      children: [
+        const _LegendItem(color: AppColors.primary, label: '평균', isLine: true),
+        _LegendItem(
+          color: AppColors.primarySoft.withValues(alpha: 0.55),
+          label: '그 시간의 최저~최고',
+        ),
+        if (hasTarget)
+          const _LegendItem(color: Color(0x332E7D32), label: '적정 범위')
+        else
+          const _LegendItem(
+            color: Colors.transparent,
+            label: '적정 범위는 케어 설정에서 정해져요',
+          ),
+      ],
+    );
+  }
+}
+
+class _LegendItem extends StatelessWidget {
+  const _LegendItem({
+    required this.color,
+    required this.label,
+    this.isLine = false,
+  });
+
+  final Color color;
+  final String label;
+  final bool isLine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 14,
+          height: isLine ? 3 : 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(isLine ? 2 : 3),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+        ),
+      ],
+    );
+  }
+}
+
 /// 평균값 꺾은선과 최소·최대 밴드를 그린다. 외부 차트 패키지 없이 충분한 수준만 담는다.
+///
+/// <p>왼쪽에 눈금을 세 개 찍고 단위를 붙인다. 숫자만 두 개 있던 예전 화면은 그 값이 무엇의
+/// 몇인지 알 수 없었다. 적정 범위를 초록 띠로 깔아 지금 값이 기준 안인지 밖인지를 선의
+/// 위치만으로 읽게 한다. 사용자가 그래프를 보고 판단할 수 있으려면 비교 대상이 필요하다.
 class _LineChartPainter extends CustomPainter {
-  _LineChartPainter({required this.points});
+  _LineChartPainter({
+    required this.points,
+    required this.unit,
+    this.target,
+  });
 
   final List<SensorHistoryPoint> points;
+  final String unit;
+  final TargetRange? target;
+
+  /// 왼쪽 눈금 라벨이 차지하는 폭이다. 이만큼 비우고 그려야 선과 글자가 겹치지 않는다.
+  static const double _axisWidth = 42;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -402,6 +590,9 @@ class _LineChartPainter extends CustomPainter {
         if (point.minimum != null) point.minimum!,
         if (point.maximum != null) point.maximum!,
       ],
+      // 적정 범위도 눈금 계산에 넣는다. 넣지 않으면 측정값이 기준을 크게 벗어난 날
+      // 초록 띠가 화면 밖으로 밀려 '기준이 어디인지' 가 안 보인다.
+      if (target != null) ...[target!.min, target!.max],
     ];
     var minValue = values.reduce((a, b) => a < b ? a : b);
     var maxValue = values.reduce((a, b) => a > b ? a : b);
@@ -411,9 +602,44 @@ class _LineChartPainter extends CustomPainter {
       maxValue += 1;
     }
 
-    double x(int index) => size.width * index / (points.length - 1);
+    final chartWidth = size.width - _axisWidth;
+    double x(int index) =>
+        _axisWidth + chartWidth * index / (points.length - 1);
     double y(double value) =>
         size.height * (1 - (value - minValue) / (maxValue - minValue));
+
+    // 적정 범위 띠. 가장 먼저 그려 다른 선들 아래에 깔린다.
+    final targetRange = target;
+    if (targetRange != null) {
+      canvas.drawRect(
+        Rect.fromLTRB(
+          _axisWidth,
+          y(targetRange.max),
+          size.width,
+          y(targetRange.min),
+        ),
+        Paint()..color = const Color(0x332E7D32),
+      );
+    }
+
+    // 가로 눈금선 세 개와 왼쪽 값 라벨
+    for (var i = 0; i < 3; i++) {
+      final value = maxValue - (maxValue - minValue) * i / 2;
+      final lineY = y(value);
+      canvas.drawLine(
+        Offset(_axisWidth, lineY),
+        Offset(size.width, lineY),
+        Paint()
+          ..color = AppColors.textMuted.withValues(alpha: 0.18)
+          ..strokeWidth = 1,
+      );
+      _paintLabel(
+        canvas,
+        '${_trimNumber(value)}$unit',
+        Offset(0, lineY - 6),
+        maxWidth: _axisWidth - 6,
+      );
+    }
 
     // 최소~최대 밴드
     final bandPath = Path();
@@ -460,25 +686,33 @@ class _LineChartPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round,
     );
 
-    // 축 라벨(최소·최대)
-    _paintLabel(canvas, _trimNumber(maxValue), Offset(0, 0));
-    _paintLabel(canvas, _trimNumber(minValue), Offset(0, size.height - 12));
   }
 
-  void _paintLabel(Canvas canvas, String text, Offset offset) {
+  /// 눈금 라벨을 그린다. 오른쪽 끝을 축 폭에 맞춰 숫자 자릿수가 달라도 열이 흐트러지지 않는다.
+  void _paintLabel(
+    Canvas canvas,
+    String text,
+    Offset offset, {
+    required double maxWidth,
+  }) {
     final painter = TextPainter(
       text: TextSpan(
         text: text,
         style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
       ),
       textDirection: TextDirection.ltr,
-    )..layout();
-    painter.paint(canvas, offset);
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: maxWidth);
+    painter.paint(canvas, Offset(maxWidth - painter.width, offset.dy));
   }
 
   @override
   bool shouldRepaint(covariant _LineChartPainter oldDelegate) {
-    return oldDelegate.points != points;
+    return oldDelegate.points != points ||
+        oldDelegate.unit != unit ||
+        oldDelegate.target?.min != target?.min ||
+        oldDelegate.target?.max != target?.max;
   }
 }
 

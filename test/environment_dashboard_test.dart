@@ -15,8 +15,14 @@ import 'support/fake_home_repository.dart';
 import 'support/fake_plant_repository.dart';
 import 'support/fake_sensor_repository.dart';
 
-Future<FakeSensorRepository> _pumpToEnvironment(WidgetTester tester) async {
+Future<FakeSensorRepository> _pumpToEnvironment(
+  WidgetTester tester, {
+  List<CurrentSensor>? currentSensors,
+}) async {
   final sensorRepository = FakeSensorRepository();
+  if (currentSensors != null) {
+    sensorRepository.currentSensorsOverride = currentSensors;
+  }
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -72,6 +78,29 @@ void main() {
       expect(find.text('광량 표본 부족'), findsOneWidget);
     },
   );
+
+  testWidgets('값이 끊기면 오래됨 대신 몇 시간 전인지 보여준다', (tester) async {
+    // '오래됨' 은 5분 전인지 이틀째 끊긴 건지를 구분해 주지 못했다. 홈은 이미 경과
+    // 시간으로 쓰고 있어 두 화면의 문구가 어긋나 있었다.
+    await _pumpToEnvironment(
+      tester,
+      currentSensors: FakeSensorRepository.staleSensors(),
+    );
+
+    expect(find.text('오래됨'), findsNothing);
+    expect(find.text('3시간 전'), findsWidgets);
+  });
+
+  testWidgets('그래프에 단위가 붙은 눈금과 범례가 함께 나온다', (tester) async {
+    // 축도 단위도 없이 선만 있던 화면은 그 값이 무엇의 몇인지 읽을 수 없었다.
+    await _pumpToEnvironment(tester);
+
+    expect(find.byKey(const Key('sensor_history_chart')), findsOneWidget);
+    // 무엇이 평균이고 무엇이 기준 범위인지 글자로 밝힌다.
+    expect(find.text('평균'), findsOneWidget);
+    expect(find.text('그 시간의 최저~최고'), findsOneWidget);
+    expect(find.text('적정 범위'), findsOneWidget);
+  });
 
   testWidgets('switching sensor kind and range refetches the history', (
     tester,

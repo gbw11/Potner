@@ -113,12 +113,6 @@ class _CareFormState extends ConsumerState<_CareForm> {
     return RangeValues(min, max);
   }
 
-  static String _trimNumber(double value) {
-    return value == value.roundToDouble()
-        ? value.round().toString()
-        : value.toString();
-  }
-
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -130,7 +124,7 @@ class _CareFormState extends ConsumerState<_CareForm> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                '건강한 성장을 위해 최적의 케어 범위를 설정하세요.',
+                '건강한 성장을 위해 최적의 케어 범위를 직접 입력하세요.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.textMuted),
               ),
@@ -143,8 +137,8 @@ class _CareFormState extends ConsumerState<_CareForm> {
                   values: _soilMoisture!,
                   min: 0,
                   max: 100,
-                  divisions: 100,
-                  format: (value) => '${value.round()}%',
+                  unit: '%',
+                  allowDecimal: false,
                   enabled: !_isSaving,
                   onChanged: (values) => setState(() => _soilMoisture = values),
                 ),
@@ -156,8 +150,9 @@ class _CareFormState extends ConsumerState<_CareForm> {
                   values: _temperature!,
                   min: 0,
                   max: 40,
-                  divisions: 80,
-                  format: (value) => '${_trimNumber(value)}℃',
+                  unit: '℃',
+                  // 온도만 소수를 받는다. 종 기본값이 21.5 처럼 들어와 정수로 반올림하면
+                  // 저장할 때마다 값이 조금씩 달라진다.
                   enabled: !_isSaving,
                   onChanged: (values) => setState(() => _temperature = values),
                 ),
@@ -169,8 +164,8 @@ class _CareFormState extends ConsumerState<_CareForm> {
                   values: _humidity!,
                   min: 0,
                   max: 100,
-                  divisions: 100,
-                  format: (value) => '${value.round()}%',
+                  unit: '%',
+                  allowDecimal: false,
                   enabled: !_isSaving,
                   onChanged: (values) => setState(() => _humidity = values),
                 ),
@@ -182,22 +177,21 @@ class _CareFormState extends ConsumerState<_CareForm> {
                   values: _illuminance!,
                   min: 0,
                   max: 100000,
-                  divisions: 200,
-                  format: (value) => '${_thousands(value.round())} Lux',
+                  unit: 'Lux',
+                  allowDecimal: false,
                   enabled: !_isSaving,
                   onChanged: (values) => setState(() => _illuminance = values),
                 ),
-              // 값이 없어도 슬라이더를 그린다. 감추면 값을 넣을 방법이 없어지고, 급수량이
+              // 값이 없어도 입력 칸을 그린다. 감추면 값을 넣을 방법이 없어지고, 급수량이
               // 비어 있으면 자동 급수가 무엇을 줄지 정하지 못한다.
-              _SingleSliderSection(
+              _SingleValueSection(
                 sectionKey: const Key('care_watering_ml'),
                 icon: Icons.local_drink_outlined,
                 title: '물의 양',
                 value: _wateringMl,
                 min: 0,
                 max: 1000,
-                divisions: 100,
-                format: (value) => '${value.round()}ml',
+                unit: 'ml',
                 enabled: !_isSaving,
                 onChanged: (value) => setState(() => _wateringMl = value),
                 note: _profile.recommendedWateringMl == null
@@ -258,18 +252,6 @@ class _CareFormState extends ConsumerState<_CareForm> {
         ),
       ),
     );
-  }
-
-  static String _thousands(int value) {
-    final text = value.toString();
-    final buffer = StringBuffer();
-    for (var i = 0; i < text.length; i++) {
-      if (i > 0 && (text.length - i) % 3 == 0) {
-        buffer.write(',');
-      }
-      buffer.write(text[i]);
-    }
-    return buffer.toString();
   }
 
   GrowthProfileUpdate _buildUpdate() {
@@ -406,7 +388,19 @@ class _CareFormState extends ConsumerState<_CareForm> {
   }
 }
 
-class _RangeSection extends StatelessWidget {
+/// 소수점이 필요 없는 값은 정수로 보여준다. 21.0℃ 를 '21' 로 쓰기 위한 것이다.
+String _trimNumber(double value) {
+  return value == value.roundToDouble()
+      ? value.round().toString()
+      : value.toString();
+}
+
+/// 최소·최대를 숫자로 직접 받는다.
+///
+/// <p>슬라이더를 걷어냈다. 온도 21.5℃ 나 광량 24,500 lux 처럼 사용자가 이미 아는 값을
+/// 넣으려 해도 손가락으로 정확히 멈출 수 없었다. 광량은 0~100,000 을 200 칸으로 나눠
+/// 한 칸이 500 lux 라 원하는 값에 아예 닿지 못한다. 직접 입력이면 그 문제가 사라진다.
+class _RangeSection extends StatefulWidget {
   const _RangeSection({
     required this.sectionKey,
     required this.icon,
@@ -414,69 +408,214 @@ class _RangeSection extends StatelessWidget {
     required this.values,
     required this.min,
     required this.max,
-    required this.divisions,
-    required this.format,
+    required this.unit,
     required this.enabled,
     required this.onChanged,
+    this.allowDecimal = true,
   });
 
   final Key sectionKey;
   final IconData icon;
   final String title;
   final RangeValues values;
+
+  /// 입력 가능한 한계다. 슬라이더 시절의 양 끝을 그대로 쓴다.
   final double min;
   final double max;
-  final int divisions;
-  final String Function(double value) format;
+  final String unit;
   final bool enabled;
   final ValueChanged<RangeValues> onChanged;
+  final bool allowDecimal;
+
+  @override
+  State<_RangeSection> createState() => _RangeSectionState();
+}
+
+class _RangeSectionState extends State<_RangeSection> {
+  late final TextEditingController _minController;
+  late final TextEditingController _maxController;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _minController = TextEditingController(text: _text(widget.values.start));
+    _maxController = TextEditingController(text: _text(widget.values.end));
+  }
+
+  @override
+  void didUpdateWidget(covariant _RangeSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // '종 기본값으로 되돌리기' 처럼 바깥에서 값이 바뀌면 입력 칸도 따라가야 한다.
+    // 사용자가 지금 치고 있는 중이면 건드리지 않는다. 소수점을 찍는 순간 "21." 이
+    // 파싱되지 않아 덮어쓰면 글자가 사라진다.
+    if (oldWidget.values.start != widget.values.start &&
+        _parse(_minController.text) != widget.values.start) {
+      _minController.text = _text(widget.values.start);
+    }
+    if (oldWidget.values.end != widget.values.end &&
+        _parse(_maxController.text) != widget.values.end) {
+      _maxController.text = _text(widget.values.end);
+    }
+  }
+
+  @override
+  void dispose() {
+    _minController.dispose();
+    _maxController.dispose();
+    super.dispose();
+  }
+
+  String _text(double value) => widget.allowDecimal
+      ? _trimNumber(value)
+      : value.round().toString();
+
+  double? _parse(String raw) => double.tryParse(raw.trim().replaceAll(',', ''));
+
+  /// 두 칸을 함께 본다. 한쪽만 봐서는 최소가 최대를 넘었는지 알 수 없다.
+  void _handleEdit() {
+    final min = _parse(_minController.text);
+    final max = _parse(_maxController.text);
+    if (min == null || max == null) {
+      setState(() => _error = '숫자를 입력해 주세요.');
+      return;
+    }
+    if (min < widget.min || max > widget.max) {
+      setState(() {
+        _error =
+            '${_text(widget.min)}${widget.unit} ~ '
+            '${_text(widget.max)}${widget.unit} 안에서 정해 주세요.';
+      });
+      return;
+    }
+    if (min >= max) {
+      setState(() => _error = '최소가 최대보다 작아야 해요.');
+      return;
+    }
+    setState(() => _error = null);
+    widget.onChanged(RangeValues(min, max));
+  }
 
   @override
   Widget build(BuildContext context) {
     return _CardSection(
-      key: sectionKey,
+      key: widget.sectionKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 18, color: AppColors.primary),
+              Icon(widget.icon, size: 18, color: AppColors.primary),
               const SizedBox(width: 6),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-              const Spacer(),
               Text(
-                '${format(values.start)} ~ ${format(values.end)}',
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
+                widget.title,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _NumberField(
+                  fieldKey: Key('${_keyPrefix()}_min'),
+                  controller: _minController,
+                  label: '최소',
+                  unit: widget.unit,
+                  enabled: widget.enabled,
+                  allowDecimal: widget.allowDecimal,
+                  onEdited: _handleEdit,
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                child: Text('~', style: TextStyle(color: AppColors.textMuted)),
+              ),
+              Expanded(
+                child: _NumberField(
+                  fieldKey: Key('${_keyPrefix()}_max'),
+                  controller: _maxController,
+                  label: '최대',
+                  unit: widget.unit,
+                  enabled: widget.enabled,
+                  allowDecimal: widget.allowDecimal,
+                  onEdited: _handleEdit,
                 ),
               ),
             ],
           ),
-          RangeSlider(
-            values: values,
-            min: min,
-            max: max,
-            divisions: divisions,
-            labels: RangeLabels(format(values.start), format(values.end)),
-            onChanged: enabled ? onChanged : null,
-          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: AppColors.error, fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 8),
         ],
       ),
     );
   }
+
+  /// 테스트가 칸을 집을 수 있게 섹션 키에서 접두어를 만든다.
+  String _keyPrefix() {
+    final key = widget.sectionKey;
+    return key is ValueKey<String> ? key.value : widget.title;
+  }
 }
 
-class _SingleSliderSection extends StatelessWidget {
-  const _SingleSliderSection({
+/// 숫자 한 칸이다. 단위를 칸 안에 붙여 무엇을 넣는지 두 번 확인하지 않게 한다.
+class _NumberField extends StatelessWidget {
+  const _NumberField({
+    required this.fieldKey,
+    required this.controller,
+    required this.label,
+    required this.unit,
+    required this.enabled,
+    required this.allowDecimal,
+    required this.onEdited,
+  });
+
+  final Key fieldKey;
+  final TextEditingController controller;
+  final String label;
+  final String unit;
+  final bool enabled;
+  final bool allowDecimal;
+  final VoidCallback onEdited;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      key: fieldKey,
+      controller: controller,
+      enabled: enabled,
+      // 숫자 키패드를 띄운다. 소수를 받지 않는 항목에는 점을 아예 내주지 않는다.
+      keyboardType: TextInputType.numberWithOptions(decimal: allowDecimal),
+      textAlign: TextAlign.center,
+      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: unit,
+        isDense: true,
+      ),
+      onChanged: (_) => onEdited(),
+    );
+  }
+}
+
+/// 값 하나를 숫자로 직접 받는다. 범위와 같은 이유로 슬라이더를 걷어냈다.
+class _SingleValueSection extends StatefulWidget {
+  const _SingleValueSection({
     required this.sectionKey,
     required this.icon,
     required this.title,
     required this.value,
     required this.min,
     required this.max,
-    required this.divisions,
-    required this.format,
+    required this.unit,
     required this.enabled,
     required this.onChanged,
     this.note,
@@ -488,54 +627,112 @@ class _SingleSliderSection extends StatelessWidget {
   final double value;
   final double min;
   final double max;
-  final int divisions;
-  final String Function(double value) format;
+  final String unit;
   final bool enabled;
   final ValueChanged<double> onChanged;
 
-  /// 슬라이더 아래에 붙일 한 줄 설명이다. 저장된 값이 없을 때 지금 보이는 값이 무엇인지
+  /// 입력 칸 아래에 붙일 한 줄 설명이다. 저장된 값이 없을 때 지금 보이는 값이 무엇인지
   /// 밝히는 데 쓴다.
   final String? note;
 
   @override
+  State<_SingleValueSection> createState() => _SingleValueSectionState();
+}
+
+class _SingleValueSectionState extends State<_SingleValueSection> {
+  late final TextEditingController _controller;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _text(widget.value));
+  }
+
+  @override
+  void didUpdateWidget(covariant _SingleValueSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value &&
+        double.tryParse(_controller.text.trim()) != widget.value) {
+      _controller.text = _text(widget.value);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  // 급수량은 ml 이라 소수를 받지 않는다. 0.5ml 를 구분해 줄 수 있는 펌프가 아니다.
+  String _text(double value) => value.round().toString();
+
+  void _handleEdit() {
+    final parsed = double.tryParse(_controller.text.trim().replaceAll(',', ''));
+    if (parsed == null) {
+      setState(() => _error = '숫자를 입력해 주세요.');
+      return;
+    }
+    if (parsed < widget.min || parsed > widget.max) {
+      setState(() {
+        _error =
+            '${_text(widget.min)}${widget.unit} ~ '
+            '${_text(widget.max)}${widget.unit} 안에서 정해 주세요.';
+      });
+      return;
+    }
+    setState(() => _error = null);
+    widget.onChanged(parsed);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return _CardSection(
-      key: sectionKey,
+      key: widget.sectionKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 18, color: AppColors.primary),
+              Icon(widget.icon, size: 18, color: AppColors.primary),
               const SizedBox(width: 6),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-              const Spacer(),
               Text(
-                format(value),
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
-                ),
+                widget.title,
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ],
           ),
-          Slider(
-            value: value,
-            min: min,
-            max: max,
-            divisions: divisions,
-            label: format(value),
-            onChanged: enabled ? onChanged : null,
+          const SizedBox(height: 12),
+          _NumberField(
+            fieldKey: const Key('care_watering_ml_value'),
+            controller: _controller,
+            label: widget.title,
+            unit: widget.unit,
+            enabled: widget.enabled,
+            allowDecimal: false,
+            onEdited: _handleEdit,
           ),
-          if (note != null)
-            Text(
-              note!,
-              style: const TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 12,
-                height: 1.45,
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: AppColors.error, fontSize: 12),
               ),
             ),
+          if (widget.note != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                widget.note!,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
         ],
       ),
     );
