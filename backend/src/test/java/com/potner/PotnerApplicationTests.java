@@ -559,6 +559,42 @@ class PotnerApplicationTests {
     }
 
     @Test
+    void plantDetailCarriesTheSpeciesPersonaSoTheProfileCanShowIt() throws Exception {
+        // 프로필 화면이 성격과 꽃말을 보여주려면 이 응답에 실려야 한다. 페르소나 표는
+        // 그동안 일기 생성만 읽었고 밖으로 나가는 경로가 없었다.
+        Tokens tokens = signupAndLogin("persona-profile@example.com");
+        String plantId = createPlant(tokens, "바질이");
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.persona.characterName").value("바질"))
+                .andExpect(jsonPath("$.persona.flowerMeaning").value("좋은 소망"))
+                .andExpect(jsonPath("$.persona.concept").value(containsString("현실적 보호자")))
+                .andExpect(jsonPath("$.persona.coreValue").value(containsString("규칙적인 돌봄")))
+                // 해시태그는 쉼표를 나눈 결과다. 문장을 그대로 주면 칩이 줄을 넘긴다.
+                .andExpect(jsonPath("$.persona.tags.length()").value(3))
+                .andExpect(jsonPath("$.persona.tags").value(
+                        contains("현실적보호자", "편안함", "규칙적돌봄")))
+                // 프롬프트 조립용 지시문은 내보내지 않는다. 사용자에게는 뜻이 통하지 않는다.
+                .andExpect(jsonPath("$.persona.forbiddenStyle").doesNotExist())
+                .andExpect(jsonPath("$.persona.diaryStructure").doesNotExist());
+    }
+
+    @Test
+    void everySeededSpeciesHasProfileTagsSoNoPlantShowsAnEmptyPersona() {
+        // 태그가 빈 종이 하나라도 있으면 그 종을 기르는 사용자만 프로필이 허전해진다.
+        var tagRows = jdbcTemplate.queryForList(
+                "SELECT persona_tags FROM species_persona", String.class);
+
+        assertThat(tagRows).hasSize(6);
+        assertThat(tagRows).allSatisfy(tags -> {
+            assertThat(tags).isNotBlank();
+            assertThat(tags.split(",")).hasSizeGreaterThanOrEqualTo(2);
+        });
+    }
+
+    @Test
     void plantManagementLifecycleUsesSnapshotAndSoftDelete() throws Exception {
         Tokens tokens = signupAndLogin("plant-owner@example.com");
         String createdBody = mockMvc.perform(post("/api/v1/plants")
