@@ -172,6 +172,10 @@ const sampleGrowthProfile = GrowthProfile(
   illuminanceMaxLux: 15000,
   recommendedWateringMl: 300,
   wateringCycleDays: 7,
+  // 목표 10,000 에 밴드가 70~130% 다. V7 이 종 기준을 이 비율로 채웠다.
+  dailyLightMinLuxHour: 7000,
+  dailyLightMaxLuxHour: 13000,
+  dailyLightTargetLuxHour: 10000,
 );
 
 final sampleMyPlants = [

@@ -278,6 +278,49 @@ void main() {
     expect(plantRepository.growthProfileUpdates, isEmpty);
   });
 
+  testWidgets('순간 조도 대신 하루 빛의 양을 설정한다', (tester) async {
+    // 순간 조도는 서버가 판정에 쓰지 않는다(밤에는 0 lux 가 정상). 설정해도 아무 일이
+    // 일어나지 않는 칸이 남아 있으면 급수 주기와 같은 오해를 만든다.
+    await _pumpToProfile(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('profile_care_settings')));
+    await tester.tap(find.byKey(const Key('profile_care_settings')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('care_illuminance')), findsNothing);
+    final section = find.byKey(const Key('care_daily_light'));
+    expect(section, findsOneWidget);
+    await tester.ensureVisible(section);
+    await tester.pumpAndSettle();
+    expect(find.text('하루 빛의 양'), findsWidgets);
+    expect(find.textContaining('로봇이 햇빛 자리로 옮겨'), findsOneWidget);
+  });
+
+  testWidgets('하루 빛의 양을 바꾸면 허용 범위도 같은 비율로 따라간다', (tester) async {
+    // 서버가 min <= target <= max 를 검증한다. 목표만 보내면 예전 목표에 맞춰진 범위가
+    // 남아 새 목표가 그 밖으로 나가고 저장이 거부된다.
+    final plantRepository = await _pumpToProfile(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('profile_care_settings')));
+    await tester.tap(find.byKey(const Key('profile_care_settings')));
+    await tester.pumpAndSettle();
+
+    final target = find.byKey(const Key('care_daily_light_value'));
+    await tester.ensureVisible(target);
+    // 10,000 → 5,000 (절반). 밴드도 7,000~13,000 에서 3,500~6,500 으로 따라가야 한다.
+    await tester.enterText(target, '5000');
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('care_save')));
+    await tester.tap(find.byKey(const Key('care_save')));
+    await tester.pumpAndSettle();
+
+    final update = plantRepository.growthProfileUpdates.single;
+    expect(update.dailyLightTargetLuxHour, 5000);
+    expect(update.dailyLightMinLuxHour, 3500);
+    expect(update.dailyLightMaxLuxHour, 6500);
+  });
+
   testWidgets('급수 주기 입력 대신 센서로 준다는 안내가 뜬다', (tester) async {
     // 서버가 급수 주기를 저장만 하고 읽지 않아 입력 칸을 없앴다. 칸이 남아 있으면
     // "며칠마다 준다고 설정했는데 왜 안 주지" 라는 오해를 만든다.

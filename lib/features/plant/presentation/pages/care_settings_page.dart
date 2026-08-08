@@ -78,7 +78,13 @@ class _CareFormState extends ConsumerState<_CareForm> {
   late RangeValues? _soilMoisture;
   late RangeValues? _temperature;
   late RangeValues? _humidity;
-  late RangeValues? _illuminance;
+
+  /// 하루 목표 광량(lux·h)이다. 범위가 아니라 목표 하나만 받는다.
+  ///
+  /// 서버는 min ≤ target ≤ max 를 검증한다. 사용자에게 세 칸을 받으면 그 관계를 직접
+  /// 맞추게 되는데, 셋 다 뜻이 비슷해 보여 틀리기 쉽다. 목표만 받고 허용 범위는 원래
+  /// 비율을 유지해 저장 직전에 계산한다.
+  late double? _dailyLightTarget;
   /// 1회 급수량이다. null 을 두지 않는다 — 값이 없다고 슬라이더를 감추면 값을 넣을 방법이
   /// 사라진다. 저장된 값이 없으면 아래 기본값에서 시작한다.
   late double _wateringMl;
@@ -99,10 +105,7 @@ class _CareFormState extends ConsumerState<_CareForm> {
     );
     _temperature = _range(_profile.temperatureMinC, _profile.temperatureMaxC);
     _humidity = _range(_profile.humidityMinPct, _profile.humidityMaxPct);
-    _illuminance = _range(
-      _profile.illuminanceMinLux,
-      _profile.illuminanceMaxLux,
-    );
+    _dailyLightTarget = _profile.dailyLightTargetLuxHour;
     _wateringMl = _profile.recommendedWateringMl ?? _defaultWateringMl;
   }
 
@@ -169,18 +172,23 @@ class _CareFormState extends ConsumerState<_CareForm> {
                   enabled: !_isSaving,
                   onChanged: (values) => setState(() => _humidity = values),
                 ),
-              if (_illuminance != null)
-                _RangeSection(
-                  sectionKey: const Key('care_illuminance'),
+              // 순간 조도(illuminance) 입력을 없앴다. 서버가 그 값으로 판정하지 않는다 —
+              // 밤에는 0 lux 가 정상이라 순간값으로 보면 매일 해 질 때 부족 알림이 간다.
+              // 실제로 알림과 로봇의 햇빛 자리 이동을 움직이는 것은 아래 '하루 빛의 양' 이다.
+              if (_dailyLightTarget != null)
+                _SingleValueSection(
+                  sectionKey: const Key('care_daily_light'),
                   icon: Icons.wb_sunny_outlined,
-                  title: '광량',
-                  values: _illuminance!,
+                  title: '하루 빛의 양',
+                  value: _dailyLightTarget!,
                   min: 0,
-                  max: 100000,
-                  unit: 'Lux',
-                  allowDecimal: false,
+                  max: 1000000,
+                  unit: 'lux·h',
                   enabled: !_isSaving,
-                  onChanged: (values) => setState(() => _illuminance = values),
+                  onChanged: (value) =>
+                      setState(() => _dailyLightTarget = value),
+                  note: '하루 동안 받아야 할 빛의 총량이에요. 이만큼 채우지 못하면 알림이 오고, '
+                      '로봇이 햇빛 자리로 옮겨 줍니다.',
                 ),
               // 값이 없어도 입력 칸을 그린다. 감추면 값을 넣을 방법이 없어지고, 급수량이
               // 비어 있으면 자동 급수가 무엇을 줄지 정하지 못한다.
@@ -275,16 +283,45 @@ class _CareFormState extends ConsumerState<_CareForm> {
       temperatureMaxC: changed(_temperature?.end, _profile.temperatureMaxC),
       humidityMinPct: changed(_humidity?.start, _profile.humidityMinPct),
       humidityMaxPct: changed(_humidity?.end, _profile.humidityMaxPct),
-      illuminanceMinLux: changed(
-        _illuminance?.start,
-        _profile.illuminanceMinLux,
+      dailyLightTargetLuxHour: changed(
+        _dailyLightTarget,
+        _profile.dailyLightTargetLuxHour,
       ),
-      illuminanceMaxLux: changed(_illuminance?.end, _profile.illuminanceMaxLux),
+      // 목표만 바꾸면 서버 검증(min ≤ target ≤ max)에 걸린다. 예전 목표에 맞춰진
+      // 허용 범위가 그대로 남아 새 목표가 그 밖으로 나가기 때문이다.
+      dailyLightMinLuxHour: changed(
+        _shiftedDailyLightBound(_profile.dailyLightMinLuxHour),
+        _profile.dailyLightMinLuxHour,
+      ),
+      dailyLightMaxLuxHour: changed(
+        _shiftedDailyLightBound(_profile.dailyLightMaxLuxHour),
+        _profile.dailyLightMaxLuxHour,
+      ),
       recommendedWateringMl: changed(
         _wateringMl,
         _profile.recommendedWateringMl,
       ),
     );
+  }
+
+  /// 허용 범위를 새 목표에 맞춰 옮긴다. 목표 대비 비율을 그대로 유지한다.
+  ///
+  /// 종마다 밴드 폭이 다르다(V7 이 목표의 70~130% 로 채웠다). 고정 비율을 새로 정하면
+  /// 종이 정해 둔 여유를 덮어쓰게 되므로 원래 비율을 그대로 옮긴다.
+  ///
+  /// 범위가 없는 종(min·max 가 둘 다 null)은 그대로 null 이다. 서버 검증이 '둘 다 없음'
+  /// 은 허용하고 한쪽만 있는 것을 막는다.
+  double? _shiftedDailyLightBound(double? originalBound) {
+    final originalTarget = _profile.dailyLightTargetLuxHour;
+    final newTarget = _dailyLightTarget;
+    if (originalBound == null || originalTarget == null || newTarget == null) {
+      return null;
+    }
+    if (originalTarget == 0) {
+      // 비율을 낼 수 없다. 밴드를 옮기지 못하므로 목표도 건드리지 않게 둔다.
+      return originalBound;
+    }
+    return newTarget * (originalBound / originalTarget);
   }
 
   Future<void> _save() async {
@@ -664,8 +701,15 @@ class _SingleValueSectionState extends State<_SingleValueSection> {
     super.dispose();
   }
 
-  // 급수량은 ml 이라 소수를 받지 않는다. 0.5ml 를 구분해 줄 수 있는 펌프가 아니다.
+  // 급수량(ml)도 광량(lux·h)도 소수를 받지 않는다. 0.5ml 를 구분해 줄 수 있는 펌프가
+  // 아니고, lux·h 는 자릿수가 커서 소수점이 뜻을 갖지 않는다.
   String _text(double value) => value.round().toString();
+
+  /// 테스트가 칸을 집을 수 있게 섹션 키에서 접두어를 만든다.
+  String _keyPrefix() {
+    final key = widget.sectionKey;
+    return key is ValueKey<String> ? key.value : widget.title;
+  }
 
   void _handleEdit() {
     final parsed = double.tryParse(_controller.text.trim().replaceAll(',', ''));
@@ -704,7 +748,9 @@ class _SingleValueSectionState extends State<_SingleValueSection> {
           ),
           const SizedBox(height: 12),
           _NumberField(
-            fieldKey: const Key('care_watering_ml_value'),
+            // 섹션 키에서 만든다. 하드코딩하면 이 위젯을 두 번 쓰는 순간 키가 겹쳐
+            // 테스트가 어느 칸을 집는지 알 수 없게 된다.
+            fieldKey: Key('${_keyPrefix()}_value'),
             controller: _controller,
             label: widget.title,
             unit: widget.unit,
