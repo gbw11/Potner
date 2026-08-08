@@ -74,6 +74,9 @@ class GrowthProfile {
     this.illuminanceMaxLux,
     this.recommendedWateringMl,
     this.wateringCycleDays,
+    this.dailyLightMinLuxHour,
+    this.dailyLightMaxLuxHour,
+    this.dailyLightTargetLuxHour,
   });
 
   final String plantId;
@@ -87,10 +90,20 @@ class GrowthProfile {
   final double? temperatureMaxC;
   final double? humidityMinPct;
   final double? humidityMaxPct;
+
+  /// 순간 조도 범위다. 서버가 이 값으로 판정하지 않는다 — 밤에는 0 lux 가 정상이라
+  /// 순간값으로 보면 매일 해 질 때 부족 알림이 간다. 그래프 참고용으로만 남긴다.
   final double? illuminanceMinLux;
   final double? illuminanceMaxLux;
+
   final double? recommendedWateringMl;
   final double? wateringCycleDays;
+
+  /// 하루에 받아야 할 빛의 총량(lux·h)이다. 조도를 시간 적분한 값으로, 광량 부족 알림과
+  /// 로봇의 햇빛 자리 이동이 모두 이 값을 기준으로 움직인다.
+  final double? dailyLightMinLuxHour;
+  final double? dailyLightMaxLuxHour;
+  final double? dailyLightTargetLuxHour;
 }
 
 /// 케어 설정 저장 요청이다. null 인 항목은 보내지 않아 기존 값을 유지한다.
@@ -107,6 +120,9 @@ class GrowthProfileUpdate {
     this.illuminanceMaxLux,
     this.recommendedWateringMl,
     this.wateringCycleDays,
+    this.dailyLightMinLuxHour,
+    this.dailyLightMaxLuxHour,
+    this.dailyLightTargetLuxHour,
   });
 
   final double? soilMoistureMinPct;
@@ -119,6 +135,9 @@ class GrowthProfileUpdate {
   final double? illuminanceMaxLux;
   final double? recommendedWateringMl;
   final double? wateringCycleDays;
+  final double? dailyLightMinLuxHour;
+  final double? dailyLightMaxLuxHour;
+  final double? dailyLightTargetLuxHour;
 
   Map<String, Object> toJson() {
     return {
@@ -132,6 +151,9 @@ class GrowthProfileUpdate {
       'illuminanceMaxLux': ?illuminanceMaxLux,
       'recommendedWateringMl': ?recommendedWateringMl,
       'wateringCycleDays': ?wateringCycleDays,
+      'dailyLightMinLuxHour': ?dailyLightMinLuxHour,
+      'dailyLightMaxLuxHour': ?dailyLightMaxLuxHour,
+      'dailyLightTargetLuxHour': ?dailyLightTargetLuxHour,
     };
   }
 

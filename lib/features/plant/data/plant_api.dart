@@ -263,9 +263,13 @@ class PlantApi {
     final temperature = _nullableMap(data['temperature']);
     final humidity = _nullableMap(data['humidity']);
     final illuminance = _nullableMap(data['illuminance']);
+    final dailyLight = _nullableMap(data['dailyLight']);
     return GrowthProfile(
       plantId: _requiredString(data['plantId']),
       customized: data['customized'] == true,
+      dailyLightMinLuxHour: _optionalDouble(dailyLight?['minLuxHour']),
+      dailyLightMaxLuxHour: _optionalDouble(dailyLight?['maxLuxHour']),
+      dailyLightTargetLuxHour: _optionalDouble(dailyLight?['targetLuxHour']),
       soilMoistureMinPct: _optionalDouble(soil?['minPct']),
       soilMoistureMaxPct: _optionalDouble(soil?['maxPct']),
       temperatureMinC: _optionalDouble(temperature?['minC']),
