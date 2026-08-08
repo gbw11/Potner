@@ -79,7 +79,14 @@ class FakeSensorRepository implements SensorRepository {
   @override
   Future<DailyLightReport> getDailyLight(String plantId, {int days = 7}) async {
     return DailyLightReport(
-      today: const DailyLightToday(progressPct: 64, lightHours: 4.5),
+      today: const DailyLightToday(
+        progressPct: 64,
+        lightHours: 4.5,
+        accumulatedLuxHour: 96000,
+        targetLuxHour: 150000,
+        coveragePct: 86,
+        sampleCount: 1240,
+      ),
       history: [
         DailyLightDay(
           lightDate: DateTime(2026, 7, 29),
