@@ -79,6 +79,16 @@ void main() {
     },
   );
 
+  testWidgets('오늘의 광량에 실제 수치와 표본 상태를 함께 보여준다', (tester) async {
+    // 진행률만으로는 목표를 정할 근거가 안 된다. 목표 150,000 일 때 '1%' 는
+    // 750~2,250 사이 어디든이다. 표본·커버리지는 '표본 부족' 의 이유를 읽는 데 쓴다.
+    await _pumpToEnvironment(tester);
+
+    expect(find.text('64%'), findsOneWidget);
+    expect(find.text('96,000 / 150,000 lux·h'), findsOneWidget);
+    expect(find.text('표본 1240건 · 커버리지 86%'), findsOneWidget);
+  });
+
   testWidgets('값이 끊기면 오래됨 대신 몇 시간 전인지 보여준다', (tester) async {
     // '오래됨' 은 5분 전인지 이틀째 끊긴 건지를 구분해 주지 못했다. 홈은 이미 경과
     // 시간으로 쓰고 있어 두 화면의 문구가 어긋나 있었다.

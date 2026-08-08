@@ -84,6 +84,12 @@ class SensorApi {
             : DailyLightToday(
                 progressPct: _optionalDouble(today['progressPct']),
                 lightHours: _optionalDouble(today['lightHours']),
+                accumulatedLuxHour: _optionalDouble(
+                  today['accumulatedLuxHour'],
+                ),
+                targetLuxHour: _optionalDouble(today['targetLuxHour']),
+                coveragePct: _optionalDouble(today['coveragePct']),
+                sampleCount: _optionalDouble(today['sampleCount'])?.round(),
               ),
         history: _asList(data['history'])
             .map((item) {

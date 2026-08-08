@@ -394,6 +394,19 @@ String _trimNumber(double value) {
       : value.toStringAsFixed(1);
 }
 
+/// 천 단위로 끊는다. lux·h 는 자릿수가 커서 끊지 않으면 읽기 어렵다.
+String _thousands(double value) {
+  final digits = value.round().toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) {
+      buffer.write(',');
+    }
+    buffer.write(digits[i]);
+  }
+  return buffer.toString();
+}
+
 /// 적정 범위다. 케어 설정에 저장된 이 식물의 기준을 그래프에 깔기 위한 것이다.
 class TargetRange {
   const TargetRange({required this.min, required this.max});
@@ -792,10 +805,41 @@ class _DailyLightSection extends StatelessWidget {
                   color: AppColors.primary,
                 ),
               ),
-              if (today?.lightHours != null) ...[
+              // 진행률만으로는 실제 값을 알 수 없다. 목표가 150,000 일 때 '1%' 는
+              // 750~2,250 사이 어디든이라, 케어 설정에서 목표를 잡을 근거가 안 된다.
+              if (today?.accumulatedLuxHour != null &&
+                  today?.targetLuxHour != null) ...[
                 const SizedBox(height: 8),
                 Text(
+                  '${_thousands(today!.accumulatedLuxHour!)}'
+                  ' / ${_thousands(today.targetLuxHour!)} lux·h',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
+              ],
+              if (today?.lightHours != null) ...[
+                const SizedBox(height: 6),
+                Text(
                   '오늘 일조 시간 ${_trimNumber(today!.lightHours!)}시간',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
+              // 판정이 '표본 부족' 으로 빠졌을 때 이유를 여기서 읽는다. 측정을 종일
+              // 했어도 간격이 벌어지면 커버리지가 낮다 — 값이 없는 것과 다른 상황이다.
+              if (today?.coveragePct != null || today?.sampleCount != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  [
+                    if (today?.sampleCount != null) '표본 ${today!.sampleCount}건',
+                    if (today?.coveragePct != null)
+                      '커버리지 ${today!.coveragePct!.round()}%',
+                  ].join(' · '),
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.textMuted,
