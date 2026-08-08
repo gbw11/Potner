@@ -17,7 +17,7 @@
 -- 만들어야 하므로, seed-demo-photos.sh 가 장치 업로드 API 로 넣는다. 그 스크립트가 쓰는
 -- 업로드 토큰을 여기서 함께 심는다.
 
-SET @email := 'fff@naver.com';
+SET @email := 'potner@naver.com';
 
 -- 업로드 토큰은 원문을 저장하지 않고 SHA-256 해시만 둔다(Robot.uploadTokenHash).
 -- 시연용이라 원문을 스크립트에 적어 두고 사진 업로드에 그대로 쓴다.
