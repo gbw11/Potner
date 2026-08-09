@@ -1,5 +1,7 @@
 package com.potner.bloom.application;
 
+import java.time.LocalDate;
+
 /**
  * 개화 기록이 새로 남았다는 사실을 알린다.
  *
@@ -8,12 +10,16 @@ package com.potner.bloom.application;
  *
  * <p>{@code firstBloom} 을 저장 시점에 계산해 넘긴다. 수신자가 다시 세면 그 사이에 두 번째
  * 기록이 들어왔을 때 첫 꽃이 첫 꽃이 아니게 된다.
+ *
+ * <p>{@code bloomDate} 는 서비스 타임존 기준 날짜다. 푸시를 누른 사용자를 그날 포토 로그로
+ * 보내는 데 쓴다 — 수신자가 {@code bloomId} 로 기록을 다시 조회하지 않아도 되게 여기 담는다.
  */
 public record BloomRecordedEvent(
         String bloomId,
         String userId,
         String plantId,
         String plantNickname,
+        LocalDate bloomDate,
         boolean firstBloom
 ) {
 }
