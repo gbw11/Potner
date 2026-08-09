@@ -58,12 +58,21 @@ class AutoWateringOrchestratorTest {
     private RobotLocationRepository locationRepository;
 
     private AutoWateringOrchestrator orchestrator(boolean autoWaterEnabled) {
+        return orchestrator(autoWaterEnabled, true);
+    }
+
+    private AutoWateringOrchestrator orchestrator(
+            boolean autoWaterEnabled,
+            boolean autoDryingEnabled
+    ) {
         return new AutoWateringOrchestrator(
                 commandService,
                 profileRepository,
                 assignmentRepository,
                 locationRepository,
-                new DeviceCommandProperties(120, 30, 30, autoWaterEnabled, true, 8, 17, 60, true, 10, 16, true, 600, 6)
+                new DeviceCommandProperties(
+                        120, 30, 30, autoWaterEnabled, true, 8, 17, 60, true, 10, 16,
+                        autoDryingEnabled, 600, 9000, 8, 22, 15, 6)
         );
     }
 
@@ -153,7 +162,9 @@ class AutoWateringOrchestratorTest {
     }
 
     @Test
-    void wateringSuccessSendsTheRobotHome() {
+    void wateringSuccessVentilatesBeforeGoingHome() {
+        // 급수 직후가 표토와 잎이 젖어 곰팡이에 가장 취약한 순간이다. 그때 로봇이 이미 팬이
+        // 있는 스테이션에 서 있으므로 이 한 번은 이동이 늘지 않는다.
         orchestrator(true).onCommandCompleted(completed(
                 DeviceCommandType.WATER,
                 CommandInitiator.AUTO,
@@ -164,7 +175,56 @@ class AutoWateringOrchestratorTest {
         ArgumentCaptor<IssueDeviceCommandRequest> request =
                 ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
         verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
+        assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.FAN);
+    }
+
+    @Test
+    void wateringGoesStraightHomeWhenVentilationIsOff() {
+        // 환기 플래그 하나로 주기 환기와 급수 뒤 송풍이 함께 멈춰야 한다. 같은 물리 장치다.
+        orchestrator(true, false).onCommandCompleted(completed(
+                DeviceCommandType.WATER,
+                CommandInitiator.AUTO,
+                null,
+                DeviceCommandStatus.OK
+        ));
+
+        ArgumentCaptor<IssueDeviceCommandRequest> request =
+                ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.NAVIGATE);
+        assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.HOME);
+    }
+
+    @Test
+    void ventilationSuccessSendsTheRobotHome() {
+        orchestrator(true).onCommandCompleted(completed(
+                DeviceCommandType.FAN,
+                CommandInitiator.AUTO,
+                null,
+                DeviceCommandStatus.OK
+        ));
+
+        ArgumentCaptor<IssueDeviceCommandRequest> request =
+                ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
+        assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.NAVIGATE);
+        assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.HOME);
+    }
+
+    @Test
+    void ventilationFailureStillSendsTheRobotHome() {
+        // 송풍은 급수에 딸린 부가 단계다. 여기서 멈추면 팬 하나가 고장 났을 때 로봇이
+        // 스테이션에 남는다.
+        orchestrator(true).onCommandCompleted(completed(
+                DeviceCommandType.FAN,
+                CommandInitiator.AUTO,
+                null,
+                DeviceCommandStatus.ERROR
+        ));
+
+        ArgumentCaptor<IssueDeviceCommandRequest> request =
+                ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
         assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.HOME);
     }
 

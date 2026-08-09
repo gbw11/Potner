@@ -73,7 +73,8 @@ class DailyCaptureSchedulerTest {
                 busyGuard,
                 commandService,
                 new DeviceCommandProperties(
-                        120, 30, 30, true, true, 8, 17, 60, autoCaptureEnabled, 10, 16, true, 600, 6),
+                        120, 30, 30, true, true, 8, 17, 60, autoCaptureEnabled, 10, 16,
+                        true, 600, 9000, 8, 22, 15, 6),
                 new SensorQueryProperties("+09:00", 30, 7, 90),
                 Clock.fixed(now, ZoneOffset.UTC)
         );

@@ -9,6 +9,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -72,6 +73,7 @@ public class DeviceCommandResultService {
         command.applyResult(
                 reported.get(),
                 message.dispensedMl(),
+                reportedRunSeconds(message),
                 errorMessage(message),
                 message.messageId().toString(),
                 LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
@@ -88,6 +90,23 @@ public class DeviceCommandResultService {
                 command.getStatus()
         ));
         return CommandResultApplyOutcome.APPLIED;
+    }
+
+    /**
+     * 장치가 실제로 돌린 송풍 시간(초)이다.
+     *
+     * <p>라즈베리는 풍량·시간을 자기 설정으로 정하고 서버가 보낸 {@code seconds} 는 쓰지
+     * 않는다. 회신의 {@code durationSec} 을 받아 두지 않으면 이력에는 서버가 요청한 값만
+     * 남아 실제와 어긋난다.
+     *
+     * <p>초 단위로 반올림한다. 장치가 소수로 보내지만 컬럼이 정수이고, 팬 가동 시간을
+     * 밀리초까지 남길 이유가 없다.
+     */
+    private Integer reportedRunSeconds(CommandResultMessage message) {
+        if (message.durationSec() == null) {
+            return null;
+        }
+        return message.durationSec().setScale(0, RoundingMode.HALF_UP).intValue();
     }
 
     /** 촬영 실패는 코드가, 급수 실패는 문구가 온다. 코드가 있으면 앞에 붙여 진단을 돕는다. */

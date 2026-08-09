@@ -38,6 +38,28 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, St
     );
 
     /**
+     * 마지막 송풍 시각이다. 주기 환기가 간격이 찼는지 보는 근거다.
+     *
+     * <p><strong>목적을 가리지 않는다.</strong> 급수 체인이 방금 팬을 돌렸으면 주기 환기도
+     * 쉬어야 한다 — 같은 팬 하나를 두 체인이 나눠 쓰므로, 목적별로 세면 급수한 날 송풍이
+     * 두 배가 된다.
+     *
+     * <p>상태도 가리지 않는다. 발행했다는 사실만으로 간격을 세야 회신이 늦거나 실패한 명령
+     * 뒤에 곧바로 다시 돌리는 일이 없다.
+     */
+    Optional<DeviceCommand> findFirstByPlantIdAndCommandTypeOrderByIssuedAtDesc(
+            String plantId,
+            DeviceCommandType commandType
+    );
+
+    /** 하루 송풍 상한을 센다. 목적을 가리지 않는 이유는 위와 같다. */
+    long countByPlantIdAndCommandTypeAndIssuedAtAfter(
+            String plantId,
+            DeviceCommandType commandType,
+            LocalDateTime since
+    );
+
+    /**
      * 최근 이 체인이 건드린 식물들이다.
      *
      * <p>말리기가 끝난 로봇을 대기 장소로 되돌릴 때 쓴다. 과습이 풀리면 알림이 닫히는데, 해제는

@@ -87,22 +87,65 @@ public record DeviceCommandProperties(
         @Min(1) @Max(24) int captureWindowEndHour,
 
         /**
-         * 토양 과습이면 스테이션으로 데려가 송풍으로 말린다. 자동 급수의 대칭이다.
+         * 스테이션으로 데려가 팬으로 주변 공기를 순환시킨다.
+         *
+         * <p>끄면 주기 환기와 급수 뒤 송풍이 함께 멈춘다.
          */
         boolean autoDryingEnabled,
 
         /**
-         * 말리기 재검사 주기(초)다. 송풍 1회는 짧고, 흙이 마르는 데는 시간이 걸린다. 너무 짧게
-         * 두면 수분이 반응하기 전에 또 돌려 과건조가 된다.
+         * 환기 조건 재검사 주기(초)다.
+         *
+         * <p>{@link #dryingIntervalSeconds} 와 다르다. 이쪽은 "조건을 얼마나 자주 보는가",
+         * 저쪽은 "송풍 사이를 얼마나 벌리는가" 다. 하나로 겸하면 둘 중 하나가 망가진다 —
+         * 검사를 성기게 하면 환기가 끝난 로봇이 그만큼 스테이션에 방치되고, 촘촘하게 하면
+         * 송풍이 그 간격으로 몰린다.
          */
         @Positive int dryingCheckIntervalSeconds,
 
         /**
+         * 송풍 사이 최소 간격(초)이다. 하루 가동 횟수를 결정하는 값이다.
+         *
+         * <p>기본 9000초(2시간 30분)는 아래 시간대(14시간)를 대략 6회로 나눈 값이다.
+         * 곰팡이와 웃자람을 막는 것이 목적이라 "습해졌을 때 몰아서" 가 아니라 "하루 내내
+         * 고르게" 가 맞다.
+         *
+         * <p>급수 뒤 송풍도 이 간격을 리셋한다. 물을 준 직후가 가장 습하므로 그 한 번이
+         * 그 시간대의 환기를 대신한다.
+         */
+        @Positive int dryingIntervalSeconds,
+
+        /**
+         * 환기 시간대(서비스 타임존, 시)다.
+         *
+         * <p>밤을 빼는 이유가 둘이다. 어두우면 기공이 닫혀 증산이 없으므로 공기를 순환시켜도
+         * 얻는 것이 적고, 팬 소음이 사용자의 수면을 방해한다.
+         *
+         * <p>창 밖에서도 복귀는 돈다. 환기를 멈추는 것과 로봇을 스테이션에 밤새 세워 두는 것은
+         * 다른 이야기다.
+         */
+        @Min(0) @Max(23) int dryingWindowStartHour,
+
+        @Min(1) @Max(24) int dryingWindowEndHour,
+
+        /**
+         * 이 온도(℃) 아래에서는 환기하지 않는다.
+         *
+         * <p>찬 공기를 계속 쐬면 식물이 냉해를 입는다. 저온에서는 곰팡이 위험도 낮아 환기의
+         * 이득보다 손해가 크다.
+         *
+         * <p>온도를 읽지 못하면 <strong>막지 않고 진행한다.</strong> 센서 고장이 기능 정지로
+         * 이어지면 안 되고, 송풍은 잘못 돌아도 해가 적은 동작이다.
+         */
+        @Min(-40) @Max(50) int dryingMinTemperatureC,
+
+        /**
          * 하루 자동 송풍 가동 횟수 상한이다.
          *
-         * <p>정상 종료는 과습 알림이 닫히는 것이다. 이 값은 수분 센서가 고장 나 높은 값을 계속
-         * 보낼 때 팬이 끝없이 도는 것을 막는 안전장치다. 물리 장치를 반복 구동하는 자동화에는
-         * 스스로 멈추는 지점이 있어야 한다.
+         * <p>평소에는 {@link #dryingIntervalSeconds} 가 횟수를 정하므로 이 값에 닿지 않는다.
+         * 간격이나 시간대를 잘못 설정했을 때, 그리고 급수가 잦은 날 송풍이 겹칠 때 팬이
+         * 끝없이 도는 것을 막는 안전장치다. 물리 장치를 반복 구동하는 자동화에는 스스로
+         * 멈추는 지점이 있어야 한다.
          */
         @Positive int maxAutoDryingRunsPerDay
 ) {
@@ -115,5 +158,10 @@ public record DeviceCommandProperties(
     @AssertTrue(message = "capture window start must be before end")
     public boolean isCaptureWindowValid() {
         return captureWindowStartHour < captureWindowEndHour;
+    }
+
+    @AssertTrue(message = "drying window start must be before end")
+    public boolean isDryingWindowValid() {
+        return dryingWindowStartHour < dryingWindowEndHour;
     }
 }

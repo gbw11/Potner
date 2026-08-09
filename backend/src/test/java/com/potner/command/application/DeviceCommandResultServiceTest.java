@@ -161,7 +161,7 @@ class DeviceCommandResultServiceTest {
     void overwritesATimedOutCommandWithTheLateResult() {
         // 타임아웃은 서버의 추정이고 회신은 물리적 사실이다. 실제 급수량은 일기에 실리므로
         // 늦은 회신을 버리면 기록이 틀어진다.
-        command.applyResult(DeviceCommandStatus.TIMED_OUT, null, null, null, null);
+        command.applyResult(DeviceCommandStatus.TIMED_OUT, null, null, null, null, null);
 
         CommandResultApplyOutcome outcome = service.apply(
                 PI_UID, DeviceCommandType.WATER,
@@ -170,6 +170,28 @@ class DeviceCommandResultServiceTest {
         assertThat(outcome).isEqualTo(CommandResultApplyOutcome.APPLIED);
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.OK);
         assertThat(command.getDispensedMl()).isEqualByComparingTo("120.00");
+    }
+
+    @Test
+    void recordsTheRunSecondsTheDeviceActuallyUsed() {
+        // 라즈베리는 풍량·시간을 자기 설정으로 정하고 서버가 보낸 seconds 를 쓰지 않는다.
+        // 회신값을 받아 두지 않으면 이력에 요청값만 남아 실제와 어긋난다.
+        CommandResultMessage message = new CommandResultMessage(
+                MESSAGE_ID, PI_UID, requestId, "OK",
+                null, null, new BigDecimal("10.4"), null, null, null);
+
+        CommandResultApplyOutcome outcome = service.apply(PI_UID, DeviceCommandType.WATER, message);
+
+        assertThat(outcome).isEqualTo(CommandResultApplyOutcome.APPLIED);
+        assertThat(command.getRunSeconds()).isEqualTo(10);
+    }
+
+    @Test
+    void keepsTheRequestedRunSecondsWhenTheDeviceReportsNone() {
+        // 급수·촬영 회신에는 durationSec 이 없다. 없다고 지우면 팬 이력이 비어 버린다.
+        service.apply(PI_UID, DeviceCommandType.WATER, result("OK", new BigDecimal("120.00"), null, null));
+
+        assertThat(command.getRunSeconds()).isNull();
     }
 
     @Test
