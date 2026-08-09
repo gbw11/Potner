@@ -89,6 +89,17 @@ class PhotoApi {
     }
   }
 
+  Future<void> deletePhoto({
+    required String plantId,
+    required String photoId,
+  }) async {
+    try {
+      await _dio.delete<Object?>('plants/$plantId/photos/$photoId');
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    }
+  }
+
   Map<Object?, Object?> _asMap(Object? value) {
     if (value is Map<Object?, Object?>) {
       return value;

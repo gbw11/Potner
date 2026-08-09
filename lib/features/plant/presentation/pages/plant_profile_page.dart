@@ -124,6 +124,12 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
                 isBusy: _isChangingPhoto,
                 onChangePressed: _showPhotoSourceSheet,
               ),
+              // 성격은 사진 바로 아래다. 이름·날짜 입력 칸보다 위에 둬야 사진과 함께
+              // '이 아이가 어떤 성격인가' 로 읽힌다. 성격이 없으면 아무것도 그리지 않는다.
+              if (_detail.persona case final persona? when !persona.isEmpty) ...[
+                const SizedBox(height: 16),
+                _PersonaCard(persona: persona),
+              ],
               const SizedBox(height: 24),
               Container(
                 padding: const EdgeInsets.fromLTRB(22, 10, 22, 10),
@@ -777,6 +783,119 @@ class _PhotoLogTile extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 종에 정해진 성격이다. 해시태그로 먼저 훑고, 아래 문장으로 뜻을 읽는다.
+///
+/// 일기의 말투가 여기서 나온다. 사용자가 일기를 읽다가 "얘는 왜 이렇게 말하지" 할 때
+/// 근거를 찾을 수 있는 유일한 화면이라, 꽃말과 성격을 같은 카드에 붙여 둔다.
+class _PersonaCard extends StatelessWidget {
+  const _PersonaCard({required this.persona});
+
+  final SpeciesPersona persona;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('profile_persona'),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.local_florist_outlined,
+                size: 18,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${persona.characterName}의 성격',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text,
+                ),
+              ),
+            ],
+          ),
+          if (persona.hashtags.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            // Wrap 이라 글자 크기를 키워도 칩이 잘리지 않고 다음 줄로 넘어간다.
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final tag in persona.hashtags) _PersonaTag(label: tag),
+              ],
+            ),
+          ],
+          if (persona.concept.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(
+              persona.concept,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.text,
+              ),
+            ),
+          ],
+          if (persona.coreValue.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              '가장 중요하게 여기는 것은 ${persona.coreValue}이에요.',
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                color: AppColors.textMuted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 해시태그 칩 하나다. 첫 번째가 꽃말이지만 생김새를 나누지 않는다.
+/// 꽃말과 성격 키워드는 사용자에게 같은 층위로 읽히는 편이 자연스럽다.
+class _PersonaTag extends StatelessWidget {
+  const _PersonaTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFCCEBC0),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '#$label',
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: AppColors.primary,
         ),
       ),
     );

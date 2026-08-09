@@ -8,6 +8,7 @@ import 'package:potner_app/core/theme/app_theme.dart';
 import 'package:potner_app/features/arrival/application/arrival_debug_controller.dart';
 import 'package:potner_app/features/command/application/device_command_debug_controller.dart';
 import 'package:potner_app/features/command/domain/command_models.dart';
+import 'package:potner_app/features/command/presentation/widgets/care_run_card.dart';
 import 'package:potner_app/features/device/data/device_repository_impl.dart';
 import 'package:potner_app/features/device/domain/device_models.dart';
 import 'package:potner_app/features/home/presentation/controllers/home_controller.dart';
@@ -94,6 +95,10 @@ class DeviceManagementPage extends ConsumerWidget {
                       if (kDebugMode) ...[
                         const _ArrivalDebugPanel(),
                         const SizedBox(height: 16),
+                        // 자동 케어 회차를 수동 명령보다 위에 둔다. 시연에서 먼저 보여줄 것은
+                        // 로봇이 다녀오는 회차이고, 수동 명령은 그것이 안 될 때 단계를 하나씩
+                        // 짚어보는 통로다.
+                        _CareRunSection(robots: items),
                         _DeviceCommandDebugPanel(robots: items),
                         const SizedBox(height: 16),
                       ],
@@ -193,6 +198,35 @@ class _ArrivalDebugPanel extends ConsumerWidget {
             style: TextStyle(color: AppColors.textMuted, fontSize: 11),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 자동 케어 회차 카드를 배정된 식물에 붙인다.
+///
+/// 배정이 없으면 아무것도 그리지 않는다. 바로 아래 수동 명령 패널이 같은 이유를 이미 말하므로
+/// 같은 문장을 두 번 보여줄 이유가 없다.
+class _CareRunSection extends StatelessWidget {
+  const _CareRunSection({required this.robots});
+
+  final List<ManagedRobot> robots;
+
+  @override
+  Widget build(BuildContext context) {
+    // 회차는 식물 단위다. 배정된 식물이 없으면 서버가 대상을 정할 수 없다.
+    final assigned = robots
+        .where((robot) => robot.assignedPlantId != null)
+        .firstOrNull;
+    if (assigned == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: CareRunCard(
+        plantId: assigned.assignedPlantId!,
+        plantLabel:
+            '${assigned.assignedPlantName ?? '배정된 식물'} · ${assigned.name}',
       ),
     );
   }

@@ -32,6 +32,14 @@ class DeviceCommandRepositoryImpl implements DeviceCommandRepository {
   }
 
   @override
+  Future<DeviceCommandRecord> startCareRun({
+    required String plantId,
+    required CareRunPurpose purpose,
+  }) {
+    return _api.startCareRun(plantId: plantId, purpose: purpose);
+  }
+
+  @override
   Future<List<DeviceCommandRecord>> getCommands({
     required String plantId,
     required DateTime from,

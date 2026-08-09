@@ -76,8 +76,17 @@ void main() {
     final plantRepository = await _login(tester);
     await _tapMenuItem(tester, 'menu_item_devices');
 
+    // 위에 자동 케어 회차 카드가 있어 버튼이 첫 화면에 들어오지 않는다. 목록이 지연 빌드라
+    // 보이지 않는 동안에는 위젯 자체가 없으므로 ensureVisible 로는 집을 수 없다.
     final button = find.byKey(const Key('device_repotting_reminder_debug'));
-    await tester.ensureVisible(button);
+    await tester.scrollUntilVisible(
+      button,
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('robot_list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(button);
     await tester.pumpAndSettle();

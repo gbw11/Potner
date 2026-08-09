@@ -32,6 +32,24 @@ class DeviceCommandApi {
     }
   }
 
+  Future<DeviceCommandRecord> startCareRun({
+    required String plantId,
+    required CareRunPurpose purpose,
+  }) async {
+    try {
+      // 명령 종류를 보내지 않는다. purpose 만 정하면 첫 단계와 이후 순서는 서버가 정한다.
+      final response = await _dio.post<Object?>(
+        'plants/$plantId/care-runs',
+        data: {'purpose': purpose.wireName},
+      );
+      return _parseCommand(response.data);
+    } on DioException catch (exception) {
+      throw ApiException.fromDio(exception);
+    } on FormatException catch (exception) {
+      throw ApiException.invalidResponse(exception);
+    }
+  }
+
   Future<List<DeviceCommandRecord>> getCommands({
     required String plantId,
     required DateTime from,
@@ -108,6 +126,9 @@ class DeviceCommandApi {
       'CAPTURE' => DeviceCommandType.capture,
       'FAN' => DeviceCommandType.fan,
       'NAVIGATE' => DeviceCommandType.navigate,
+      'MAPPING_START' => DeviceCommandType.mappingStart,
+      'MAPPING_SAVE' => DeviceCommandType.mappingSave,
+      'MAPPING_CANCEL' => DeviceCommandType.mappingCancel,
       _ => null,
     };
   }
@@ -120,6 +141,7 @@ class DeviceCommandApi {
       'OK' => DeviceCommandStatus.ok,
       'ERROR' => DeviceCommandStatus.error,
       'BUSY' => DeviceCommandStatus.busy,
+      'SKIPPED' => DeviceCommandStatus.skipped,
       'TIMED_OUT' => DeviceCommandStatus.timedOut,
       _ => DeviceCommandStatus.unknown,
     };
