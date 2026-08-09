@@ -10,8 +10,15 @@ import 'package:potner_app/features/plant/presentation/pages/plant_list_page.dar
 import 'package:potner_app/features/plant/presentation/plant_providers.dart';
 
 /// 포토 로그다. 장치가 매일 찍은 성장 사진을 최신 날짜부터 보여 준다.
+///
+/// [initialDate] 가 있으면 그날 사진만 보여 준 채로 연다. 개화 알림을 누른 경우가 그렇다 —
+/// 꽃이 폈다는 소식을 누른 사용자가 찾는 것은 그날 사진 한 장이지 전체 목록이 아니다.
+/// 사진은 하루 한 장이라 목록이 길어질수록 그날을 찾으려면 계속 내려야 한다.
 class PhotoLogPage extends ConsumerStatefulWidget {
-  const PhotoLogPage({super.key});
+  const PhotoLogPage({super.key, this.initialDate});
+
+  /// `yyyy-MM-dd`. 형식이 어긋나면 무시하고 전체를 보여 준다.
+  final String? initialDate;
 
   @override
   ConsumerState<PhotoLogPage> createState() => _PhotoLogPageState();
@@ -19,6 +26,30 @@ class PhotoLogPage extends ConsumerStatefulWidget {
 
 class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
   MyPlant? _plant;
+
+  /// 지금 걸려 있는 날짜 필터다. null 이면 전체를 보여 준다.
+  DateTime? _filterDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _filterDate = _parseDate(widget.initialDate);
+  }
+
+  /// 날짜만 남긴다. 시각이 섞이면 같은 날 사진과 비교가 어긋난다.
+  static DateTime? _parseDate(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    final parsed = DateTime.tryParse(value);
+    return parsed == null
+        ? null
+        : DateTime(parsed.year, parsed.month, parsed.day);
+  }
+
+  static bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +133,30 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
             onChanged: (selected) => setState(() => _plant = selected),
           ),
         ),
+        // 사진은 하루 한 장이라 목록이 날짜 수만큼 길어진다. 지난 날을 보려고 계속 내리는
+        // 대신 날짜로 바로 건너뛴다.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+          child: photos.maybeWhen(
+            data: (items) => _DateFilterBar(
+              selected: _filterDate,
+              // 촬영된 날만 고를 수 있게 한다. 사진이 없는 날을 골라 빈 화면을 보는 것은
+              // 사용자가 잘못한 것이 아니므로 애초에 고르지 못하게 막는다.
+              availableDates: items
+                  .map(
+                    (photo) => DateTime(
+                      photo.photoDate.year,
+                      photo.photoDate.month,
+                      photo.photoDate.day,
+                    ),
+                  )
+                  .toList(growable: false),
+              onPick: (picked) => setState(() => _filterDate = picked),
+              onClear: () => setState(() => _filterDate = null),
+            ),
+            orElse: () => const SizedBox.shrink(),
+          ),
+        ),
         Expanded(
           child: photos.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -116,7 +171,23 @@ class _PhotoLogPageState extends ConsumerState<PhotoLogPage> {
                   message: '아직 촬영된 사진이 없어요.\n로봇이 사진을 찍으면 여기에 쌓여요.',
                 );
               }
-              final descending = items.reversed.toList(growable: false);
+              final all = items.reversed.toList(growable: false);
+              final filter = _filterDate;
+              final descending = filter == null
+                  ? all
+                  : all
+                        .where((photo) => _isSameDay(photo.photoDate, filter))
+                        .toList(growable: false);
+              if (filter != null && descending.isEmpty) {
+                // 알림이 가리킨 날에 사진이 없을 수 있다. 촬영이 실패했거나 사용자가 지운
+                // 경우다. 빈 화면만 보여 주면 앱이 고장 난 것처럼 보이므로 이유를 적는다.
+                return _CenteredMessage(
+                  message: '${photoDateLabel(filter)}에 찍은 사진이 없어요.',
+                  retryKey: const Key('photo_log_clear_filter_empty'),
+                  onRetry: () => setState(() => _filterDate = null),
+                  retryLabel: '전체 보기',
+                );
+              }
               return RefreshIndicator(
                 onRefresh: () =>
                     ref.refresh(plantPhotosProvider(plant.plantId).future),
@@ -308,12 +379,92 @@ class _PlantSelectorCard extends StatelessWidget {
   }
 }
 
+/// 날짜로 건너뛰는 줄이다.
+///
+/// 고를 수 있는 날을 촬영된 날로 한정한다. 사진이 하루 한 장이라 빈 날을 고르면 무조건 빈
+/// 화면이 되는데, 그것은 사용자가 잘못한 것이 아니므로 애초에 고르지 못하게 막는다.
+class _DateFilterBar extends StatelessWidget {
+  const _DateFilterBar({
+    required this.selected,
+    required this.availableDates,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final DateTime? selected;
+  final List<DateTime> availableDates;
+  final ValueChanged<DateTime> onPick;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    if (availableDates.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final sorted = [...availableDates]..sort();
+    final first = sorted.first;
+    final last = sorted.last;
+    final active = selected;
+
+    return Row(
+      children: [
+        Expanded(
+          child: active == null
+              ? Text(
+                  '사진 ${sorted.length}장',
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 13,
+                  ),
+                )
+              : InputChip(
+                  key: const Key('photo_log_active_date'),
+                  label: Text(photoDateLabel(active)),
+                  onDeleted: onClear,
+                  deleteIcon: const Icon(Icons.close, size: 18),
+                ),
+        ),
+        TextButton.icon(
+          key: const Key('photo_log_pick_date'),
+          onPressed: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: active ?? last,
+              firstDate: first,
+              lastDate: last,
+              selectableDayPredicate: (day) => sorted.any(
+                (available) =>
+                    available.year == day.year &&
+                    available.month == day.month &&
+                    available.day == day.day,
+              ),
+            );
+            if (picked != null) {
+              onPick(DateTime(picked.year, picked.month, picked.day));
+            }
+          },
+          icon: const Icon(Icons.event_outlined, size: 18),
+          label: const Text('날짜 선택'),
+        ),
+      ],
+    );
+  }
+}
+
 class _CenteredMessage extends StatelessWidget {
-  const _CenteredMessage({required this.message, this.retryKey, this.onRetry});
+  const _CenteredMessage({
+    required this.message,
+    this.retryKey,
+    this.onRetry,
+    this.retryLabel = '다시 시도',
+  });
 
   final String message;
   final Key? retryKey;
   final VoidCallback? onRetry;
+
+  /// 버튼 문구다. 재시도가 아닌 쓰임(필터 해제 등)에도 같은 배치를 쓰려고 열어 두었다.
+  final String retryLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -333,7 +484,7 @@ class _CenteredMessage extends StatelessWidget {
               FilledButton.tonal(
                 key: retryKey,
                 onPressed: onRetry,
-                child: const Text('다시 시도'),
+                child: Text(retryLabel),
               ),
             ],
           ],
