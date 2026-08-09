@@ -129,15 +129,25 @@ potner:
     # 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
     capture-window-start-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_START_HOUR:10}
     capture-window-end-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_END_HOUR:16}
-    # 공기가 습하면 스테이션으로 데려가 송풍으로 순환시킨다. 고습에서 곰팡이와 웃자람을
-    # 막는 원예의 기본이다. 판정 지표는 습도(HUMIDITY HIGH)이며 토양수분이 아니다 —
-    # 이유는 AutoDryingScheduler 주석에 있다.
+    # 낮 동안 일정한 간격으로 스테이션에 데려가 팬으로 주변 공기를 순환시킨다. 곰팡이와
+    # 웃자람을 막는 원예의 기본이고, 습도와 무관하게 매일 필요하다 — 이유는
+    # AutoDryingScheduler 주석에 있다. 끄면 급수 뒤 송풍도 함께 멈춘다.
     auto-drying-enabled: ${DEVICE_COMMAND_AUTO_DRYING_ENABLED:true}
-    # 송풍 1회는 짧고 공기가 도는 데는 시간이 걸린다. 짧게 두면 같은 자리에서 계속 돌려
-    # 하루 상한만 빨리 소진한다. 시연에서 즉석으로 보여주려면 30 정도로 낮춘다.
+    # 조건을 얼마나 자주 보는가. 아래 간격과 다르다 — 이 값이 성기면 환기가 끝난 로봇이
+    # 그만큼 스테이션에 방치된다. 시연에서 즉석으로 보여주려면 30 정도로 낮춘다.
     drying-check-interval-seconds: ${DEVICE_COMMAND_DRYING_CHECK_INTERVAL_SECONDS:600}
-    # 송풍으로는 습도가 내려가지 않으므로 장마철에는 알림이 종일 열려 있다. 이 값이 정상
-    # 종료를 대신하는 상한이자, 센서 고장으로 팬이 끝없이 도는 것을 막는 안전장치다.
+    # 송풍 사이를 얼마나 벌리는가. 하루 가동 횟수를 실제로 정하는 값이다.
+    # 9000초(2시간 30분) × 시간대 14시간 = 하루 약 6회. 급수 뒤 송풍도 이 간격을 리셋한다.
+    drying-interval-seconds: ${DEVICE_COMMAND_DRYING_INTERVAL_SECONDS:9000}
+    # 환기 시간대(서비스 타임존). 밤에는 기공이 닫혀 증산이 없어 얻는 것이 적고 팬 소음이
+    # 남는다. 창 밖에서도 복귀는 돈다 — 로봇을 스테이션에 밤새 세워 두지 않는다.
+    drying-window-start-hour: ${DEVICE_COMMAND_DRYING_WINDOW_START_HOUR:8}
+    drying-window-end-hour: ${DEVICE_COMMAND_DRYING_WINDOW_END_HOUR:22}
+    # 이 온도(℃) 아래에서는 환기하지 않는다. 찬 바람은 냉해를 부르고 저온에서는 곰팡이
+    # 위험도 낮다. 온도를 못 읽으면 막지 않고 진행한다 — 센서 고장이 기능 정지가 되면 안 된다.
+    drying-min-temperature-c: ${DEVICE_COMMAND_DRYING_MIN_TEMPERATURE_C:15}
+    # 평소에는 위 간격이 횟수를 정하므로 여기 닿지 않는다. 설정을 잘못 잡았거나 급수가 잦은
+    # 날 송풍이 겹칠 때 팬이 끝없이 도는 것을 막는 안전장치다.
     max-auto-drying-runs-per-day: ${DEVICE_COMMAND_MAX_AUTO_DRYING_RUNS_PER_DAY:6}
   # 앱의 방향 버튼으로 로봇을 직접 미는 조작이다. 목적지 이동과 달리 지도 좌표를 보지 않으므로
   # SLAM 지도가 없는 자리에서도 바퀴가 도는지 확인할 수 있다.

@@ -92,7 +92,7 @@ class DeviceCommandServiceTest {
                 profileRepository,
                 locationRepository,
                 new SensorQueryProperties("+09:00", 15, 14, 365),
-                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, true, 10, 16, true, 600, 6),
+                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, true, 10, 16, true, 600, 9000, 8, 22, 15, 6),
                 eventPublisher,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );

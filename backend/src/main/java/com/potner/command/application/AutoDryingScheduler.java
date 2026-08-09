@@ -1,17 +1,24 @@
 package com.potner.command.application;
 
-import com.potner.alert.domain.AlertDeviation;
-import com.potner.alert.domain.AlertMetricType;
-import com.potner.alert.domain.AlertRepository;
 import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.domain.CommandInitiator;
 import com.potner.command.domain.CommandPurpose;
+import com.potner.command.domain.DeviceCommand;
 import com.potner.command.domain.DeviceCommandRepository;
 import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.IssueDeviceCommandRequest;
 import com.potner.common.error.BusinessException;
+import com.potner.device.domain.AssignedDeviceView;
+import com.potner.device.domain.IotDeviceType;
+import com.potner.device.domain.PlantDeviceAssignmentRepository;
 import com.potner.location.domain.RobotLocationType;
+import com.potner.plant.domain.PlantStatus;
+import com.potner.sensor.config.SensorQueryProperties;
+import com.potner.sensor.domain.SensorQuality;
+import com.potner.sensor.domain.SensorReading;
+import com.potner.sensor.domain.SensorReadingRepository;
+import com.potner.sensor.domain.SensorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -19,72 +26,81 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 공기가 습하면 송풍으로 순환시킨다.
+ * 낮 동안 일정한 간격으로 로봇을 스테이션에 데려가 팬으로 주변 공기를 순환시킨다.
  *
  * <pre>
- * 습도 HIGH 알림이 열려 있음  →  이동(스테이션) → 송풍 → 이동(대기 장소)
- * 습도가 내려가면 알림이 스스로 닫히고 → 다음 주기부터 아무것도 하지 않는다
+ * 마지막 송풍 후 간격이 참  →  이동(스테이션) → 송풍 → 이동(대기 장소)
  * </pre>
  *
- * <p><strong>판정 지표가 토양수분이 아니라 공기 습도다.</strong> 원래는 토양 과습을 말리는
- * 기능이었는데, 자동 급수가 권장량만 주고 라즈베리 쪽에도 "이미 젖었으면 급수 생략" 게이트가
- * 있어 시스템이 스스로 과습을 만드는 경로가 없었다. 그 알림은 사람이 직접 물을 더 줬을 때만
- * 열리므로 자동화의 대상으로 삼기에 근거가 약했다.
+ * <p><strong>습도 알림이 조건이 아니다.</strong> 원래는 고습 알림이 열려 있는 동안에만 돌렸는데,
+ * 그러면 두 가지가 어긋난다.
  *
- * <p>반면 공기 습도는 환경이 정하는 값이라 시스템이 통제할 수 없고, 고습에서 공기를 순환시키는
- * 것은 곰팡이와 웃자람을 막는 원예의 기본이다. 습도는 스테이션의 라즈베리가 재므로 판정 근거도
- * 이미 들어와 있다.
+ * <ul>
+ *   <li>습도가 정상인 날에는 하루 0회다. 그런데 공기 순환의 이득 절반은 습도와 무관하다 —
+ *       바람에 흔들린 줄기는 굵고 짧아지고(웃자람 억제), 잎 표면의 정체된 공기층이 걷혀야
+ *       증산이 이어진다. 증산이 멈추면 뿌리가 물과 양분을 못 끌어올린다.</li>
+ *   <li>알림이 열려 있는 동안 검사 주기마다 돌리므로 하루치 가동이 한 시간에 몰렸다.
+ *       10분 주기 × 상한 6회 = 60분이면 그날 몫이 끝났다.</li>
+ * </ul>
+ *
+ * <p>그래서 "습해지면 대응" 이 아니라 <strong>"하루 내내 고르게, 위험할 때 한 번 더"</strong> 로
+ * 간다. 곰팡이는 생기고 나서 말리는 것보다 안 생기게 하는 편이 훨씬 쉽다.
+ *
+ * <p><strong>가장 필요한 한 번은 여기서 돌지 않는다.</strong> 급수 직후가 표토와 잎이 젖어
+ * 곰팡이에 가장 취약한 순간인데, 그때는 로봇이 이미 스테이션에 서 있다. 그 한 번은
+ * {@link AutoWateringOrchestrator} 의 체인이 이동 없이 끼워 넣고, 이쪽은 그 시각을 간격에
+ * 반영해 곧바로 또 돌리지 않는다.
  *
  * <p><strong>송풍이 습도를 낮추지는 않는다.</strong> 목적이 제습이 아니라 공기 순환이라
- * "해소될 때까지" 가 아니라 "습한 동안 주기적으로" 가 맞는 종료 모델이고, 그 상한은 아래
- * 하루 가동 횟수가 맡는다. 알림은 환기·제습기 등으로 환경이 바뀌면 닫힌다.
+ * "해소될 때까지" 라는 종료 조건 자체가 성립하지 않는다. 그래서 간격과 하루 상한이 종료를
+ * 대신한다.
  *
- * <p><strong>알림을 상태 머신으로 재사용한다.</strong> 송풍은 "짧게 돌리고 → 다시 재고
- * → 필요하면 또" 의 반복이라 한 번의 체인으로 끝나지 않는다. 그런데 그 반복 조건이 이미
- * {@code alert} 에 있다 — 고습 알림이 열려 있으면 아직 습한 것이고, 히스테리시스를 넘어
- * 내려가면 서버가 알림을 닫는다. 그래서 별도의 진행 상태를 저장하지 않고 주기 검사로 구현한다.
- *
- * <p>팬이 스테이션에 고정되어 있어 송풍도 이동이 앞선다. 급수와 달리 <strong>송풍하는 동안 굳이
- * 오가지 않는다</strong> — 대기 장소로 돌아왔다가 다음 주기에 또 오는 것은 헛걸음이라, 스테이션에
- * 머문 채로 반복 송풍하고 습도가 내려갔을 때만 복귀시킨다.
- *
- * <p>하루 가동 횟수에 상한을 둔다. 송풍으로는 습도가 내려가지 않으므로 장마철처럼 하루 종일
- * 습한 날에는 알림이 종일 열려 있다. 센서 고장으로 높은 값이 계속 올라오는 경우도 마찬가지다.
- * 물리 장치를 반복 구동하는 자동화에는 스스로 멈추는 지점이 있어야 한다.
+ * <p>팬이 스테이션에 고정되어 있어 송풍도 이동이 앞선다. 급수·촬영과 같은 모양의 체인이다.
+ * 예전에는 송풍 사이가 10분이라 스테이션에 머물렀지만, 이제 몇 시간씩 벌어지므로 매번
+ * 대기 장소로 돌아온다 — 왕복 몇 분이 아까워 로봇을 몇 시간 세워 둘 이유가 없다.
  */
 @Component
 public class AutoDryingScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(AutoDryingScheduler.class);
 
-    private final AlertRepository alertRepository;
+    private final PlantDeviceAssignmentRepository assignmentRepository;
     private final DeviceCommandRepository commandRepository;
+    private final SensorReadingRepository sensorReadingRepository;
     private final RobotBusyGuard busyGuard;
     private final DeviceCommandService commandService;
     private final DeviceCommandProperties properties;
+    private final SensorQueryProperties sensorQueryProperties;
     private final Clock clock;
 
     public AutoDryingScheduler(
-            AlertRepository alertRepository,
+            PlantDeviceAssignmentRepository assignmentRepository,
             DeviceCommandRepository commandRepository,
+            SensorReadingRepository sensorReadingRepository,
             RobotBusyGuard busyGuard,
             DeviceCommandService commandService,
             DeviceCommandProperties properties,
+            SensorQueryProperties sensorQueryProperties,
             Clock clock
     ) {
-        this.alertRepository = alertRepository;
+        this.assignmentRepository = assignmentRepository;
         this.commandRepository = commandRepository;
+        this.sensorReadingRepository = sensorReadingRepository;
         this.busyGuard = busyGuard;
         this.commandService = commandService;
         this.properties = properties;
+        this.sensorQueryProperties = sensorQueryProperties;
         this.clock = clock;
     }
 
@@ -99,40 +115,132 @@ public class AutoDryingScheduler {
         dryOnce();
     }
 
-    /** 테스트와 스케줄러가 함께 쓴다. 송풍을 시작·계속하거나 복귀시킨 식물 수를 돌려준다. */
+    /** 테스트와 스케줄러가 함께 쓴다. 환기를 시작했거나 복귀시킨 식물 수를 돌려준다. */
     public int dryOnce() {
-        // 공기 습도로 판정한다. 토양수분이 아닌 이유는 클래스 주석에 있다.
-        List<String> humid = alertRepository
-                .findAllByMetricTypeAndDeviationAndResolvedAtIsNull(
-                        AlertMetricType.HUMIDITY, AlertDeviation.HIGH)
-                .stream()
-                .map(alert -> alert.getPlantId())
-                .distinct()
-                .toList();
+        // 팬은 스테이션의 라즈베리에 있다. 라즈베리 없는 로봇의 식물은 여기서부터 대상이 아니다.
+        List<AssignedDeviceView> targets = assignmentRepository.findActiveAssignedDevices(
+                IotDeviceType.RASPBERRY_PI,
+                PlantStatus.DELETED
+        );
 
+        Set<String> started = new LinkedHashSet<>();
         int acted = 0;
-        for (String plantId : humid) {
-            acted += runStep(plantId, () -> dryPlant(plantId)) ? 1 : 0;
+        for (AssignedDeviceView target : targets) {
+            String plantId = target.getPlantId();
+            if (runStep(plantId, () -> ventilate(plantId))) {
+                started.add(plantId);
+                acted++;
+            }
         }
-        for (String plantId : dryingFinished(humid)) {
+
+        // 복귀는 시간대 밖에서도 돈다. 환기를 멈추는 것과 로봇을 밤새 세워 두는 것은 다르다.
+        for (String plantId : strandedCandidates(started)) {
             acted += runStep(plantId, () -> sendHome(plantId)) ? 1 : 0;
         }
         return acted;
     }
 
     /**
-     * 송풍이 끝났는데 아직 스테이션에 서 있는 로봇을 되돌린다.
+     * 이번 주기에 환기할 식물인지 보고, 맞으면 체인을 시작한다.
      *
-     * <p>이 단계가 없으면 로봇이 스테이션에 방치된다. 습도가 내려가면 알림이 닫히는데 해제는
-     * 이벤트를 내지 않으므로, 마지막 송풍 회신 이후에 알림이 닫힌 경우 아무도 복귀를 시키지
-     * 않는다. 주기 검사가 그 틈을 메운다.
+     * <p>검사 순서가 싼 것부터다. 로봇이 바쁘거나 시간대가 아니면 DB 를 더 볼 이유가 없다.
      */
-    private List<String> dryingFinished(List<String> stillHumid) {
+    private boolean ventilate(String plantId) {
+        if (busyGuard.isBusy(plantId)) {
+            return false;
+        }
+        if (!isInVentilationWindow()) {
+            return false;
+        }
+        if (!intervalElapsed(plantId)) {
+            return false;
+        }
+        if (reachedDailyLimit(plantId)) {
+            return false;
+        }
+        if (isTooCold(plantId)) {
+            return false;
+        }
+
+        // 다른 체인이 방금 스테이션에 두고 간 경우다. 다시 데려갈 것 없이 바로 돌린다.
+        if (isAtStation(plantId)) {
+            commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
+                    DeviceCommandType.FAN, null, null), CommandPurpose.DRYING);
+            log.info("Auto ventilation: fanning at station: plantId={}", plantId);
+            return true;
+        }
+
+        commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
+                DeviceCommandType.NAVIGATE, RobotLocationType.WATER_STATION, null),
+                CommandPurpose.DRYING);
+        log.info("Auto ventilation run started: plantId={}", plantId);
+        return true;
+    }
+
+    /**
+     * 환기 체인의 다음 단계를 잇는다. 급수·촬영 체인과 같은 모양이라 판단 기준도 같다 —
+     * {@code purpose} 로 자기 체인만 이어받는다.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onCommandCompleted(DeviceCommandCompletedEvent event) {
+        if (event.initiator() != CommandInitiator.AUTO
+                || event.purpose() != CommandPurpose.DRYING
+                || !properties.autoDryingEnabled()) {
+            return;
+        }
+        if (event.status() != DeviceCommandStatus.OK) {
+            // 여기서 복귀를 보내지 않는다. 이동이 실패했으면 로봇이 어디 있는지 모르고,
+            // 송풍이 실패했으면 스테이션에 있으므로 다음 주기의 복귀 단계가 데려온다.
+            log.warn(
+                    "Auto ventilation run stopped: plantId={}, type={}, status={}",
+                    event.plantId(), event.commandType(), event.status()
+            );
+            return;
+        }
+        try {
+            continueChain(event);
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "Auto ventilation run could not continue: plantId={}",
+                    event.plantId(), exception
+            );
+        }
+    }
+
+    private void continueChain(DeviceCommandCompletedEvent event) {
+        if (event.commandType() == DeviceCommandType.NAVIGATE
+                && event.destination() == RobotLocationType.WATER_STATION) {
+            commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
+                    DeviceCommandType.FAN, null, null), CommandPurpose.DRYING);
+            log.info("Auto ventilation: arrived at station, fanning: plantId={}", event.plantId());
+            return;
+        }
+        if (event.commandType() == DeviceCommandType.FAN) {
+            commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
+                    DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null),
+                    CommandPurpose.DRYING);
+            log.info("Auto ventilation: fanned, returning home: plantId={}", event.plantId());
+            return;
+        }
+        if (event.commandType() == DeviceCommandType.NAVIGATE
+                && event.destination() == RobotLocationType.HOME) {
+            log.info("Auto ventilation run completed: plantId={}", event.plantId());
+        }
+    }
+
+    /**
+     * 스테이션에 남아 있을 수 있는 로봇 후보다.
+     *
+     * <p>체인이 정상으로 끝나면 복귀까지 스스로 하므로 여기 걸리지 않는다. 송풍이 실패하거나
+     * 복귀 명령이 타임아웃된 경우를 위한 안전망이다. 실제 복귀 여부는
+     * {@link #sendHome(String)} 이 위치를 확인한 뒤 정한다.
+     */
+    private List<String> strandedCandidates(Set<String> startedThisRound) {
         LocalDateTime since = nowUtc().minusDays(1);
         return commandRepository
                 .findPlantIdsByPurposeSince(CommandPurpose.DRYING, since)
                 .stream()
-                .filter(plantId -> !stillHumid.contains(plantId))
+                .filter(plantId -> !startedThisRound.contains(plantId))
                 .toList();
     }
 
@@ -143,7 +251,7 @@ public class AutoDryingScheduler {
         commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
                 DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null),
                 CommandPurpose.DRYING);
-        log.info("Auto drying finished, returning home: plantId={}", plantId);
+        log.info("Auto ventilation: robot left at station, returning home: plantId={}", plantId);
         return true;
     }
 
@@ -153,71 +261,81 @@ public class AutoDryingScheduler {
             return step.getAsBoolean();
         } catch (BusinessException exception) {
             // 배정 없음, 위치 미설정, 팬 없는 로봇 등.
-            log.info("Auto drying skipped: plantId={}, code={}", plantId, exception.errorCode());
+            log.info("Auto ventilation skipped: plantId={}, code={}", plantId, exception.errorCode());
         } catch (RuntimeException exception) {
-            log.warn("Auto drying failed: plantId={}", plantId, exception);
+            log.warn("Auto ventilation failed: plantId={}", plantId, exception);
         }
         return false;
     }
 
-    private boolean dryPlant(String plantId) {
-        if (busyGuard.isBusy(plantId)) {
-            return false;
-        }
-        if (reachedDailyLimit(plantId)) {
-            return false;
-        }
-
-        // 이미 스테이션에 있으면(직전 자동 이동이 거기였으면) 다시 데려가지 않고 바로 돌린다.
-        if (isAtStation(plantId)) {
-            commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
-                    DeviceCommandType.FAN, null, null), CommandPurpose.DRYING);
-            log.info("Auto drying: fanning at station: plantId={}", plantId);
+    /**
+     * 마지막 송풍 이후 간격이 찼는지 본다. 하루 가동 횟수를 실제로 정하는 것이 이 검사다.
+     *
+     * <p>발행 시각으로 센다. 회신이 늦거나 실패한 명령 뒤에 곧바로 다시 돌리면 간격의 뜻이
+     * 없어진다.
+     */
+    private boolean intervalElapsed(String plantId) {
+        DeviceCommand lastFan = commandRepository
+                .findFirstByPlantIdAndCommandTypeOrderByIssuedAtDesc(plantId, DeviceCommandType.FAN)
+                .orElse(null);
+        if (lastFan == null) {
             return true;
         }
+        return !nowUtc().isBefore(
+                lastFan.getIssuedAt().plusSeconds(properties.dryingIntervalSeconds())
+        );
+    }
 
-        commandService.issueAuto(plantId, new IssueDeviceCommandRequest(
-                DeviceCommandType.NAVIGATE, RobotLocationType.WATER_STATION, null),
-                CommandPurpose.DRYING);
-        log.info("Auto drying run started: plantId={}", plantId);
+    /**
+     * 오늘 자동 송풍이 상한에 닿았는지 본다.
+     *
+     * <p>이력을 세므로 별도 카운터가 없다. 서버가 재시작해도 상한이 유지된다.
+     *
+     * <p>하루 경계는 서비스 타임존이다. UTC 자정으로 끊으면 KST 오전 9시에 리셋되어 "어젯밤과
+     * 오늘 아침" 이 한 묶음이 된다.
+     */
+    private boolean reachedDailyLimit(String plantId) {
+        long runs = commandRepository.countByPlantIdAndCommandTypeAndIssuedAtAfter(
+                plantId, DeviceCommandType.FAN, startOfServiceDayUtc());
+        if (runs >= properties.maxAutoDryingRunsPerDay()) {
+            log.info("Auto ventilation reached the daily limit: plantId={}, runs={}", plantId, runs);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 찬 공기를 쐬면 안 되는 온도인지 본다.
+     *
+     * <p>측정값이 없거나 오래됐으면 <strong>막지 않는다.</strong> 온도 센서 하나가 죽었다고
+     * 환기가 통째로 멈추면 손해가 더 크고, 송풍은 잘못 돌아도 해가 적은 동작이다.
+     */
+    private boolean isTooCold(String plantId) {
+        SensorReading latest = sensorReadingRepository
+                .findFirstByPlantIdAndSensorTypeAndQualityOrderByMeasuredAtDesc(
+                        plantId, SensorType.TEMPERATURE, SensorQuality.GOOD)
+                .orElse(null);
+        if (latest == null) {
+            return false;
+        }
+        LocalDateTime freshSince = nowUtc()
+                .minusMinutes(sensorQueryProperties.freshnessThresholdMinutes());
+        if (latest.getMeasuredAt().isBefore(freshSince)) {
+            return false;
+        }
+        if (latest.getMeasuredValue()
+                .compareTo(BigDecimal.valueOf(properties.dryingMinTemperatureC())) >= 0) {
+            return false;
+        }
+        log.info(
+                "Auto ventilation skipped because it is too cold: plantId={}, temperature={}",
+                plantId, latest.getMeasuredValue()
+        );
         return true;
     }
 
     /**
-     * 말리기 체인의 다음 단계를 잇는다.
-     *
-     * <p>송풍이 끝나도 여기서 복귀시키지 않는다. 아직 습하면 다음 주기가 그 자리에서 다시
-     * 돌리고, 내려가면 {@link #dryOnce()} 의 복귀 단계가 데려온다. 매 회차 오가면 이동이 송풍보다
-     * 오래 걸린다.
-     */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onCommandCompleted(DeviceCommandCompletedEvent event) {
-        if (event.initiator() != CommandInitiator.AUTO
-                || event.purpose() != CommandPurpose.DRYING
-                || !properties.autoDryingEnabled()) {
-            return;
-        }
-        if (event.status() != DeviceCommandStatus.OK) {
-            log.warn(
-                    "Auto drying run stopped: plantId={}, type={}, status={}",
-                    event.plantId(), event.commandType(), event.status()
-            );
-            return;
-        }
-        try {
-            if (event.commandType() == DeviceCommandType.NAVIGATE
-                    && event.destination() == RobotLocationType.WATER_STATION) {
-                commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
-                        DeviceCommandType.FAN, null, null), CommandPurpose.DRYING);
-                log.info("Auto drying: arrived at station, fanning: plantId={}", event.plantId());
-            }
-        } catch (RuntimeException exception) {
-            log.warn("Auto drying run could not continue: plantId={}", event.plantId(), exception);
-        }
-    }
-
-    /**
-     * 로봇이 스테이션에 서 있는지 본다. 마지막으로 성공한 자동 이동의 목적지로 추정한다 —
+     * 로봇이 스테이션에 서 있는지 본다. 마지막으로 성공한 이동의 목적지로 추정한다 —
      * 햇빛 재배치와 같은 방식이다.
      */
     private boolean isAtStation(String plantId) {
@@ -228,26 +346,23 @@ public class AutoDryingScheduler {
                 .orElse(false);
     }
 
-    /**
-     * 오늘 자동 송풍이 상한에 닿았는지 본다.
-     *
-     * <p>이력을 세므로 별도 카운터가 없다. 서버가 재시작해도 상한이 유지된다.
-     */
-    private boolean reachedDailyLimit(String plantId) {
-        LocalDateTime startOfDay = nowUtc().toLocalDate().atStartOfDay();
-        long runs = commandRepository.countByPlantIdAndCommandTypeAndPurposeAndIssuedAtAfter(
-                plantId, DeviceCommandType.FAN, CommandPurpose.DRYING, startOfDay);
-        if (runs >= properties.maxAutoDryingRunsPerDay()) {
-            log.info(
-                    "Auto drying reached the daily limit: plantId={}, runs={}",
-                    plantId, runs
-            );
-            return true;
-        }
-        return false;
+    /** 서비스 타임존 기준 현재 시(hour)가 환기 시간대 안인지 본다. */
+    private boolean isInVentilationWindow() {
+        int hour = serviceNow().getHour();
+        return hour >= properties.dryingWindowStartHour()
+                && hour < properties.dryingWindowEndHour();
     }
 
-    /** 상한은 UTC 자정 기준이다. 서비스 타임존으로 끊을 만큼 정밀할 필요가 없는 안전장치다. */
+    /** 서비스 타임존 기준 오늘 0시를, 저장된 값과 비교할 수 있도록 UTC 로 되돌린 시각이다. */
+    private LocalDateTime startOfServiceDayUtc() {
+        LocalDate serviceToday = serviceNow().toLocalDate();
+        return serviceToday.atStartOfDay().minusSeconds(sensorQueryProperties.zoneOffsetSeconds());
+    }
+
+    private LocalDateTime serviceNow() {
+        return nowUtc().plusSeconds(sensorQueryProperties.zoneOffsetSeconds());
+    }
+
     private LocalDateTime nowUtc() {
         return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
