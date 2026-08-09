@@ -81,6 +81,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -578,13 +579,17 @@ class PotnerApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.persona.characterName").value("바질"))
                 .andExpect(jsonPath("$.persona.flowerMeaning").value("좋은 소망"))
-                .andExpect(jsonPath("$.persona.concept").value(containsString("현실적 보호자")))
+                .andExpect(jsonPath("$.persona.personality").value(containsString("다정하고 차분해요")))
                 .andExpect(jsonPath("$.persona.coreValue").value(containsString("규칙적인 돌봄")))
                 // 해시태그는 쉼표를 나눈 결과다. 문장을 그대로 주면 칩이 줄을 넘긴다.
                 .andExpect(jsonPath("$.persona.tags.length()").value(3))
                 .andExpect(jsonPath("$.persona.tags").value(
-                        contains("현실적보호자", "편안함", "규칙적돌봄")))
+                        contains("다정함", "차분함", "꾸준함")))
                 // 프롬프트 조립용 지시문은 내보내지 않는다. 사용자에게는 뜻이 통하지 않는다.
+                // persona_concept 은 직업 은유("현실적 보호자")라 성격을 물은 화면에 나가면
+                // 겉돈다. 필드가 사라진 것과 값이 새지 않는 것을 함께 본다.
+                .andExpect(jsonPath("$.persona.concept").doesNotExist())
+                .andExpect(jsonPath("$.persona.personality").value(not(containsString("보호자"))))
                 .andExpect(jsonPath("$.persona.forbiddenStyle").doesNotExist())
                 .andExpect(jsonPath("$.persona.diaryStructure").doesNotExist());
     }
