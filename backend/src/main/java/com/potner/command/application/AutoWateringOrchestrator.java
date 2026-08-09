@@ -27,8 +27,12 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * 수분 부족을 자동으로 해결하는 케어 체인이다.
  *
  * <pre>
- * 토양수분 알림 열림 → 이동(급수 스테이션) → OK → 급수 → OK → 이동(대기 장소) → 끝
+ * 토양수분 알림 열림 → 이동(급수 스테이션) → OK → 급수 → OK → 송풍 → OK → 이동(대기 장소) → 끝
  * </pre>
+ *
+ * <p>급수 뒤에 송풍 한 단계가 붙는다. 물을 준 직후가 표토와 잎이 젖어 곰팡이에 가장 취약한
+ * 순간인데, 팬이 있는 스테이션에 로봇이 이미 서 있으므로 이동이 늘지 않는다. 주기 환기
+ * ({@link AutoDryingScheduler}) 는 이 발행 시각을 간격에 반영해 곧바로 또 돌리지 않는다.
  *
  * <p>체인 상태를 따로 저장하지 않는다. 다음 단계는 회신된 명령의 속성(종류·목적지·발행 주체)
  * 만으로 정해지므로, 상태 테이블을 두면 명령 이력과 어긋날 자리만 생긴다. 서버가 재시작해도
@@ -119,13 +123,21 @@ public class AutoWateringOrchestrator {
                 || !properties.autoWaterEnabled()) {
             return;
         }
-        if (event.status() != DeviceCommandStatus.OK) {
+        // 과습 가드가 막은 급수(SKIPPED)는 여기서 멈추지 않는다. 물을 주지 않았을 뿐 로봇은
+        // 스테이션에 멀쩡히 서 있으므로 송풍과 복귀는 그대로 이어져야 한다.
+        if (!event.status().continuesChain()) {
             log.warn(
                     "Auto watering run stopped: plantId={}, step={}, status={}",
                     event.plantId(),
                     stepLabel(event),
                     event.status()
             );
+            // 송풍은 급수에 딸린 부가 단계라 실패해도 로봇은 돌려보내야 한다. 여기서 멈추면
+            // 팬 하나가 고장 났을 때 로봇이 스테이션에 남는다. 급수·이동 실패는 로봇이 어디
+            // 있는지 알 수 없으므로 지금처럼 멈춘다.
+            if (event.commandType() == DeviceCommandType.FAN) {
+                returnHomeQuietly(event);
+            }
             return;
         }
         try {
@@ -155,11 +167,21 @@ public class AutoWateringOrchestrator {
             log.info("Auto watering run: arrived at station, watering: plantId={}", event.plantId());
             return;
         }
+        // 급수 직후가 곰팡이에 가장 취약한 순간이다. 표토가 젖고 잎에 물이 튀고 주변 습도가
+        // 오르는데, 그때 로봇은 이미 팬이 있는 스테이션에 서 있다. 주기 환기로 따로 오려면
+        // 왕복이 한 번 더 드는 그 한 번을 여기서 이동 없이 끼워 넣는다.
         if (event.commandType() == DeviceCommandType.WATER) {
-            commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
-                    DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null),
-                    CommandPurpose.WATERING);
-            log.info("Auto watering run: watered, returning home: plantId={}", event.plantId());
+            if (properties.autoDryingEnabled()) {
+                commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
+                        DeviceCommandType.FAN, null, null), CommandPurpose.WATERING);
+                log.info("Auto watering run: watered, ventilating: plantId={}", event.plantId());
+                return;
+            }
+            returnHome(event, "watered");
+            return;
+        }
+        if (event.commandType() == DeviceCommandType.FAN) {
+            returnHome(event, "ventilated");
             return;
         }
         if (event.commandType() == DeviceCommandType.NAVIGATE
@@ -167,6 +189,22 @@ public class AutoWateringOrchestrator {
             log.info("Auto watering run completed: plantId={}", event.plantId());
         }
         // 그 외 조합은 이 체인이 발행하지 않으므로 없다. 생기면 무시한다.
+    }
+
+    private void returnHome(DeviceCommandCompletedEvent event, String afterStep) {
+        commandService.issueAuto(event.plantId(), new IssueDeviceCommandRequest(
+                DeviceCommandType.NAVIGATE, RobotLocationType.HOME, null),
+                CommandPurpose.WATERING);
+        log.info("Auto watering run: {}, returning home: plantId={}", afterStep, event.plantId());
+    }
+
+    /** 실패 경로의 복귀다. 이미 실패를 로그로 남긴 뒤라 여기서 또 예외를 밖으로 내지 않는다. */
+    private void returnHomeQuietly(DeviceCommandCompletedEvent event) {
+        try {
+            returnHome(event, "ventilation failed");
+        } catch (RuntimeException exception) {
+            log.warn("Auto watering run could not return home: plantId={}", event.plantId(), exception);
+        }
     }
 
     /**

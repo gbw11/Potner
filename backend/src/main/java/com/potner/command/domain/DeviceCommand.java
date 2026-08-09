@@ -68,7 +68,16 @@ public class DeviceCommand {
     @Column(name = "destination", length = 20)
     private RobotLocationType destination;
 
-    /** FAN 만. 1회 가동 시간(초)이다. */
+    /**
+     * FAN 만. 1회 가동 시간(초)이다.
+     *
+     * <p>회신 전에는 서버가 요청한 값이고, 회신이 오면 <strong>장치가 실제로 돌린 시간으로
+     * 덮어쓴다.</strong> 라즈베리는 풍량·시간을 자기 설정으로 정하고 요청값을 참고만 하므로,
+     * 요청값을 그대로 남기면 이력이 실제와 다르게 기록된다.
+     *
+     * <p>급수처럼 요청·실측 컬럼을 나누지 않는 이유는 요청값에 남길 정보가 없기 때문이다.
+     * 급수량은 서버가 생육 기준에서 정하는 의미 있는 값이지만, 가동 시간은 장치가 정한다.
+     */
     @Column(name = "run_seconds")
     private Integer runSeconds;
 
@@ -128,12 +137,16 @@ public class DeviceCommand {
     public void applyResult(
             DeviceCommandStatus reported,
             BigDecimal dispensedMl,
+            Integer reportedRunSeconds,
             String errorMessage,
             String resultMessageId,
             LocalDateTime reportedAt
     ) {
         this.status = reported;
         this.dispensedMl = dispensedMl;
+        if (reportedRunSeconds != null) {
+            this.runSeconds = reportedRunSeconds;
+        }
         this.errorMessage = truncate(errorMessage);
         this.resultMessageId = resultMessageId;
         this.reportedAt = reportedAt;

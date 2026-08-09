@@ -102,6 +102,14 @@ class PotnerApplicationTests {
     private static final String VEGETATIVE_ID = "10000000-0000-0000-0000-000000000006";
     private static final String TEST_INACTIVE_SPECIES_ID = "90000000-0000-0000-0000-000000000001";
 
+    /**
+     * 조도 표본 간격이다. {@code max-gap-seconds}(60) 보다 짧아야 구간이 잘리지 않는다.
+     * 젯슨의 실제 발행 주기는 10초라 이보다 촘촘하다.
+     */
+    private static final long ILLUMINANCE_SAMPLE_SECONDS = 30;
+
+    private static final int ILLUMINANCE_SAMPLES_PER_DAY = 2880;
+
     /** MQTT 페이로드는 오프셋을 포함한 ISO-8601 이어야 하므로 초까지 항상 채워 UTC 로 만든다. */
     private static final DateTimeFormatter UTC_ISO =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
@@ -556,6 +564,42 @@ class PotnerApplicationTests {
         mockMvc.perform(get("/api/v1/plants"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("ACCESS_TOKEN_REQUIRED"));
+    }
+
+    @Test
+    void plantDetailCarriesTheSpeciesPersonaSoTheProfileCanShowIt() throws Exception {
+        // 프로필 화면이 성격과 꽃말을 보여주려면 이 응답에 실려야 한다. 페르소나 표는
+        // 그동안 일기 생성만 읽었고 밖으로 나가는 경로가 없었다.
+        Tokens tokens = signupAndLogin("persona-profile@example.com");
+        String plantId = createPlant(tokens, "바질이");
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}", plantId)
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.persona.characterName").value("바질"))
+                .andExpect(jsonPath("$.persona.flowerMeaning").value("좋은 소망"))
+                .andExpect(jsonPath("$.persona.concept").value(containsString("현실적 보호자")))
+                .andExpect(jsonPath("$.persona.coreValue").value(containsString("규칙적인 돌봄")))
+                // 해시태그는 쉼표를 나눈 결과다. 문장을 그대로 주면 칩이 줄을 넘긴다.
+                .andExpect(jsonPath("$.persona.tags.length()").value(3))
+                .andExpect(jsonPath("$.persona.tags").value(
+                        contains("현실적보호자", "편안함", "규칙적돌봄")))
+                // 프롬프트 조립용 지시문은 내보내지 않는다. 사용자에게는 뜻이 통하지 않는다.
+                .andExpect(jsonPath("$.persona.forbiddenStyle").doesNotExist())
+                .andExpect(jsonPath("$.persona.diaryStructure").doesNotExist());
+    }
+
+    @Test
+    void everySeededSpeciesHasProfileTagsSoNoPlantShowsAnEmptyPersona() {
+        // 태그가 빈 종이 하나라도 있으면 그 종을 기르는 사용자만 프로필이 허전해진다.
+        var tagRows = jdbcTemplate.queryForList(
+                "SELECT persona_tags FROM species_persona", String.class);
+
+        assertThat(tagRows).hasSize(6);
+        assertThat(tagRows).allSatisfy(tags -> {
+            assertThat(tags).isNotBlank();
+            assertThat(tags.split(",")).hasSizeGreaterThanOrEqualTo(2);
+        });
     }
 
     @Test
@@ -3226,8 +3270,8 @@ class PotnerApplicationTests {
     void fullDayOfIlluminanceIsIntegratedAndJudgedNormal() throws Exception {
         SensorFixture fixture = createSensorFixture("daily-light-normal@example.com");
         LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
-        // 10분 간격 144개, 앞의 15시간은 10,000 lux, 나머지는 0 lux.
-        insertIlluminanceDay(fixture, lightDate, 90, "10000");
+        // 30초 간격 2,880개, 앞의 15시간은 10,000 lux, 나머지는 0 lux.
+        insertIlluminanceDay(fixture, lightDate, 1800, "10000");
 
         dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
 
@@ -3239,8 +3283,9 @@ class PotnerApplicationTests {
                 .isEqualByComparingTo("150000.00");
         org.assertj.core.api.Assertions.assertThat(daily.getLightHours())
                 .isEqualByComparingTo("15.00");
+        // 마지막 표본은 다음 구간이 없어 빠진다. 2,879 × 30초 / 86,400초 다.
         org.assertj.core.api.Assertions.assertThat(daily.getCoveragePct())
-                .isEqualByComparingTo("99.31");
+                .isEqualByComparingTo("99.97");
         org.assertj.core.api.Assertions.assertThat(daily.getLightStatus().name()).isEqualTo("NORMAL");
         org.assertj.core.api.Assertions.assertThat(daily.getPhotoperiodStatus().name())
                 .isEqualTo("NORMAL");
@@ -3256,7 +3301,7 @@ class PotnerApplicationTests {
         SensorFixture fixture = createSensorFixture("daily-light-photoperiod@example.com");
         LocalDate lightDate = dailyLightAggregationService.today().minusDays(2);
         // 7,500 lux × 20시간 = 150,000 lux·h. 총량은 정상이지만 일조가 허용 18시간을 넘는다.
-        insertIlluminanceDay(fixture, lightDate, 120, "7500");
+        insertIlluminanceDay(fixture, lightDate, 2400, "7500");
 
         dailyLightAggregationService.aggregateAndStore(fixture.plantId(), lightDate);
 
@@ -3315,14 +3360,22 @@ class PotnerApplicationTests {
         SensorFixture fixture = createSensorFixture("daily-light-api@example.com");
         Tokens tokens = login("daily-light-api@example.com");
         LocalDate yesterday = dailyLightAggregationService.today().minusDays(1);
-        insertIlluminanceDay(fixture, yesterday, 90, "10000");
+        insertIlluminanceDay(fixture, yesterday, 1800, "10000");
         dailyLightAggregationService.aggregateAndStore(fixture.plantId(), yesterday);
         // 오늘은 아직 진행 중이므로 확실히 과거인 시각만 넣는다.
         // DATETIME(0) 컬럼은 소수 초를 반올림하므로 현재 시각을 그대로 쓰면 조회 상한을 넘길 수 있다.
         LocalDateTime now = nowUtc().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
-        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(1800));
-        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(1200));
-        insertReading(fixture, SensorType.ILLUMINANCE, "10000", SensorUnit.LUX, now.minusSeconds(600));
+        // 30초 간격 10건. 마지막 표본은 다음 구간이 없어 빠지므로 9구간 × 30초 = 270초가
+        // 적분되고, 10,000 lux × 270초 = 750 lux·h 다.
+        for (int index = 10; index >= 1; index--) {
+            insertReading(
+                    fixture,
+                    SensorType.ILLUMINANCE,
+                    "10000",
+                    SensorUnit.LUX,
+                    now.minusSeconds(index * ILLUMINANCE_SAMPLE_SECONDS)
+            );
+        }
 
         mockMvc.perform(get("/api/v1/plants/{plantId}/daily-light", fixture.plantId())
                         .header("Authorization", "Bearer " + tokens.accessToken()))
@@ -3332,8 +3385,8 @@ class PotnerApplicationTests {
                 .andExpect(jsonPath("$.today.lightDate")
                         .value(dailyLightAggregationService.today().toString()))
                 .andExpect(jsonPath("$.today.targetLuxHour").value(150000.0))
-                .andExpect(jsonPath("$.today.accumulatedLuxHour").value(3333.33))
-                .andExpect(jsonPath("$.today.progressPct").value(2.22))
+                .andExpect(jsonPath("$.today.accumulatedLuxHour").value(750.00))
+                .andExpect(jsonPath("$.today.progressPct").value(0.50))
                 .andExpect(jsonPath("$.today.targetPhotoperiodHours").value(15.0))
                 // 확정된 이력에만 판정 결과가 담기고 오늘은 포함되지 않는다.
                 .andExpect(jsonPath("$.history.length()").value(1))
@@ -3356,22 +3409,51 @@ class PotnerApplicationTests {
     }
 
     /** 10분 간격 표본 144개로 하루를 채운다. 앞의 {@code lightIntervals}개만 빛이 있는 구간이다. */
+    /**
+     * 하루치 조도 표본을 채운다.
+     *
+     * <p>간격이 {@code potner.daily-light.max-gap-seconds}(60) 보다 짧아야 한다. 길면 구간이
+     * 상한에서 잘려 이 메서드가 만들려는 하루가 만들어지지 않는다 — 적분 로직을 보려는
+     * 테스트가 상한 동작을 보게 된다. 실제 젯슨은 10초마다 보내므로 30초는 그보다 성기다.
+     *
+     * <p>한 건씩 넣으면 하루가 2,880 건이라 왕복 시간이 눈에 띈다. 배치로 묶는다.
+     */
     private void insertIlluminanceDay(
             SensorFixture fixture,
             LocalDate lightDate,
-            int lightIntervals,
+            int lightSamples,
             String lightLux
     ) {
         LocalDateTime start = dailyLightAggregationService.startOfDayUtc(lightDate);
-        for (int index = 0; index < 144; index++) {
-            insertReading(
-                    fixture,
-                    SensorType.ILLUMINANCE,
-                    index < lightIntervals ? lightLux : "0",
-                    SensorUnit.LUX,
-                    start.plusSeconds(index * 600L)
-            );
+        LocalDateTime receivedAt = nowUtc();
+        List<Object[]> rows = new java.util.ArrayList<>(ILLUMINANCE_SAMPLES_PER_DAY);
+        for (int index = 0; index < ILLUMINANCE_SAMPLES_PER_DAY; index++) {
+            rows.add(new Object[]{
+                    fixture.plantId(),
+                    fixture.robotId(),
+                    fixture.raspberryDeviceId(),
+                    UUID.randomUUID().toString(),
+                    SensorType.ILLUMINANCE.name(),
+                    new BigDecimal(index < lightSamples ? lightLux : "0"),
+                    SensorUnit.LUX.name(),
+                    start.plusSeconds(index * ILLUMINANCE_SAMPLE_SECONDS),
+                    receivedAt
+            });
         }
+        jdbcTemplate.batchUpdate("""
+                INSERT INTO sensor_reading (
+                    plant_id,
+                    robot_id,
+                    source_device_id,
+                    device_message_id,
+                    sensor_type,
+                    measured_value,
+                    unit,
+                    quality,
+                    measured_at,
+                    received_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'GOOD', ?, ?)
+                """, rows);
     }
 
     /** 그 사용자의 알림을 전부 목록에서 치운다. 치우기가 다른 조회에 영향을 주는지 볼 때 쓴다. */

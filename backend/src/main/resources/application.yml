@@ -129,13 +129,25 @@ potner:
     # 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
     capture-window-start-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_START_HOUR:10}
     capture-window-end-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_END_HOUR:16}
-    # 토양 과습이면 스테이션으로 데려가 송풍으로 말린다. 자동 급수의 대칭이다.
+    # 낮 동안 일정한 간격으로 스테이션에 데려가 팬으로 주변 공기를 순환시킨다. 곰팡이와
+    # 웃자람을 막는 원예의 기본이고, 습도와 무관하게 매일 필요하다 — 이유는
+    # AutoDryingScheduler 주석에 있다. 끄면 급수 뒤 송풍도 함께 멈춘다.
     auto-drying-enabled: ${DEVICE_COMMAND_AUTO_DRYING_ENABLED:true}
-    # 송풍 1회는 짧고 흙이 마르는 데는 시간이 걸린다. 짧게 두면 수분이 반응하기 전에 또 돌려
-    # 과건조가 된다.
+    # 조건을 얼마나 자주 보는가. 아래 간격과 다르다 — 이 값이 성기면 환기가 끝난 로봇이
+    # 그만큼 스테이션에 방치된다. 시연에서 즉석으로 보여주려면 30 정도로 낮춘다.
     drying-check-interval-seconds: ${DEVICE_COMMAND_DRYING_CHECK_INTERVAL_SECONDS:600}
-    # 정상 종료는 과습 알림이 닫히는 것이다. 이 값은 수분 센서 고장으로 팬이 끝없이 도는 것을
-    # 막는 안전장치다.
+    # 송풍 사이를 얼마나 벌리는가. 하루 가동 횟수를 실제로 정하는 값이다.
+    # 9000초(2시간 30분) × 시간대 14시간 = 하루 약 6회. 급수 뒤 송풍도 이 간격을 리셋한다.
+    drying-interval-seconds: ${DEVICE_COMMAND_DRYING_INTERVAL_SECONDS:9000}
+    # 환기 시간대(서비스 타임존). 밤에는 기공이 닫혀 증산이 없어 얻는 것이 적고 팬 소음이
+    # 남는다. 창 밖에서도 복귀는 돈다 — 로봇을 스테이션에 밤새 세워 두지 않는다.
+    drying-window-start-hour: ${DEVICE_COMMAND_DRYING_WINDOW_START_HOUR:8}
+    drying-window-end-hour: ${DEVICE_COMMAND_DRYING_WINDOW_END_HOUR:22}
+    # 이 온도(℃) 아래에서는 환기하지 않는다. 찬 바람은 냉해를 부르고 저온에서는 곰팡이
+    # 위험도 낮다. 온도를 못 읽으면 막지 않고 진행한다 — 센서 고장이 기능 정지가 되면 안 된다.
+    drying-min-temperature-c: ${DEVICE_COMMAND_DRYING_MIN_TEMPERATURE_C:15}
+    # 평소에는 위 간격이 횟수를 정하므로 여기 닿지 않는다. 설정을 잘못 잡았거나 급수가 잦은
+    # 날 송풍이 겹칠 때 팬이 끝없이 도는 것을 막는 안전장치다.
     max-auto-drying-runs-per-day: ${DEVICE_COMMAND_MAX_AUTO_DRYING_RUNS_PER_DAY:6}
   # 앱의 방향 버튼으로 로봇을 직접 미는 조작이다. 목적지 이동과 달리 지도 좌표를 보지 않으므로
   # SLAM 지도가 없는 자리에서도 바퀴가 도는지 확인할 수 있다.
@@ -183,7 +195,16 @@ potner:
     # potner.sensor.zone-offset 과 같은 지역을 가리켜야 한다. 그쪽은 SQL 시각 연산에 쓰이므로 고정 오프셋이다.
     zone: "${DAILY_LIGHT_ZONE:Asia/Seoul}"
     light-on-threshold-lux: ${DAILY_LIGHT_ON_THRESHOLD_LUX:500}
-    max-gap-seconds: ${DAILY_LIGHT_MAX_GAP_SECONDS:600}
+    # 표본 하나가 대표할 수 있는 최대 시간이다. 정상 수집에서는 아무 일도 하지 않고
+    # (간격이 이 값보다 짧아 그대로 쓰인다) 장치가 끊겼을 때만 개입한다.
+    #
+    # 젯슨이 조도를 10초마다 보내므로 6배인 60 으로 둔다. 이전 값 600 은 젯슨이 10분간
+    # 죽어도 마지막 값이 그 10분을 다 채워, 끊김을 정상 데이터로 위장했다. 60 이면 1분만
+    # 인정되고 나머지는 커버리지에서 빠져 min-coverage-pct 판정에 드러난다.
+    #
+    # 발행 주기가 바뀌면 이 값도 함께 봐야 한다. 주기보다 작으면 초과분이 잘려 누적 광량이
+    # 계통적으로 과소 계산된다.
+    max-gap-seconds: ${DAILY_LIGHT_MAX_GAP_SECONDS:60}
     min-coverage-pct: ${DAILY_LIGHT_MIN_COVERAGE_PCT:80}
     photoperiod-tolerance-ratio: ${DAILY_LIGHT_PHOTOPERIOD_TOLERANCE_RATIO:0.2}
     max-history-days: ${DAILY_LIGHT_MAX_HISTORY_DAYS:90}

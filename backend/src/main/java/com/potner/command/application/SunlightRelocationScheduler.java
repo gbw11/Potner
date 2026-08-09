@@ -47,9 +47,9 @@ import java.util.concurrent.TimeUnit;
  * 이동 이력이 전혀 없으면 어디 있는지 모르므로 "햇빛 자리 아님" 으로 본다 — 미달이면
  * 보내는 쪽이 안전하다.
  *
- * <p>자동 급수 체인과는 이동 명령 대기 검사로 양보한다. 체인이 진행 중이면(이동 회신 대기)
- * 이번 주기는 건너뛰고, 급수가 끝나 로봇이 대기 장소로 돌아오면 다음 주기가 미달 여부를
- * 다시 본다.
+ * <p>다른 체인이 로봇을 쓰고 있으면 {@link RobotBusyGuard} 로 양보한다. 이번 주기는 건너뛰고,
+ * 그 체인이 끝나 로봇이 대기 장소로 돌아오면 다음 주기가 미달 여부를 다시 본다. 촬영·환기와
+ * 같은 방침이다.
  */
 @Component
 public class SunlightRelocationScheduler {
@@ -60,6 +60,7 @@ public class SunlightRelocationScheduler {
     private final PlantGrowthProfileRepository profileRepository;
     private final DeviceCommandRepository commandRepository;
     private final DailyLightAggregationService aggregationService;
+    private final RobotBusyGuard busyGuard;
     private final DeviceCommandService commandService;
     private final DeviceCommandProperties properties;
     private final SensorQueryProperties sensorQueryProperties;
@@ -70,6 +71,7 @@ public class SunlightRelocationScheduler {
             PlantGrowthProfileRepository profileRepository,
             DeviceCommandRepository commandRepository,
             DailyLightAggregationService aggregationService,
+            RobotBusyGuard busyGuard,
             DeviceCommandService commandService,
             DeviceCommandProperties properties,
             SensorQueryProperties sensorQueryProperties,
@@ -79,6 +81,7 @@ public class SunlightRelocationScheduler {
         this.profileRepository = profileRepository;
         this.commandRepository = commandRepository;
         this.aggregationService = aggregationService;
+        this.busyGuard = busyGuard;
         this.commandService = commandService;
         this.properties = properties;
         this.sensorQueryProperties = sensorQueryProperties;
@@ -135,10 +138,11 @@ public class SunlightRelocationScheduler {
             return false;
         }
 
-        // 이동 회신 대기 중이면 양보한다. 자동 급수 체인이거나 사용자의 이동일 수 있고,
-        // 어느 쪽이든 그 결과가 위치 추정을 바꾸므로 끝난 뒤에 다시 본다.
-        if (commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                plantId, DeviceCommandType.NAVIGATE, DeviceCommandStatus.ISSUED)) {
+        // 로봇이 무언가 하고 있으면 양보한다. 이동만 보면 부족하다 — 급수·송풍·촬영은
+        // 이동이 끝난 뒤 다른 종류의 명령으로 진행되므로, 그 구간에는 대기 중인 NAVIGATE 가
+        // 없다. 그때 재배치가 끼어들면 펌프가 물을 내보내는 중에 바퀴가 움직인다
+        // (펌프·팬·카메라는 라즈베리, 바퀴는 젯슨이라 서로 막지 못한다).
+        if (busyGuard.isBusy(plantId)) {
             return false;
         }
 
