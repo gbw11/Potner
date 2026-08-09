@@ -514,6 +514,9 @@ class _AxisLabel extends StatelessWidget {
 /// 그래프의 선과 띠가 각각 무엇인지 적는다.
 ///
 /// 색만 다른 두 개의 띠를 설명 없이 두면 무엇이 평균이고 무엇이 기준인지 알 수 없다.
+///
+/// 색은 [_LineChartPainter] 의 상수를 그대로 쓴다. 범례와 그래프가 다른 색이면 범례가
+/// 오히려 방해가 된다.
 class _ChartLegend extends StatelessWidget {
   const _ChartLegend({required this.hasTarget});
 
@@ -526,12 +529,16 @@ class _ChartLegend extends StatelessWidget {
       runSpacing: 6,
       children: [
         const _LegendItem(color: AppColors.primary, label: '평균', isLine: true),
-        _LegendItem(
-          color: AppColors.primarySoft.withValues(alpha: 0.55),
+        const _LegendItem(
+          color: _LineChartPainter._spreadFill,
           label: '그 시간의 최저~최고',
         ),
         if (hasTarget)
-          const _LegendItem(color: Color(0x332E7D32), label: '적정 범위')
+          const _LegendItem(
+            color: _LineChartPainter._targetFill,
+            borderColor: _LineChartPainter._targetEdge,
+            label: '적정 범위',
+          )
         else
           const _LegendItem(
             color: Colors.transparent,
@@ -546,15 +553,20 @@ class _LegendItem extends StatelessWidget {
   const _LegendItem({
     required this.color,
     required this.label,
+    this.borderColor,
     this.isLine = false,
   });
 
   final Color color;
   final String label;
+
+  /// 그래프에서 테두리를 두른 띠는 범례에도 두른다. 적정 범위가 그렇다.
+  final Color? borderColor;
   final bool isLine;
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = this.borderColor;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -564,6 +576,9 @@ class _LegendItem extends StatelessWidget {
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(isLine ? 2 : 3),
+            border: borderColor == null
+                ? null
+                : Border.all(color: borderColor, width: 1),
           ),
         ),
         const SizedBox(width: 5),
@@ -595,6 +610,16 @@ class _LineChartPainter extends CustomPainter {
   /// 왼쪽 눈금 라벨이 차지하는 폭이다. 이만큼 비우고 그려야 선과 글자가 겹치지 않는다.
   static const double _axisWidth = 42;
 
+  /// 적정 범위 띠의 색이다. 케어 설정이 정한 **기준**을 뜻한다.
+  ///
+  /// 측정값(회색 계열)과 색 계열을 나눈다. 예전에는 밴드도 초록이라 어느 쪽이 기준이고
+  /// 어느 쪽이 실제 값인지 색만 보고는 갈리지 않았다.
+  static const Color _targetFill = Color(0x2E4CAF50);
+  static const Color _targetEdge = Color(0x8C2E7D32);
+
+  /// 그 시간의 최저~최고 밴드다. 판정이 아니라 **측정값의 폭**이라 중립색을 쓴다.
+  static const Color _spreadFill = Color(0x385F675C);
+
   @override
   void paint(Canvas canvas, Size size) {
     final values = <double>[
@@ -624,14 +649,23 @@ class _LineChartPainter extends CustomPainter {
     // 적정 범위 띠. 가장 먼저 그려 다른 선들 아래에 깔린다.
     final targetRange = target;
     if (targetRange != null) {
+      final top = y(targetRange.max);
+      final bottom = y(targetRange.min);
       canvas.drawRect(
-        Rect.fromLTRB(
-          _axisWidth,
-          y(targetRange.max),
-          size.width,
-          y(targetRange.min),
-        ),
-        Paint()..color = const Color(0x332E7D32),
+        Rect.fromLTRB(_axisWidth, top, size.width, bottom),
+        Paint()..color = _targetFill,
+      );
+      // 위아래 경계선을 긋는다. 채움만으로는 최저~최고 밴드가 겹쳐 깔렸을 때 기준이
+      // 어디서 끝나는지 보이지 않는다.
+      final edge = Paint()
+        ..color = _targetEdge
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2;
+      canvas.drawLine(Offset(_axisWidth, top), Offset(size.width, top), edge);
+      canvas.drawLine(
+        Offset(_axisWidth, bottom),
+        Offset(size.width, bottom),
+        edge,
       );
     }
 
@@ -678,10 +712,7 @@ class _LineChartPainter extends CustomPainter {
     }
     if (hasBand) {
       bandPath.close();
-      canvas.drawPath(
-        bandPath,
-        Paint()..color = AppColors.primarySoft.withValues(alpha: 0.35),
-      );
+      canvas.drawPath(bandPath, Paint()..color = _spreadFill);
     }
 
     // 평균 꺾은선
