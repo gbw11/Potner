@@ -141,7 +141,7 @@ class DiaryGenerationServiceTest {
     }
 
     @Test
-    void promptForbidsRobotActionsAndCarriesThePersona() {
+    void promptLimitsCareToTheGivenListAndCarriesThePersona() {
         givenGeneratable();
         givenModelResponds("{\"title\":\"t\",\"content\":\"c\"}");
         when(diaryService.write(any(), any(), any(), any())).thenReturn(DiaryWriteResult.WRITTEN);
@@ -152,14 +152,15 @@ class DiaryGenerationServiceTest {
                 ArgumentCaptor.forClass(LlmCompletionRequest.class);
         verify(llmClient).complete(request.capture());
 
-        // 기획 자료의 일기 예시가 전부 이동·급수를 말한다. 서버는 둘 다 하지 않으므로
-        // 프롬프트가 막지 않으면 모델이 따라 하며 없는 행동을 지어낸다.
+        // 기획 자료의 일기 예시가 전부 이동·급수를 말한다. 이제 서버가 실제로 하므로 통째로
+        // 막지는 않지만, 근거로 준 목록 밖의 돌봄을 지어내는 것은 계속 막아야 한다.
         assertThat(request.getValue().systemPrompt())
-                .contains("로봇은 이동, 급수, 송풍을 하지 않는다");
+                .contains("목록에 없는 돌봄을 받았다고 쓰면 안 된다")
+                .contains("로봇이나 기계를 주어로 삼지 않는다");
         // 페르소나가 없는 종은 기본 화법으로 간다.
         assertThat(request.getValue().systemPrompt()).contains("바질");
         assertThat(request.getValue().jsonOutput()).isTrue();
-        assertThat(request.getValue().userPrompt()).contains("토양 수분이 기준보다 낮았다");
+        assertThat(request.getValue().userPrompt()).contains("흙이 말랐다");
     }
 
     @Test
@@ -215,10 +216,38 @@ class DiaryGenerationServiceTest {
     }
 
     @Test
+    void careReceivedTodayIsGivenAsItsOwnSection() {
+        // 돌봄이 근거에 없으면 모델이 쓸 수 있는 것은 환경 상태뿐이라, 센서가 조용한 날 여섯
+        // 페르소나가 모두 같은 하루를 각자 말투로만 반복한다.
+        givenGeneratable();
+        givenModelResponds("{\"title\":\"t\",\"content\":\"c\"}");
+        when(diaryService.write(any(), any(), any(), any())).thenReturn(DiaryWriteResult.WRITTEN);
+
+        generationService.generate(PLANT_ID, DATE);
+
+        ArgumentCaptor<LlmCompletionRequest> request =
+                ArgumentCaptor.forClass(LlmCompletionRequest.class);
+        verify(llmClient).complete(request.capture());
+        assertThat(request.getValue().userPrompt())
+                .contains("[오늘 받은 돌봄]")
+                .contains("물을 받았다");
+        // 상태와 돌봄이 한 목록에 섞이면 무엇이 원인이고 무엇이 대응인지 흐려진다.
+        assertThat(request.getValue().userPrompt().indexOf("[오늘의 관찰]"))
+                .isLessThan(request.getValue().userPrompt().indexOf("[오늘 받은 돌봄]"));
+        // 이제 서버가 실제로 급수·송풍을 하므로 통째로 금지하지 않는다.
+        assertThat(request.getValue().systemPrompt())
+                .doesNotContain("로봇은 이동, 급수, 송풍을 하지 않는다")
+                .contains("목록에 없는 돌봄을 받았다고 쓰면 안 된다")
+                .contains("숫자와 단위를 쓰지 않는다");
+        // 근거에 숫자가 없어야 모델이 옮겨 적지 못한다. 금지 문구만으로는 새어 나온다.
+        assertThat(request.getValue().userPrompt()).doesNotContain("ml").doesNotContain("℃");
+    }
+
+    @Test
     void quietDayIsToldToTheModelSoItDoesNotInventEvents() {
         when(diaryRepository.existsByPlantIdAndDiaryDate(PLANT_ID, DATE)).thenReturn(false);
         when(summaryReader.read(PLANT_ID, DATE)).thenReturn(Optional.of(new PlantDaySummary(
-                "로지", SPECIES_ID, "바질", DATE, List.of(), null, false)));
+                "로지", SPECIES_ID, "바질", DATE, List.of(), List.of(), List.of(), null, false)));
         givenModelResponds("{\"title\":\"t\",\"content\":\"c\"}");
         when(diaryService.write(any(), any(), any(), any())).thenReturn(DiaryWriteResult.WRITTEN);
 
@@ -237,7 +266,9 @@ class DiaryGenerationServiceTest {
                 SPECIES_ID,
                 "바질",
                 DATE,
-                List.of("토양 수분이 기준보다 낮았다"),
+                List.of("흙이 말랐다"),
+                List.of("물을 받았다"),
+                List.of("춥지도 덥지도 않았다"),
                 null,
                 true
         )));
