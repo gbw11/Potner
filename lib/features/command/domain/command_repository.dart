@@ -12,6 +12,21 @@ abstract class DeviceCommandRepository {
     int? seconds,
   });
 
+  /// 자동 케어 한 회차를 지금 시작한다. 돌려주는 것은 **첫 명령**(이동)이다.
+  ///
+  /// [issue] 와 목적이 다르다. 그쪽은 명령 하나를 그대로 장치에 보내는 수동 조작이라 체인이
+  /// 이어지지 않지만, 이쪽은 시작 조건만 대신 만들어 주고 이동 → 작업 → 복귀는 서버가 지휘한다.
+  ///
+  /// 명령과 마찬가지로 비동기다. 응답은 첫 명령이 발행됐다는 것까지이고, 이후 진행은 [getCommands]
+  /// 이력에 `initiator=auto` 단계로 하나씩 나타난다.
+  ///
+  /// 시작 전에 서버가 세 가지를 본다 — 꺼진 케어(409), 다른 작업 중인 로봇(409), 급수량 미설정
+  /// (400)이다. 넷 다 이동으로 시작하므로 목적지 좌표도 등록돼 있어야 한다(404·400).
+  Future<DeviceCommandRecord> startCareRun({
+    required String plantId,
+    required CareRunPurpose purpose,
+  });
+
   /// 기간 안의 명령 이력을 최신순으로 돌려준다. 양쪽 날짜 모두 포함이다.
   Future<List<DeviceCommandRecord>> getCommands({
     required String plantId,

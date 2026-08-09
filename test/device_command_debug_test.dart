@@ -65,6 +65,22 @@ Future<FakeDeviceCommandRepository> _pumpToPanel(
   return commandRepository;
 }
 
+/// 수동 명령 패널까지 스크롤한다.
+///
+/// 위에 자동 케어 회차 카드가 있어 패널이 첫 화면에 다 들어오지 않는다. 목록이 지연 빌드라
+/// 보이지 않는 동안에는 위젯 자체가 없으므로 [WidgetTester.ensureVisible] 로는 집을 수 없다.
+Future<void> _scrollTo(WidgetTester tester, Key key) async {
+  await tester.scrollUntilVisible(
+    find.byKey(key),
+    200,
+    scrollable: find.descendant(
+      of: find.byKey(const Key('robot_list')),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('급수 명령을 보내고 장치 회신을 반영한다', (tester) async {
     final repository = await _pumpToPanel(tester);
@@ -80,6 +96,7 @@ void main() {
       ),
     );
 
+    await _scrollTo(tester, const Key('device_command_debug_WATER'));
     expect(find.byKey(const Key('device_command_debug_panel')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('device_command_debug_WATER')));
@@ -111,10 +128,7 @@ void main() {
       ),
     );
 
-    await tester.ensureVisible(
-      find.byKey(const Key('device_command_debug_NAVIGATE')),
-    );
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, const Key('device_command_debug_NAVIGATE'));
     await tester.tap(find.byKey(const Key('device_command_debug_NAVIGATE')));
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
@@ -140,10 +154,7 @@ void main() {
       ),
     );
 
-    await tester.ensureVisible(
-      find.byKey(const Key('device_command_debug_FAN')),
-    );
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, const Key('device_command_debug_FAN'));
     await tester.tap(find.byKey(const Key('device_command_debug_FAN')));
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
@@ -154,10 +165,7 @@ void main() {
   testWidgets('표정 버튼은 폴링 없이 발행하고 덮어쓰기를 알려 준다', (tester) async {
     final repository = await _pumpToPanel(tester);
 
-    await tester.ensureVisible(
-      find.byKey(const Key('device_expression_debug_SAD')),
-    );
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, const Key('device_expression_debug_SAD'));
     await tester.tap(find.byKey(const Key('device_expression_debug_SAD')));
     await tester.pumpAndSettle();
 

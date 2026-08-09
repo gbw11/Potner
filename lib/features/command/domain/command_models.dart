@@ -11,7 +11,14 @@ enum DeviceCommandType {
   /// 성장 사진 촬영.
   capture,
 
-  /// 과습을 말리는 송풍.
+  /// 팬으로 주변 공기를 순환시키는 송풍.
+  ///
+  /// 습해졌을 때 말리는 대응이 아니라 **낮 동안 일정한 간격으로 도는 환기**다. 공기 순환의
+  /// 이득 절반은 습도와 무관하다 — 바람에 흔들린 줄기는 굵고 짧아지고, 잎 표면의 정체된
+  /// 공기층이 걷혀야 증산이 이어진다.
+  ///
+  /// 가동 시간과 풍량은 앱도 서버도 정하지 않는다. 라즈베리가 자기 설정으로 정하고 회신으로
+  /// 실제 값을 알려 주므로, 이력의 [DeviceCommandRecord.runSeconds] 는 **실제로 돈 시간**이다.
   fan,
 
   /// 지도 좌표로 이동. **목적지의 좌표가 입력되어 있어야 발행된다.**
@@ -67,6 +74,13 @@ enum DeviceCommandStatus {
   /// 앞선 작업 중이라 장치가 거절했다. 잠시 뒤 다시 보내면 된다.
   busy,
 
+  /// 장치가 자기 판단으로 수행하지 않았다. 급수만 온다.
+  ///
+  /// 라즈베리의 과급수 가드다 — 1회 상한·급수 간격·24시간 예산 중 하나에 걸리면 펌프를 돌리지
+  /// 않는다. **실패가 아니다.** 장치는 멀쩡하고 물을 주지 않기로 판단했을 뿐이라 회차는 송풍·
+  /// 복귀까지 그대로 이어진다.
+  skipped,
+
   /// 제한 시간 안에 회신이 없어 서버가 끊었다.
   timedOut,
 
@@ -74,10 +88,79 @@ enum DeviceCommandStatus {
   unknown;
 
   bool get isTerminal => this != DeviceCommandStatus.issued && this != unknown;
+
+  /// 회차의 다음 단계를 기다려도 되는 상태인지. 서버의 `continuesChain()` 과 같은 규칙이다.
+  ///
+  /// 둘의 공통점은 로봇이 어디 있는지 안다는 것이다 — 시킨 자리에서 일을 마쳤거나, 하지
+  /// 않기로 했을 뿐이다. 나머지는 회차가 거기서 끝난 것으로 본다.
+  bool get continuesChain =>
+      this == DeviceCommandStatus.ok || this == DeviceCommandStatus.skipped;
 }
 
 /// 누가 발행했는지다. 이력에서 "내가 안 시킨 급수"를 구분하는 근거다.
+///
+/// 앱이 시작한 자동 케어 회차([CareRunPurpose])도 `auto` 다. 체인을 잇는 서버 리스너들이
+/// 사용자 명령의 회신에는 후속을 붙이지 않기 때문이고, 시작 신호만 사람이 줬을 뿐 이후 판단은
+/// 실제로 서버가 한다. 그래서 이력에서는 스케줄러가 스스로 시작한 회차와 구분되지 않는다.
 enum CommandInitiator { user, auto, unknown }
+
+/// 자동 케어 한 회차의 종류다.
+///
+/// 명령([DeviceCommandType])과 다른 층이다. 명령은 장치 하나가 받는 단일 동작이고, 이쪽은
+/// **이동 → 작업 → 복귀로 이어지는 회차 전체**다. 그래서 앱은 종류만 고르고 어떤 명령을 어떤
+/// 순서로 보낼지는 서버가 정한다 — 그 판단을 앱이 대신하기 시작하면 자동 케어와 시연 경로가
+/// 두 벌로 갈린다.
+///
+/// 수동 명령으로는 대신할 수 없다. 그쪽은 `initiator` 가 USER 라 체인이 이어지지 않아서
+/// 송풍 버튼을 눌러도 스테이션에서 팬만 돌 뿐 로봇은 움직이지 않고, 이동은 사용자 배치로
+/// 기록되어 자동 재배치가 한동안 비켜서기까지 한다.
+enum CareRunPurpose {
+  /// 이동(스테이션) → 급수 → 송풍 → 복귀.
+  watering,
+
+  /// 이동(스테이션) → 송풍 → 복귀.
+  drying,
+
+  /// 이동(스테이션) → 촬영 → 복귀.
+  capture,
+
+  /// 햇빛 자리로 이동.
+  ///
+  /// 이어지는 단계가 없는 단발 이동이다. 햇빛 자리는 가서 일하고 오는 곳이 아니라 머무는
+  /// 곳이고, 복귀는 목표 광량을 채우거나 해가 진 뒤에 서버가 판단한다.
+  ///
+  /// **같은 요청이 되돌리기도 한다.** 그 판단을 기다릴 수 없을 때를 위해, 로봇이 이미 햇빛
+  /// 자리에 있으면 서버가 목적지를 대기 장소로 뒤집는다.
+  relocation;
+
+  String get wireName => switch (this) {
+    CareRunPurpose.watering => 'WATERING',
+    CareRunPurpose.drying => 'DRYING',
+    CareRunPurpose.capture => 'CAPTURE',
+    CareRunPurpose.relocation => 'RELOCATION',
+  };
+
+  String get label => switch (this) {
+    CareRunPurpose.watering => '급수',
+    CareRunPurpose.drying => '환기',
+    CareRunPurpose.capture => '촬영',
+    CareRunPurpose.relocation => '햇빛 자리',
+  };
+
+  /// 버튼 아래에 붙여 무엇이 일어나는지 미리 보여 준다.
+  String get steps => switch (this) {
+    CareRunPurpose.watering => '이동 → 급수 → 송풍 → 복귀',
+    CareRunPurpose.drying => '이동 → 송풍 → 복귀',
+    CareRunPurpose.capture => '이동 → 촬영 → 복귀',
+    CareRunPurpose.relocation => '햇빛 자리로 이동 (이미 있으면 대기 장소로 복귀)',
+  };
+
+  /// 대기 장소 복귀로 끝나는 회차인지.
+  ///
+  /// 회차가 끝났는지 판단하는 근거다. 단계 수를 세지 않는 이유는 순서를 정하는 것이 서버이기
+  /// 때문이다 — 앱이 단계 목록을 복사해 두면 서버가 체인을 고칠 때마다 앱이 어긋난다.
+  bool get returnsHome => this != CareRunPurpose.relocation;
+}
 
 /// 방향 버튼 하나가 뜻하는 방향이다.
 ///
@@ -176,4 +259,23 @@ class DeviceCommandRecord {
   final String? errorMessage;
   final DateTime? issuedAt;
   final DateTime? reportedAt;
+
+  /// 자동 케어 회차 안에서 이 단계를 부르는 이름이다.
+  ///
+  /// 이동은 목적지가 붙어야 "어디로" 가 보인다. 대기 장소로 가는 이동만 '복귀' 라고 부른다 —
+  /// 회차의 마지막 단계라서 사용자가 기다림의 끝으로 읽어야 한다.
+  String get stepLabel {
+    final type = this.type;
+    if (type == null) {
+      return '알 수 없는 단계';
+    }
+    if (type != DeviceCommandType.navigate) {
+      return type.label;
+    }
+    return switch (destination) {
+      null => '이동',
+      RobotLocationType.home => '대기 장소로 복귀',
+      final destination => '${destination.label}(으)로 이동',
+    };
+  }
 }

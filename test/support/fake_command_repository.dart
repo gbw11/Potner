@@ -47,12 +47,49 @@ class FakeDeviceCommandRepository implements DeviceCommandRepository {
     );
   }
 
+  final List<({String plantId, CareRunPurpose purpose})> careRunCalls = [];
+
+  Object? careRunError;
+
+  /// 회차의 첫 명령이 갖는 requestId 다. 이력에 심어 둘 단계와 맞춰야 폴링이 회차를 집는다.
+  String nextCareRunRequestId = 'care-run-1';
+
+  /// 첫 명령의 발행 시각이다. 뒤따르는 자동 명령을 같은 회차로 묶는 기준이라 비울 수 없다.
+  DateTime careRunIssuedAt = DateTime(2026, 8, 9, 10);
+
+  @override
+  Future<DeviceCommandRecord> startCareRun({
+    required String plantId,
+    required CareRunPurpose purpose,
+  }) async {
+    final error = careRunError;
+    if (error != null) {
+      throw error;
+    }
+    careRunCalls.add((plantId: plantId, purpose: purpose));
+    // 넷 다 이동으로 시작한다. 재배치만 햇빛 자리로, 나머지는 스테이션으로 간다.
+    return DeviceCommandRecord(
+      requestId: nextCareRunRequestId,
+      type: DeviceCommandType.navigate,
+      status: DeviceCommandStatus.issued,
+      initiator: CommandInitiator.auto,
+      destination: purpose == CareRunPurpose.relocation
+          ? RobotLocationType.sunlight
+          : RobotLocationType.waterStation,
+      issuedAt: careRunIssuedAt,
+    );
+  }
+
+  /// 이력을 몇 번 읽었는지. 기다릴 대상이 없을 때 폴링이 돌지 않는 것을 볼 수 있어야 한다.
+  int getCommandsCalls = 0;
+
   @override
   Future<List<DeviceCommandRecord>> getCommands({
     required String plantId,
     required DateTime from,
     required DateTime to,
   }) async {
+    getCommandsCalls++;
     return List.of(commands);
   }
 
