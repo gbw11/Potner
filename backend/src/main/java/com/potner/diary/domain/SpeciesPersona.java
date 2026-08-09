@@ -30,6 +30,21 @@ public class SpeciesPersona {
     @Column(name = "flower_meaning", length = 100, nullable = false)
     private String flowerMeaning;
 
+    /**
+     * 프로필에 보여줄 성격이다.
+     *
+     * <p>일기 프롬프트는 쓰지 않는다. {@link #personaConcept} 과 나눠 둔 이유가 그것이다 —
+     * 저쪽은 모델에게 주는 역할 지시문이라 직업 은유("섬세한 조향사")로 쓰여 있고, 사용자가
+     * 식물의 성격을 물었을 때 사람 직업이 답으로 나오면 겉돈다.
+     */
+    @Column(name = "personality", length = 200, nullable = false)
+    private String personality;
+
+    /**
+     * 일기에서 맡을 역할의 한 줄 요약이다. <strong>프롬프트 전용이다.</strong>
+     *
+     * <p>화면에 내보내지 않는다. 사용자에게 보일 성격은 {@link #personality} 다.
+     */
     @Column(name = "persona_concept", length = 200, nullable = false)
     private String personaConcept;
 
@@ -97,6 +112,10 @@ public class SpeciesPersona {
 
     public String getFlowerMeaning() {
         return flowerMeaning;
+    }
+
+    public String getPersonality() {
+        return personality;
     }
 
     public String getPersonaConcept() {

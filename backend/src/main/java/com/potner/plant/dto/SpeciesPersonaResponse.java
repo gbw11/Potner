@@ -13,6 +13,10 @@ import java.util.List;
  * {@code diary_structure}("상태 확인 → 현재의 안정 → 포근한 마무리") 는 모델에게 주는 규칙이라
  * 사용자에게는 뜻이 통하지 않는다.
  *
+ * <p>{@code persona_concept} 은 내보내지 않는다. 그 컬럼은 모델에게 주는 역할 지시문이라
+ * 직업 은유("섬세한 조향사", "감정파 배우")로 쓰여 있고, 성격을 물은 사용자에게 사람 직업이
+ * 답으로 나오면 겉돈다. 화면에는 그 용도로 따로 둔 {@code personality} 를 쓴다.
+ *
  * @param tags 해시태그용 키워드. 꽃말은 여기 없고 {@code flowerMeaning} 에 따로 있다.
  *             앱이 둘을 합쳐 보여주므로 섞으면 같은 말이 두 번 나온다.
  */
@@ -20,8 +24,8 @@ public record SpeciesPersonaResponse(
         String characterName,
         String flowerMeaning,
         List<String> tags,
-        /** 성격 한 줄 요약. 꽃말을 성격으로 옮긴 것이다. */
-        String concept,
+        /** 성격. 꽃말과 핵심 가치관을 사람 말로 옮긴 것이다. */
+        String personality,
         /** 무엇을 가장 중요하게 여기는가. 설명 두 번째 줄에 쓴다. */
         String coreValue
 ) {
@@ -31,7 +35,7 @@ public record SpeciesPersonaResponse(
                 persona.getCharacterName(),
                 persona.getFlowerMeaning(),
                 splitTags(persona.getPersonaTags()),
-                persona.getPersonaConcept(),
+                persona.getPersonality(),
                 persona.getCoreValue()
         );
     }
