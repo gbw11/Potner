@@ -30,6 +30,7 @@ class BloomPushListenerTest {
             USER_ID,
             "20000000-0000-0000-0000-0000000000bb",
             "로지",
+            java.time.LocalDate.parse("2026-08-10"),
             true
     );
 

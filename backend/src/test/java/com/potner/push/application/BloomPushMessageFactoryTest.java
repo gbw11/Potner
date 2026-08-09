@@ -45,13 +45,22 @@ class BloomPushMessageFactoryTest {
 
     @Test
     void dataCarriesTheIdentifiersTheAppNeeds() {
-        // type 이 SENSOR_ALERT 와 달라야 앱이 개화 탭으로 보낼 수 있다.
+        // 꽃이 폈다는 알림을 누른 사용자가 보고 싶은 것은 그날 사진이다. 날짜를 함께 보내
+        // 앱이 bloomId 로 기록을 다시 조회하지 않아도 그날 포토 로그를 열 수 있게 한다.
         assertThat(messageFactory.create(event("로지", true)).data()).containsOnly(
                 Map.entry("type", "BLOOM"),
                 Map.entry("bloomId", BLOOM_ID),
                 Map.entry("plantId", PLANT_ID),
-                Map.entry("route", "/alerts")
+                Map.entry("bloomDate", "2026-08-10"),
+                Map.entry("route", "/growth/photos")
         );
+    }
+
+    @Test
+    void bloomDateIsAPlainIsoDate() {
+        // 앱이 그대로 파싱한다. 시각이나 오프셋이 붙으면 날짜 비교가 어긋난다.
+        assertThat(messageFactory.create(event("로지", true)).data().get("bloomDate"))
+                .isEqualTo("2026-08-10");
     }
 
     private BloomRecordedEvent event(String nickname, boolean firstBloom) {
@@ -60,6 +69,7 @@ class BloomPushMessageFactoryTest {
                 "10000000-0000-0000-0000-0000000000aa",
                 PLANT_ID,
                 nickname,
+                java.time.LocalDate.parse("2026-08-10"),
                 firstBloom
         );
     }

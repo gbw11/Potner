@@ -21,12 +21,19 @@ public class BloomPushMessageFactory {
     static final String TYPE_BLOOM = "BLOOM";
 
     /**
-     * 앱의 알림 화면 경로다. 이상 알림과 같은 화면으로 보낸다. 개화 탭이 그 화면 안에 있다.
+     * 앱의 포토 로그 경로다. 꽃이 폈다는 알림을 눌렀을 때 사용자가 보고 싶은 것은 그날 사진이다.
      *
-     * <p>{@link AlertPushMessageFactory#ROUTE_ALERTS} 와 값이 같지만 상수를 공유하지 않는다.
+     * <p>알림 목록({@code /alerts})으로 보내던 것을 옮겼다. 목록은 알림을 다시 훑는 화면이지
+     * 방금 받은 소식을 확인하는 화면이 아니다.
+     *
+     * <p>{@link AlertPushMessageFactory#ROUTE_ALERTS} 와 상수를 공유하지 않는 이유는 그대로다 —
      * 개화만 다른 화면으로 옮길 때 이상 알림까지 따라 움직이면 안 된다.
+     *
+     * <p>앱이 모르는 경로를 받으면 알림 목록으로 되돌린다({@code push_notification_route.dart}).
+     * 그래서 이 값을 아는 앱이 배포되기 전에 서버가 먼저 나가도 깨지지 않고, 배포 순서를 맞출
+     * 필요가 없다.
      */
-    static final String ROUTE_ALERTS = "/alerts";
+    static final String ROUTE_PHOTOS = "/growth/photos";
 
     public PushMessage create(BloomRecordedEvent event) {
         Copy copy = event.firstBloom() ? FIRST_BLOOM : ANOTHER_BLOOM;
@@ -38,7 +45,10 @@ public class BloomPushMessageFactory {
                         "type", TYPE_BLOOM,
                         "bloomId", event.bloomId(),
                         "plantId", event.plantId(),
-                        "route", ROUTE_ALERTS
+                        // 포토 로그를 열 날짜다. 경로에 붙이지 않고 따로 두는 이유는 앱이 경로를
+                        // 완전 일치로 검사하기 때문이다 — 쿼리를 붙이면 화이트리스트를 벗어난다.
+                        "bloomDate", event.bloomDate().toString(),
+                        "route", ROUTE_PHOTOS
                 )
         );
     }
