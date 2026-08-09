@@ -41,6 +41,14 @@ pipeline {
         // Multibranch 잡은 BRANCH_NAME이 채워지고, 클래식 단일 브랜치 잡은 비어 있다.
         // 릴리스 산출물은 App-master에서만 만든다.
         IS_RELEASE_TARGET = "${(env.BRANCH_NAME == null || env.BRANCH_NAME == 'App-master') ? 'true' : 'false'}"
+
+        // debug APK가 볼 서버 주소다. 주지 않으면 lib/core/config/app_config.dart의 기본값
+        // http://10.0.2.2:8080 이 박히는데, 그것은 안드로이드 에뮬레이터가 호스트를 가리키는
+        // 주소라 실기에 설치하면 아무 데도 접속하지 못한다.
+        //
+        // 운영 nginx는 TLS 없이 80 포트로 서빙한다. debug 소스셋에만 usesCleartextTraffic이
+        // 있으므로 이 주소는 debug 빌드에서만 쓸 수 있다.
+        API_BASE_URL = 'http://i15e104.p.ssafy.io/api/v1'
     }
 
     stages {
@@ -133,10 +141,22 @@ pipeline {
                       -e PUB_CACHE=/pub-cache \
                       "$FLUTTER_IMAGE" \
                       flock -w 1500 /var/jenkins_home/potner-gradle-ci.lock \
-                      flutter build apk --debug
+                      flutter build apk --debug --dart-define=API_BASE_URL="$API_BASE_URL"
 
                     ls -la build/app/outputs/flutter-apk/
                 '''
+            }
+
+            post {
+                // 실기 확인용으로 받아 갈 수 있게 보관한다. 빌드만 하고 버리면 APK가 컨테이너와
+                // 함께 사라져, 확인하려는 사람이 Flutter 툴체인을 직접 갖춰야 한다.
+                //
+                // 모든 App-* 브랜치에서 보관한다. 확인이 필요한 시점은 대개 머지 전이다.
+                success {
+                    archiveArtifacts allowEmptyArchive: false,
+                                     artifacts: 'build/app/outputs/flutter-apk/app-debug.apk',
+                                     fingerprint: true
+                }
             }
         }
 
