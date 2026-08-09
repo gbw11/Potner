@@ -4,6 +4,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -86,6 +87,30 @@ public record VisionProperties(
          * 사이를 오가면 그때마다 "새 개화" 가 된다. 최근 이 기간 안에 개화 기록(수동 포함)이
          * 있으면 자동 기록을 건너뛴다.
          */
-        @Positive int bloomCooldownDays
+        @Positive int bloomCooldownDays,
+
+        /**
+         * 발아 판정을 사용자에게 알릴지 여부다.
+         *
+         * <p>단계 승급으로는 알릴 수 없다. 발아기가 생장 단계의 맨 아래라 올라갈 곳이 없어
+         * 판정이 정확해도 {@code NOT_PROGRESSED} 로 조용히 끝난다. 그런데 씨앗을 심고 기다리던
+         * 사용자에게 싹이 텄다는 것은 개화만큼 큰 소식이다.
+         *
+         * <p>{@code autoBloomEnabled} 와 같은 이유로 기본값이 켜짐이다. 오탐이 나도 알림 하나이고
+         * 단계 승급처럼 되돌릴 수 없는 상태 변경이 아니다.
+         */
+        boolean autoSproutEnabled,
+
+        /**
+         * 새싹 알림의 재알림 냉각 기간(일)이다.
+         *
+         * <p>발아는 생애에 한 번이므로 "이전 판정이 하나도 없을 때만" 이 가장 정확하다. 그런데
+         * 그러면 판정 이력이 이미 쌓인 식물에서는 영영 울리지 않아, 기능이 도는지 확인할 방법이
+         * 없다. 그래서 개화와 같은 냉각 방식으로 둔다 — 최근 이 기간 안에 확신 판정이 있으면
+         * 건너뛴다.
+         *
+         * <p>0 이면 판정될 때마다 알린다. 시연에서 반복해 보여줄 때 쓴다.
+         */
+        @PositiveOrZero int sproutCooldownDays
 ) {
 }

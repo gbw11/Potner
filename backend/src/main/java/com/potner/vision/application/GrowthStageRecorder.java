@@ -114,6 +114,7 @@ public class GrowthStageRecorder {
         // 개화 기록은 단계 승급과 별개다. 사용자가 이미 단계를 개화기로 올려 두었어도
         // (아래에서 NOT_PROGRESSED 가 되어도) 새로 핀 꽃은 기록되어야 한다.
         maybeRecordBloom(plant, detected);
+        maybeNotifySprout(plant, detected, now);
 
         PlantLifeStage target = lifeStageRepository
                 .findByCodeAndActiveTrue(detected.lifeStageCode())
@@ -199,6 +200,37 @@ public class GrowthStageRecorder {
                 plant.getNickname(),
                 properties.bloomCooldownDays()
         );
+    }
+
+    /**
+     * 싹이 텄다는 것을 사용자에게 알린다.
+     *
+     * <p>단계 승급과 별개다. 발아기는 생장 단계의 맨 아래라 올라갈 곳이 없어, 판정이 정확해도
+     * 승급 경로로는 {@code NOT_PROGRESSED} 로 조용히 끝난다. 개화 기록을 승급과 나눠 둔 것과
+     * 같은 이유로 여기서 따로 발행한다.
+     *
+     * <p>냉각 기간 안에 확신 판정이 하나라도 있으면 건너뛴다. 사진은 하루 한 장씩 계속 올라오고
+     * 발아 상태는 며칠 이어지므로, 걸러 두지 않으면 매일 같은 알림이 간다.
+     */
+    private void maybeNotifySprout(Plant plant, DetectedGrowthStage detected, LocalDateTime now) {
+        if (detected != DetectedGrowthStage.GERMINATION || !properties.autoSproutEnabled()) {
+            return;
+        }
+        // 이 사진의 판정을 저장하기 전에 봐야 한다. 저장 후면 자기 자신이 직전 판정으로 잡힌다.
+        boolean recentlyDetermined = analysisRepository
+                .findFirstByPlantIdAndDetectedStageIsNotNullAndConfidenceGreaterThanEqualOrderByAnalyzedAtDesc(
+                        plant.getId(), properties.minConfidence())
+                .map(previous -> !previous.getAnalyzedAt()
+                        .isBefore(now.minusDays(properties.sproutCooldownDays())))
+                .orElse(false);
+        if (recentlyDetermined) {
+            return;
+        }
+        eventPublisher.publishEvent(new PlantSproutedEvent(
+                plant.getUser().getId(),
+                plant.getId(),
+                plant.getNickname()
+        ));
     }
 
     /**

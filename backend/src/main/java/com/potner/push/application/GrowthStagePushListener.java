@@ -4,6 +4,7 @@ import com.potner.push.config.PushConfiguration;
 import com.potner.push.domain.FcmToken;
 import com.potner.user.domain.NotificationCategory;
 import com.potner.vision.application.GrowthStageAdvancedEvent;
+import com.potner.vision.domain.DetectedGrowthStage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -48,6 +49,15 @@ public class GrowthStagePushListener {
     @Async(PushConfiguration.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onGrowthStageAdvanced(GrowthStageAdvancedEvent event) {
+        // 개화 승급은 보내지 않는다. 같은 사진으로 개화 기록이 이미 "꽃이 피었어요" 를 보내므로
+        // 여기서도 보내면 사용자가 알림을 두 번 받는다. 단계는 그대로 올라가고 알림만 양보한다.
+        if (event.detectedStage() == DetectedGrowthStage.FLOWERING) {
+            log.debug(
+                    "Growth stage push skipped because the bloom record already notifies: plantId={}",
+                    event.plantId()
+            );
+            return;
+        }
         try {
             send(event);
         } catch (RuntimeException exception) {
