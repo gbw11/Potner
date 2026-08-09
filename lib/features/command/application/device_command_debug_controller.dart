@@ -223,7 +223,10 @@ class DeviceCommandDebugController extends Notifier<DeviceCommandDebugState> {
           '촬영을 마쳤어요. 포토 로그에 사진이 올라오는지 확인해 주세요.',
         DeviceCommandStatus.ok when type == DeviceCommandType.navigate =>
           '목적지에 도착했어요(도킹 완료).',
-        DeviceCommandStatus.ok => '송풍을 마쳤어요.',
+        DeviceCommandStatus.ok when type == DeviceCommandType.fan =>
+          _fanDone(command),
+        // 지도 명령 세 종류가 여기로 온다. 종류별 문구를 따로 두면 늘어날 때마다 빠뜨린다.
+        DeviceCommandStatus.ok => '${type.label} 명령을 마쳤어요.',
         DeviceCommandStatus.busy => '로봇이 다른 작업 중이라 거절했어요. 잠시 뒤 다시 보내면 됩니다.',
         DeviceCommandStatus.timedOut =>
           '제한 시간 안에 회신이 없어 서버가 끊었어요. 장치의 명령 수신 구현을 확인해 주세요.',
@@ -232,6 +235,17 @@ class DeviceCommandDebugController extends Notifier<DeviceCommandDebugState> {
         _ => '알 수 없는 결과를 받았어요.',
       },
     );
+  }
+
+  /// 송풍 결과다. 가동 시간은 앱도 서버도 정하지 않는다 — 라즈베리가 자기 설정으로 정하고
+  /// 회신으로 알려 주므로 이력의 값은 **요청한 시간이 아니라 실제로 돈 시간**이다. 요청값과
+  /// 다를 수 있어서 말할 값어치가 있다.
+  String _fanDone(DeviceCommandRecord command) {
+    final seconds = command.runSeconds;
+    if (seconds == null) {
+      return '송풍을 마쳤어요.';
+    }
+    return '송풍을 마쳤어요. 팬이 실제로 $seconds초 돌았습니다.';
   }
 
   String _ml(double? value) {
