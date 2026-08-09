@@ -123,7 +123,9 @@ public class AutoWateringOrchestrator {
                 || !properties.autoWaterEnabled()) {
             return;
         }
-        if (event.status() != DeviceCommandStatus.OK) {
+        // 과습 가드가 막은 급수(SKIPPED)는 여기서 멈추지 않는다. 물을 주지 않았을 뿐 로봇은
+        // 스테이션에 멀쩡히 서 있으므로 송풍과 복귀는 그대로 이어져야 한다.
+        if (!event.status().continuesChain()) {
             log.warn(
                     "Auto watering run stopped: plantId={}, step={}, status={}",
                     event.plantId(),
