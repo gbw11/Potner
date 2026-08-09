@@ -67,6 +67,9 @@ class SunlightRelocationSchedulerTest {
     private DailyLightAggregationService aggregationService;
 
     @Mock
+    private RobotBusyGuard busyGuard;
+
+    @Mock
     private DeviceCommandService commandService;
 
     private SunlightRelocationScheduler scheduler(Instant now) {
@@ -75,8 +78,9 @@ class SunlightRelocationSchedulerTest {
                 profileRepository,
                 commandRepository,
                 aggregationService,
+                busyGuard,
                 commandService,
-                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, true, 10, 16, true, 600, 6),
+                new DeviceCommandProperties(120, 30, 30, true, true, 8, 17, 60, true, 10, 16, true, 600, 9000, 8, 22, 15, 6),
                 new SensorQueryProperties("+09:00", 30, 7, 90),
                 Clock.fixed(now, ZoneOffset.UTC)
         );
@@ -158,14 +162,12 @@ class SunlightRelocationSchedulerTest {
     }
 
     @Test
-    void yieldsWhileANavigateIsPending() {
-        // 자동 급수 체인이나 사용자의 이동이 진행 중이다. 그 결과가 위치 추정을 바꾸므로
-        // 끝난 뒤에 다시 본다.
+    void yieldsWhileAnotherChainIsUsingTheRobot() {
+        // 이동 대기만 보면 부족하다. 급수·송풍·촬영은 이동이 끝난 뒤 다른 종류의 명령으로
+        // 이어지는데, 그 구간에 끼어들면 펌프가 물을 내보내는 중에 바퀴가 움직인다.
         givenAssignedPlant();
         givenDailyLightTarget();
-        when(commandRepository.existsByPlantIdAndCommandTypeAndStatus(
-                PLANT_ID, DeviceCommandType.NAVIGATE, DeviceCommandStatus.ISSUED))
-                .thenReturn(true);
+        when(busyGuard.isBusy(PLANT_ID)).thenReturn(true);
 
         assertThat(scheduler(IN_WINDOW).relocateOnce()).isZero();
         verify(commandService, never()).issueAuto(anyString(), any(), any());
