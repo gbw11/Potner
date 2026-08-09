@@ -77,6 +77,15 @@ class GrowthStageRecorderTest {
     }
 
     private GrowthStageRecorder recorder(boolean autoAdvanceEnabled, boolean autoBloomEnabled) {
+        return recorder(autoAdvanceEnabled, autoBloomEnabled, true, 30);
+    }
+
+    private GrowthStageRecorder recorder(
+            boolean autoAdvanceEnabled,
+            boolean autoBloomEnabled,
+            boolean autoSproutEnabled,
+            int sproutCooldownDays
+    ) {
         return new GrowthStageRecorder(
                 analysisRepository,
                 plantRepository,
@@ -95,7 +104,9 @@ class GrowthStageRecorderTest {
                         new BigDecimal("0.60"),
                         autoAdvanceEnabled,
                         autoBloomEnabled,
-                        7
+                        7,
+                        autoSproutEnabled,
+                        sproutCooldownDays
                 ),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
@@ -274,6 +285,78 @@ class GrowthStageRecorderTest {
                 .record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.FLOWERING, "0.88"));
 
         verify(bloomService, never()).recordFromDevice(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void notifiesSproutOnTheFirstGerminationDetection() {
+        // 발아기는 생장 단계의 맨 아래라 승급으로는 알릴 수 없다(NOT_PROGRESSED). 씨앗을 심고
+        // 기다리던 사용자에게는 개화만큼 큰 소식이므로 별도 경로로 보낸다.
+        givenPlantAtStage(GERMINATION_ORDER);
+        givenTargetStage(DetectedGrowthStage.GERMINATION, GERMINATION_ORDER);
+
+        GrowthStageDetectionResult result = recorder(true)
+                .record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.GERMINATION, "0.73"));
+
+        assertThat(result).isEqualTo(GrowthStageDetectionResult.NOT_PROGRESSED);
+        verify(eventPublisher).publishEvent(any(PlantSproutedEvent.class));
+    }
+
+    @Test
+    void doesNotNotifySproutAgainWithinTheCooldown() {
+        // 사진은 매일 올라오고 발아 상태는 며칠 이어진다. 걸러 두지 않으면 같은 알림이 매일 간다.
+        givenPlantAtStage(GERMINATION_ORDER);
+        givenTargetStage(DetectedGrowthStage.GERMINATION, GERMINATION_ORDER);
+        PhotoGrowthAnalysis previous = org.mockito.Mockito.mock(PhotoGrowthAnalysis.class);
+        when(previous.getAnalyzedAt())
+                .thenReturn(java.time.LocalDateTime.ofInstant(NOW, ZoneOffset.UTC).minusDays(3));
+        when(analysisRepository
+                .findFirstByPlantIdAndDetectedStageIsNotNullAndConfidenceGreaterThanEqualOrderByAnalyzedAtDesc(
+                        eq(PLANT_ID), any()))
+                .thenReturn(Optional.of(previous));
+
+        recorder(true).record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.GERMINATION, "0.73"));
+
+        verify(eventPublisher, never()).publishEvent(any(PlantSproutedEvent.class));
+    }
+
+    @Test
+    void notifiesSproutAgainWhenTheCooldownIsZero() {
+        // 시연에서 반복해 보여줄 때 쓴다. 판정될 때마다 알린다.
+        givenPlantAtStage(GERMINATION_ORDER);
+        givenTargetStage(DetectedGrowthStage.GERMINATION, GERMINATION_ORDER);
+        PhotoGrowthAnalysis previous = org.mockito.Mockito.mock(PhotoGrowthAnalysis.class);
+        when(previous.getAnalyzedAt())
+                .thenReturn(java.time.LocalDateTime.ofInstant(NOW, ZoneOffset.UTC).minusDays(3));
+        when(analysisRepository
+                .findFirstByPlantIdAndDetectedStageIsNotNullAndConfidenceGreaterThanEqualOrderByAnalyzedAtDesc(
+                        eq(PLANT_ID), any()))
+                .thenReturn(Optional.of(previous));
+
+        recorder(true, true, true, 0)
+                .record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.GERMINATION, "0.73"));
+
+        verify(eventPublisher).publishEvent(any(PlantSproutedEvent.class));
+    }
+
+    @Test
+    void doesNotNotifySproutForOtherStages() {
+        givenPlantAtStage(GERMINATION_ORDER);
+        givenTargetStage(DetectedGrowthStage.VEGETATIVE, VEGETATIVE_ORDER);
+
+        recorder(false).record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.VEGETATIVE, "0.91"));
+
+        verify(eventPublisher, never()).publishEvent(any(PlantSproutedEvent.class));
+    }
+
+    @Test
+    void doesNotNotifySproutWhenTheFlagIsOff() {
+        givenPlantAtStage(GERMINATION_ORDER);
+        givenTargetStage(DetectedGrowthStage.GERMINATION, GERMINATION_ORDER);
+
+        recorder(true, true, false, 30)
+                .record(PHOTO_ID, PLANT_ID, determined(DetectedGrowthStage.GERMINATION, "0.73"));
+
+        verify(eventPublisher, never()).publishEvent(any(PlantSproutedEvent.class));
     }
 
     private GrowthStageClassification undetermined() {
