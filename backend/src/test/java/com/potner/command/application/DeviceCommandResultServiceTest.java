@@ -175,23 +175,40 @@ class DeviceCommandResultServiceTest {
     @Test
     void recordsTheRunSecondsTheDeviceActuallyUsed() {
         // 라즈베리는 풍량·시간을 자기 설정으로 정하고 서버가 보낸 seconds 를 쓰지 않는다.
-        // 회신값을 받아 두지 않으면 이력에 요청값만 남아 실제와 어긋난다.
-        CommandResultMessage message = new CommandResultMessage(
-                MESSAGE_ID, PI_UID, requestId, "OK",
-                null, null, new BigDecimal("10.4"), null, null, null);
+        // 회신값을 받아 두지 않으면 이력에 요청값(30)만 남아 실제(10)와 어긋난다.
+        DeviceCommand fan = fanCommand(30);
 
-        CommandResultApplyOutcome outcome = service.apply(PI_UID, DeviceCommandType.WATER, message);
+        CommandResultApplyOutcome outcome = service.apply(
+                PI_UID, DeviceCommandType.FAN, fanResult(fan, new BigDecimal("10.4")));
 
         assertThat(outcome).isEqualTo(CommandResultApplyOutcome.APPLIED);
-        assertThat(command.getRunSeconds()).isEqualTo(10);
+        assertThat(fan.getRunSeconds()).isEqualTo(10);
     }
 
     @Test
     void keepsTheRequestedRunSecondsWhenTheDeviceReportsNone() {
-        // 급수·촬영 회신에는 durationSec 이 없다. 없다고 지우면 팬 이력이 비어 버린다.
-        service.apply(PI_UID, DeviceCommandType.WATER, result("OK", new BigDecimal("120.00"), null, null));
+        // 없다고 지우면 팬 이력이 비어 버린다. 값이 있을 때만 덮어쓴다.
+        DeviceCommand fan = fanCommand(30);
+
+        service.apply(PI_UID, DeviceCommandType.FAN, fanResult(fan, null));
+
+        assertThat(fan.getRunSeconds()).isEqualTo(30);
+    }
+
+    @Test
+    void ignoresTheDurationOnAWaterResult() {
+        // 급수 회신에도 durationSec 이 실려 온다(펌프가 돈 시간). 하지만 run_seconds 는 팬 전용
+        // 컬럼이고 API 응답도 그렇게 약속되어 있어, 종류를 보지 않으면 급수 이력에 팬 가동
+        // 시간이 있는 것처럼 남는다. 급수의 실측은 dispensedMl 이다.
+        CommandResultMessage message = new CommandResultMessage(
+                MESSAGE_ID, PI_UID, requestId, "OK",
+                new BigDecimal("350.00"), new BigDecimal("348.50"),
+                new BigDecimal("13.9"), null, null, null);
+
+        service.apply(PI_UID, DeviceCommandType.WATER, message);
 
         assertThat(command.getRunSeconds()).isNull();
+        assertThat(command.getDispensedMl()).isEqualByComparingTo("348.50");
     }
 
     @Test
@@ -202,6 +219,28 @@ class DeviceCommandResultServiceTest {
 
         assertThat(outcome).isEqualTo(CommandResultApplyOutcome.INVALID_STATUS);
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.ISSUED);
+    }
+
+    /** 서버가 {@code seconds} 를 요청해 발행한 송풍 명령이다. */
+    private DeviceCommand fanCommand(int requestedSeconds) {
+        DeviceCommand fan = DeviceCommand.issue(
+                "plant-1", "robot-1", PI_UID,
+                DeviceCommandType.FAN,
+                CommandInitiator.AUTO,
+                CommandPurpose.DRYING,
+                null,
+                null,
+                requestedSeconds,
+                LocalDateTime.ofInstant(NOW.minusSeconds(20), ZoneOffset.UTC)
+        );
+        when(commandRepository.findById(fan.getRequestId())).thenReturn(Optional.of(fan));
+        return fan;
+    }
+
+    private CommandResultMessage fanResult(DeviceCommand fan, BigDecimal durationSec) {
+        return new CommandResultMessage(
+                MESSAGE_ID, PI_UID, fan.getRequestId(), "OK",
+                null, null, durationSec, null, null, null);
     }
 
     private CommandResultMessage result(

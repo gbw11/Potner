@@ -855,10 +855,12 @@ capture_result_topic: potner/device/raspberry-01/result/capture
 | `OK` | 수행 완료 | `dispensedMl` 을 급수 이력에 기록. 일기의 급수량이 이 값의 합이다 |
 | `ERROR` | 실패. `error`(문구)와 촬영은 `code` 도 실림 | 사유를 이력에 기록 |
 | `BUSY` | 앞선 작업 중이라 거부 | 실패와 구분해 기록. 잠시 뒤 다시 보내면 된다 |
-
 `requestId` 반향이 전부입니다. 서버는 이 값으로 어느 명령의 결과인지 대조하므로, 받은 값을
 그대로 되돌려야 합니다. `dispensedMl` 은 요청량과 다를 수 있습니다(펌프 상한 도달 등) —
 실제로 나간 양을 보내야 일기가 맞습니다.
+
+급수 회신의 `durationSec`(펌프가 돈 시간)은 **서버가 저장하지 않습니다.** `run_seconds` 는 팬
+전용 컬럼이고, 급수는 `requestedMl`·`dispensedMl` 로 요청과 실측을 이미 나눠 갖습니다.
 
 ### 이동 명령 — 서버 → 젯슨 (수신 구현 필요)
 
