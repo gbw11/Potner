@@ -92,6 +92,7 @@ public class BloomService {
                 userId,
                 plantId,
                 plant.getNickname(),
+                bloom.getBloomDate(),
                 firstBloom
         ));
 
@@ -141,6 +142,7 @@ public class BloomService {
                 userId,
                 plantId,
                 plantNickname,
+                bloom.getBloomDate(),
                 firstBloom
         ));
         return true;
