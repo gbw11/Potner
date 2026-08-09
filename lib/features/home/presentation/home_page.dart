@@ -1383,7 +1383,9 @@ class _EmptyView extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                '첫 식물을 등록하면 식물의 현재 환경과\n성장 기록을 홈에서 한눈에 확인할 수 있어요.',
+                // 줄을 손으로 끊는다. 자동 줄바꿈에 맡기면 카드 폭에서 마지막 "요." 만
+                // 다음 줄에 남아 문장이 끊어져 보인다.
+                '첫 식물을 등록하면 식물의 현재 환경과\n성장 기록을 홈에서 한눈에\n확인할 수 있어요.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   color: AppColors.textMuted,
