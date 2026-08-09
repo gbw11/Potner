@@ -40,6 +40,8 @@ public enum ErrorCode {
     STALE_EVENT(HttpStatus.BAD_REQUEST, "Stale event", "유효시간이 지난 귀가 이벤트입니다."),
     INVALID_EVENT_TIME(HttpStatus.BAD_REQUEST, "Invalid event time", "귀가 이벤트 시각이 현재보다 지나치게 미래입니다."),
     WATERING_AMOUNT_NOT_CONFIGURED(HttpStatus.BAD_REQUEST, "Watering amount not configured", "케어 설정에 급수량이 없습니다. 물의 양을 먼저 설정해 주세요."),
+    CARE_RUN_DISABLED(HttpStatus.CONFLICT, "Care run disabled", "이 자동 케어가 꺼져 있어 시작할 수 없습니다."),
+    CARE_RUN_ROBOT_BUSY(HttpStatus.CONFLICT, "Care run robot busy", "로봇이 다른 작업을 수행 중입니다. 끝난 뒤에 다시 시도해 주세요."),
     INVALID_DEVICE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid device token", "유효하지 않은 장치 토큰입니다."),
     INVALID_PHOTO(HttpStatus.BAD_REQUEST, "Invalid photo", "이미지 파일이 아닙니다."),
     PHOTO_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "Photo too large", "허용된 크기를 넘는 이미지입니다."),
