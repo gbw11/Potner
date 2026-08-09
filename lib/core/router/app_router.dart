@@ -16,6 +16,7 @@ import 'package:potner_app/features/diary/presentation/pages/diary_detail_page.d
 import 'package:potner_app/features/growth/presentation/pages/growth_hub_page.dart';
 import 'package:potner_app/features/photo/presentation/pages/growth_comparison_page.dart';
 import 'package:potner_app/features/photo/presentation/pages/photo_detail_page.dart';
+import 'package:potner_app/core/notifications/push_notification_route.dart';
 import 'package:potner_app/features/photo/presentation/pages/photo_log_page.dart';
 import 'package:potner_app/features/auth/domain/auth_state.dart';
 import 'package:potner_app/features/auth/presentation/controllers/auth_controller.dart';
@@ -157,7 +158,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   ),
                   GoRoute(
                     path: 'photos',
-                    builder: (context, state) => const PhotoLogPage(),
+                    // 개화 알림이 그날 사진을 열려고 date 질의를 붙여 온다
+                    // (push_notification_route.dart). 값이 없으면 전체 목록이다.
+                    builder: (context, state) => PhotoLogPage(
+                      initialDate: state
+                          .uri
+                          .queryParameters[photoLogDateQueryParameter],
+                    ),
                     routes: [
                       GoRoute(
                         path: ':plantId/:photoId',
