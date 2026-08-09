@@ -53,13 +53,23 @@ String? resolvePushRoute(PushNotificationMessage message) {
 /// 알림이 아무 데도 가지 못하게 만들 이유는 없다.
 String? _isoDateOrNull(String? raw) {
   final value = raw?.trim();
+  // 길이를 먼저 본다. tryParse 는 '2026-8-1' 처럼 자리수가 다른 값도 받아들인다.
   if (value == null || value.length != 10) {
     return null;
   }
-  if (DateTime.tryParse(value) == null) {
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
     return null;
   }
-  // 길이 검사를 함께 두는 이유는 tryParse 가 '2026-8-1' 처럼 자리수가 다른 값도 받아들이기
-  // 때문이다. 서버가 보내는 형태만 통과시킨다.
-  return value;
+  // tryParse 는 범위를 벗어난 값을 거절하지 않고 넘긴다 — '2026-13-40' 은 2027-02-09 가
+  // 된다. 그대로 두면 엉뚱한 날 사진이 열리므로, 다시 적었을 때 원래 값과 같은지 본다.
+  // 어긋나면 날짜 없이 전체 목록을 여는 편이 낫다.
+  return _formatIsoDate(parsed) == value ? value : null;
+}
+
+String _formatIsoDate(DateTime date) {
+  final year = date.year.toString().padLeft(4, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }
