@@ -179,6 +179,24 @@ class AutoWateringOrchestratorTest {
     }
 
     @Test
+    void skippedWateringStillVentilatesAndGoesHome() {
+        // 과급수 가드가 막으면 라즈베리가 SKIPPED 로 회신한다(dispensedMl=0). 실패가 아니라
+        // 물을 주지 않기로 한 판단이고 로봇은 스테이션에 멀쩡히 서 있다. 여기서 체인을 끊으면
+        // 급수 버튼을 두 번 누른 것만으로 로봇이 스테이션에 방치된다.
+        orchestrator(true).onCommandCompleted(completed(
+                DeviceCommandType.WATER,
+                CommandInitiator.AUTO,
+                null,
+                DeviceCommandStatus.SKIPPED
+        ));
+
+        ArgumentCaptor<IssueDeviceCommandRequest> request =
+                ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
+        assertThat(request.getValue().type()).isEqualTo(DeviceCommandType.FAN);
+    }
+
+    @Test
     void wateringGoesStraightHomeWhenVentilationIsOff() {
         // 환기 플래그 하나로 주기 환기와 급수 뒤 송풍이 함께 멈춰야 한다. 같은 물리 장치다.
         orchestrator(true, false).onCommandCompleted(completed(

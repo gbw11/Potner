@@ -212,6 +212,32 @@ class DeviceCommandResultServiceTest {
     }
 
     @Test
+    void appliesSkippedAsItsOwnStatusNotAsAFailure() {
+        // 과급수 가드가 막은 것이다. 이 값을 모르면 회신이 통째로 버려져 명령이 ISSUED 로 남고,
+        // 급수 회차가 스테이션에서 멈춘 채 로봇이 타임아웃까지 거기 서 있게 된다.
+        CommandResultApplyOutcome outcome = service.apply(
+                PI_UID, DeviceCommandType.WATER,
+                result("SKIPPED", BigDecimal.ZERO, null, null));
+
+        assertThat(outcome).isEqualTo(CommandResultApplyOutcome.APPLIED);
+        assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.SKIPPED);
+        assertThat(command.getDispensedMl()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void publishesACompletedEventForSkippedSoTheChainCanContinue() {
+        // 물을 주지 않았을 뿐 로봇은 스테이션에 서 있다. 이벤트가 나가야 송풍과 복귀가 이어진다.
+        service.apply(PI_UID, DeviceCommandType.WATER,
+                result("SKIPPED", BigDecimal.ZERO, null, null));
+
+        org.mockito.ArgumentCaptor<DeviceCommandCompletedEvent> event =
+                org.mockito.ArgumentCaptor.forClass(DeviceCommandCompletedEvent.class);
+        org.mockito.Mockito.verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().status()).isEqualTo(DeviceCommandStatus.SKIPPED);
+        assertThat(event.getValue().status().continuesChain()).isTrue();
+    }
+
+    @Test
     void rejectsAnUnknownStatusWord() {
         // 장치가 어휘를 늘리면 조용히 넘기지 않고 걸러 로그로 드러낸다.
         CommandResultApplyOutcome outcome = service.apply(

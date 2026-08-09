@@ -152,7 +152,9 @@ public class DailyCaptureScheduler {
                 || !properties.autoCaptureEnabled()) {
             return;
         }
-        if (event.status() != DeviceCommandStatus.OK) {
+        // 급수 체인과 같은 기준을 쓴다. 오늘 SKIPPED 를 보내는 것은 급수뿐이라 이 체인에는
+        // 닿지 않지만, 판단 기준이 체인마다 갈리면 장치가 상태를 늘릴 때 한 곳만 고쳐진다.
+        if (!event.status().continuesChain()) {
             log.warn(
                     "Daily capture run stopped: plantId={}, type={}, status={}",
                     event.plantId(), event.commandType(), event.status()

@@ -188,7 +188,9 @@ public class AutoDryingScheduler {
                 || !properties.autoDryingEnabled()) {
             return;
         }
-        if (event.status() != DeviceCommandStatus.OK) {
+        // 급수 체인과 같은 기준을 쓴다. 오늘 SKIPPED 를 보내는 것은 급수뿐이라 이 체인에는
+        // 닿지 않지만, 판단 기준이 체인마다 갈리면 장치가 상태를 늘릴 때 한 곳만 고쳐진다.
+        if (!event.status().continuesChain()) {
             // 여기서 복귀를 보내지 않는다. 이동이 실패했으면 로봇이 어디 있는지 모르고,
             // 송풍이 실패했으면 스테이션에 있으므로 다음 주기의 복귀 단계가 데려온다.
             log.warn(
