@@ -251,7 +251,7 @@ class PlantApi {
           .map((tag) => tag?.toString().trim() ?? '')
           .where((tag) => tag.isNotEmpty)
           .toList(growable: false),
-      concept: _optionalString(persona['concept']) ?? '',
+      personality: _optionalString(persona['personality']) ?? '',
       coreValue: _optionalString(persona['coreValue']) ?? '',
     );
   }

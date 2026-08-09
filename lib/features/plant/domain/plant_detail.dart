@@ -27,13 +27,13 @@ class PlantDetail {
   final SpeciesPersona? persona;
 }
 
-/// 종에 정해진 성격이다. 꽃말을 성격으로 옮긴 것으로, 일기 말투도 이걸 따른다.
+/// 종에 정해진 성격이다. 꽃말을 성격으로 옮긴 것으로, 일기 말투도 같은 근거를 따른다.
 class SpeciesPersona {
   const SpeciesPersona({
     required this.characterName,
     required this.flowerMeaning,
     required this.tags,
-    required this.concept,
+    required this.personality,
     required this.coreValue,
   });
 
@@ -45,7 +45,12 @@ class SpeciesPersona {
   /// 해시태그용 짧은 키워드다. 꽃말은 여기 없어 화면이 앞에 따로 붙인다.
   final List<String> tags;
 
-  final String concept;
+  /// 성격을 사람 말로 옮긴 문장이다.
+  ///
+  /// 서버의 일기 프롬프트가 쓰는 역할 지시문과 다른 값이다. 그쪽은 모델에게 문체를 시키려고
+  /// 직업 은유로 쓰여 있어("섬세한 조향사") 성격을 물은 화면에 그대로 내면 겉돈다.
+  final String personality;
+
   final String coreValue;
 
   /// 화면에 찍을 해시태그다. 꽃말을 맨 앞에 둔다. 성격의 근거라 먼저 읽혀야 한다.
@@ -56,7 +61,7 @@ class SpeciesPersona {
 
   /// 보여줄 것이 하나도 없으면 성격 영역을 통째로 감춘다.
   bool get isEmpty =>
-      hashtags.isEmpty && concept.isEmpty && coreValue.isEmpty;
+      hashtags.isEmpty && personality.isEmpty && coreValue.isEmpty;
 }
 
 /// 식물별 적용 생육 기준이다. 케어 설정 화면이 편집하는 값만 담는다.
