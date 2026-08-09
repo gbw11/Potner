@@ -190,15 +190,26 @@ WITH RECURSIVE `slot` AS (
         `t`.`idx`,
         `s`.`n`,
         DATE_SUB(@now, INTERVAL `s`.`n` HOUR) AS `at`,
-        HOUR(CONVERT_TZ(DATE_SUB(@now, INTERVAL `s`.`n` HOUR), '+00:00', '+09:00')) AS `kst_hour`
+        HOUR(CONVERT_TZ(DATE_SUB(@now, INTERVAL `s`.`n` HOUR), '+00:00', '+09:00')) AS `kst_hour`,
+        -- 값의 범위는 종 기준에서 끌어낸다. 숫자를 박아 두면 종을 바꿨을 때 측정값이 밴드
+        -- 밖에 눌러앉는다. 그래프에서는 선이 적정 범위 띠 위로 통째로 떠 있는데 현재 상태는
+        -- '정상' 이라고 뜨는 모순으로 보인다 — 판정은 최신값 하나만 보기 때문이다.
+        `g`.`soil_moisture_min_pct` AS `soil_min`,
+        `g`.`soil_moisture_max_pct` AS `soil_max`,
+        `g`.`humidity_min_pct` AS `humi_min`,
+        `g`.`humidity_max_pct` AS `humi_max`,
+        `g`.`daily_light_target_lux_hour` AS `light_target`
     FROM `slot` AS `s`
     CROSS JOIN `target` AS `t`
+    JOIN `plant_growth_profile` AS `g` ON `g`.`plant_id` = `t`.`plant_id`
 )
 SELECT `plant_id`, @robot1, @pi_device,
        CONCAT('seed-', `idx`, '-soil-', `n`),
        'SOIL_MOISTURE',
-       -- 급수 뒤 마르는 흐름을 톱니처럼 만든다. 38~56% 로 기준 안에 머문다.
-       ROUND(38 + 18 * ABS(SIN(`n` / 96 + `idx`)), 2),
+       -- 급수 뒤 마르는 흐름을 톱니처럼 만든다. 밴드 한가운데를 중심으로 폭의 35% 만큼
+       -- 오르내려 항상 기준 안에 머문다. 주기는 10시간쯤이라 24시간 그래프에 두 번 보인다.
+       ROUND((`soil_min` + `soil_max`) / 2
+             + (`soil_max` - `soil_min`) * 0.35 * SIN(`n` / 1.6 + `idx`), 2),
        'PERCENT', 'GOOD', `at`, `at`
 FROM `point`
 UNION ALL
@@ -214,9 +225,12 @@ SELECT `plant_id`, @robot1, @pi_device,
        CONCAT('seed-', `idx`, '-humi-', `n`),
        'HUMIDITY',
        CASE
-           -- 최근 8시간은 85% 대로 띄운다. 활성 알림의 근거값이다.
-           WHEN `n` < 8 THEN ROUND(86 + 2 * SIN(`n`), 2)
-           ELSE ROUND(56 + 11 * SIN(`n` / 7 + `idx`), 2)
+           -- 이틀 전 여덟 시간만 높게 띄운다. 아래 '습도 높음'(해소됨) 알림의 근거값이라
+           -- 시각이 맞아야 한다. 최근 8시간에 두면 그래프는 계속 높은데 알림은 없는
+           -- 상태가 되어 화면끼리 어긋난다.
+           WHEN `n` BETWEEN 43 AND 51 THEN ROUND(86 + 2 * SIN(`n`), 2)
+           ELSE ROUND((`humi_min` + `humi_max`) / 2
+                      + (`humi_max` - `humi_min`) * 0.35 * SIN(`n` / 7 + `idx`), 2)
        END,
        'PERCENT', 'GOOD', `at`, `at`
 FROM `point`
@@ -226,14 +240,83 @@ SELECT `plant_id`, @robot1, @pi_device,
        'ILLUMINANCE',
        -- 밤에는 0 이다. 조도는 순간값으로 판정하지 않으므로 0 이 정상이고, 하루 누적
        -- 광량이 아래 plant_daily_light 와 앞뒤가 맞아야 한다.
+       --
+       -- 정점을 상수로 박으면 종을 바꿨을 때 하루 누적이 종 기준과 어긋난다. 그러면 마감된
+       -- 날은 저장된 목표치로 판정되어 멀쩡해 보이는데 오늘만 종 기준과 비교되어 진행률이
+       -- 한 자리로 떨어진다. 그래서 종 기준에서 거꾸로 정점을 구한다.
+       --
+       -- 6~19시 사인 곡선의 적분은 정점 * 13 * 2/PI 이고, 여기에 아래 흔들림 계수의 평균
+       -- (0.75 + 0.25 * 2/PI) 이 곱해진다. 둘을 합치면 약 7.52 다.
        CASE
            WHEN `kst_hour` BETWEEN 6 AND 19
-               THEN ROUND(GREATEST(0, 17000 * SIN((`kst_hour` - 6) * PI() / 13))
+               THEN ROUND(GREATEST(0, (`light_target` / 7.52)
+                                      * SIN((`kst_hour` - 6) * PI() / 13))
                           * (0.75 + 0.25 * ABS(SIN(`n` / 53))), 2)
            ELSE 0
        END,
        'LUX', 'GOOD', `at`, `at`
-FROM `point`;
+FROM `point`
+-- 오늘은 아래에서 훨씬 촘촘하게 따로 넣는다. 여기서도 넣으면 정시마다 표본이 겹친다.
+WHERE DATE(CONVERT_TZ(`at`, '+00:00', '+09:00')) < @today;
+
+-- ---------------------------------------------------------------------------
+-- 4-1. 오늘의 조도 — 장치 주기에 가깝게
+--
+-- 마감된 날의 광량 판정은 아래 plant_daily_light 에 미리 계산해 넣지만, 오늘 값만은 서버가
+-- 이 표를 직접 적분해서 만든다. 그래서 오늘은 표본 간격이 결과를 그대로 좌우한다.
+--
+-- 서버는 표본 하나가 최대 60초까지만 대표한다고 본다(potner.daily-light.max-gap-seconds).
+-- 실기기가 10초마다 보내는 것을 전제로 잡은 값이다. 시간별로 하나만 넣으면 한 시간 중
+-- 1분만 인정되어 누적 광량이 60분의 1로 깎이고, 홈과 환경 화면의 오늘 진행률이 늘 한 자리
+-- 퍼센트로 뜬다. 값이 틀린 것이 아니라 표본이 성긴 탓이라 원인을 찾기가 어렵다.
+--
+-- 하루치를 1분 간격으로 채운다. 조도 한 종만 1440건이라 부담이 크지 않고, 이 표만
+-- 촘촘하면 오늘 진행률이 실제 장치를 붙였을 때와 같은 값이 된다.
+-- ---------------------------------------------------------------------------
+SET SESSION cte_max_recursion_depth = 2000;
+
+INSERT IGNORE INTO `sensor_reading` (
+    `plant_id`, `robot_id`, `source_device_id`, `device_message_id`,
+    `sensor_type`, `measured_value`, `unit`, `quality`, `measured_at`, `received_at`
+)
+WITH RECURSIVE `minute` AS (
+    SELECT 0 AS `m`
+    UNION ALL
+    SELECT `m` + 1 FROM `minute` WHERE `m` < 1439
+),
+`target` AS (
+    SELECT `plant_id`, ROW_NUMBER() OVER (ORDER BY `created_at`) AS `idx`
+    FROM `plant`
+    WHERE `user_id` = @user_id AND `plant_status` = 'ACTIVE'
+),
+`point` AS (
+    SELECT
+        `t`.`plant_id`,
+        `t`.`idx`,
+        `mi`.`m`,
+        -- KST 자정에서 m 분 뒤를 UTC 로 되돌린다.
+        CONVERT_TZ(TIMESTAMP(@today) + INTERVAL `mi`.`m` MINUTE, '+09:00', '+00:00') AS `at`,
+        `mi`.`m` / 60.0 AS `kst_hour`
+    FROM `minute` AS `mi`
+    CROSS JOIN `target` AS `t`
+)
+SELECT `plant_id`, @robot1, @pi_device,
+       CONCAT('seed-', `idx`, '-luxmin-', `m`),
+       'ILLUMINANCE',
+       CASE
+           WHEN `kst_hour` BETWEEN 6 AND 19
+               THEN ROUND(GREATEST(0, (
+                              SELECT `g`.`daily_light_target_lux_hour` / 7.52
+                              FROM `plant_growth_profile` AS `g`
+                              WHERE `g`.`plant_id` = `point`.`plant_id`
+                          ) * SIN((`kst_hour` - 6) * PI() / 13))
+                          * (0.75 + 0.25 * ABS(SIN(`m` / 311))), 2)
+           ELSE 0
+       END,
+       'LUX', 'GOOD', `at`, `at`
+FROM `point`
+-- 아직 오지 않은 시각은 넣지 않는다. 미래 측정값은 실제로 존재할 수 없다.
+WHERE `at` <= @now;
 
 -- ---------------------------------------------------------------------------
 -- 5. 일일 광량 판정 — 어제부터 29일치
@@ -264,10 +347,20 @@ WITH RECURSIVE `day` AS (
         `t`.`idx`,
         `d`.`n`,
         DATE_SUB(@today, INTERVAL `d`.`n` DAY) AS `light_date`,
-        ROUND(120000 + 38000 * SIN(`d`.`n` * 0.8 + `t`.`idx`), 2) AS `accumulated`,
-        ROUND(8 + 2.8 * SIN(`d`.`n` * 0.7 + `t`.`idx`), 2) AS `hours`
+        `g`.`daily_light_target_lux_hour` AS `target_luxh`,
+        `g`.`daily_light_min_lux_hour` AS `min_luxh`,
+        `g`.`daily_light_max_lux_hour` AS `max_luxh`,
+        `g`.`photoperiod_hours` AS `target_hours`,
+        -- 목표의 ±32% 로 흔든다. 밴드가 70~130% 라 부족·적정·초과가 모두 나온다.
+        ROUND(`g`.`daily_light_target_lux_hour`
+              * (1 + 0.32 * SIN(`d`.`n` * 0.8 + `t`.`idx`)), 2) AS `accumulated`,
+        -- 일조 시간은 목표 아래로만 내린다. 흐린 날은 짧아지지만 하루가 주는 해보다 길어질
+        -- 수는 없다. 위로도 흔들면 17시간처럼 있을 수 없는 값이 나온다.
+        ROUND(`g`.`photoperiod_hours`
+              - `g`.`photoperiod_hours` * 0.28 * ABS(SIN(`d`.`n` * 0.7 + `t`.`idx`)), 2) AS `hours`
     FROM `day` AS `d`
     CROSS JOIN `target` AS `t`
+    JOIN `plant_growth_profile` AS `g` ON `g`.`plant_id` = `t`.`plant_id`
 )
 SELECT
     CONCAT('seedlite-0000-0000-0000-', LPAD(`idx` * 1000 + `n`, 12, '0')),
@@ -275,17 +368,17 @@ SELECT
     `accumulated`, `hours`,
     ROUND(94 + 6 * ABS(SIN(`n`)), 2),
     220 + MOD(`n` * 7, 60),
-    120000.00, 8.00,
-    -- 허용 범위는 목표의 ±20% 다. V7 마이그레이션이 채운 밴드와 같은 방침이다.
-    96000.00, 144000.00,
+    `target_luxh`, `target_hours`,
+    -- 허용 범위는 종 기준을 그대로 쓴다. V7 마이그레이션이 목표의 70~130% 로 채웠다.
+    `min_luxh`, `max_luxh`,
     CASE
-        WHEN `accumulated` < 96000 THEN 'LOW'
-        WHEN `accumulated` > 144000 THEN 'HIGH'
+        WHEN `accumulated` < `min_luxh` THEN 'LOW'
+        WHEN `accumulated` > `max_luxh` THEN 'HIGH'
         ELSE 'NORMAL'
     END,
     CASE
-        WHEN `hours` < 6.4 THEN 'LOW'
-        WHEN `hours` > 9.6 THEN 'HIGH'
+        WHEN `hours` < `target_hours` * 0.8 THEN 'LOW'
+        WHEN `hours` > `target_hours` * 1.2 THEN 'HIGH'
         ELSE 'NORMAL'
     END,
     -- 자정 직후 배치가 계산한다.
@@ -306,38 +399,47 @@ INSERT IGNORE INTO `alert` (
     `occurred_at`, `resolved_at`, `read_at`, `created_at`, `updated_at`
 )
 -- 활성 + 안 읽음. 홈의 미읽음 배지와 이상 알림 카드가 여기서 나온다.
-SELECT 'seedale1-0000-0000-0000-000000000001', @user_id, @p1, 'HUMIDITY', 'HIGH',
+--
+-- 활성으로 두는 지표를 고를 때 주의가 필요하다. 온도·습도·토양수분은 측정값이 들어올 때마다
+-- 다시 판정되므로, 장치가 정상값을 보내는 동안에는 넣자마자 해소되어 이상 알림 칸이 빈다.
+-- 광량과 일조는 자정 배치가, 물 부족과 배수트레이는 장치 보고가 판정하므로 측정값이 정상
+-- 범위로 흘러도 그대로 남는다. 그래서 활성 세 건은 이 지표들로 잡는다.
+-- 물 부족 보고는 불리언이라 넣을 수치가 없다. ck_alert_measurement_presence 가 이 지표에만
+-- NULL 을 허용하고 나머지는 measured_value 와 임계값 세 개를 모두 요구한다.
+SELECT 'seedale1-0000-0000-0000-000000000001', @user_id, @p1, 'STATION_WATER_LOW', 'LOW',
+       NULL, NULL, NULL,
+       DATE_SUB(@now, INTERVAL 1 DAY), NULL, NULL, DATE_SUB(@now, INTERVAL 1 DAY), @now
+FROM (SELECT 1) AS `g` WHERE @p1 IS NOT NULL
+UNION ALL
+-- 광량·일조의 임계값은 종 기준을 그대로 읽는다. 상수로 박으면 위 plant_daily_light 와
+-- 어긋나 같은 날을 두고 화면마다 다른 기준이 보인다.
+SELECT 'seedale2-0000-0000-0000-000000000002', @user_id, @p1, 'DAILY_LIGHT', 'LOW',
+       ROUND(`g`.`daily_light_min_lux_hour` * 0.9, 4),
+       `g`.`daily_light_min_lux_hour`, `g`.`daily_light_max_lux_hour`,
+       DATE_SUB(@now, INTERVAL 3 DAY), NULL, NULL, DATE_SUB(@now, INTERVAL 3 DAY), @now
+FROM `plant_growth_profile` AS `g` WHERE `g`.`plant_id` = @p1
+UNION ALL
+SELECT 'seedale3-0000-0000-0000-000000000003', @user_id, @p1, 'PHOTOPERIOD', 'LOW',
+       ROUND(`g`.`photoperiod_hours` * 0.7, 4),
+       ROUND(`g`.`photoperiod_hours` * 0.8, 4), ROUND(`g`.`photoperiod_hours` * 1.2, 4),
+       DATE_SUB(@now, INTERVAL 3 DAY), NULL, NULL, DATE_SUB(@now, INTERVAL 3 DAY), @now
+FROM `plant_growth_profile` AS `g` WHERE `g`.`plant_id` = @p1
+UNION ALL
+-- 해소된 건들. 알림 이력 섹션을 채운다. 읽음·안 읽음을 섞어 굵게 표시를 확인한다.
+SELECT 'seedale4-0000-0000-0000-000000000004', @user_id, @p1, 'HUMIDITY', 'HIGH',
        87.4000, 50.0000, 70.0000,
-       DATE_SUB(@now, INTERVAL 12 MINUTE), NULL, NULL, DATE_SUB(@now, INTERVAL 12 MINUTE), @now
-FROM (SELECT 1) AS `g` WHERE @p1 IS NOT NULL
-UNION ALL
-SELECT 'seedale2-0000-0000-0000-000000000002', @user_id, @p1, 'TEMPERATURE', 'LOW',
-       10.2000, 18.0000, 27.0000,
-       DATE_SUB(@now, INTERVAL 1 DAY), DATE_SUB(@now, INTERVAL 20 HOUR),
-       DATE_SUB(@now, INTERVAL 19 HOUR), DATE_SUB(@now, INTERVAL 1 DAY), @now
-FROM (SELECT 1) AS `g` WHERE @p1 IS NOT NULL
-UNION ALL
-SELECT 'seedale3-0000-0000-0000-000000000003', @user_id, @p1, 'SOIL_MOISTURE', 'LOW',
-       28.6000, 38.0000, 60.0000,
        DATE_SUB(@now, INTERVAL 2 DAY), DATE_SUB(@now, INTERVAL 43 HOUR),
-       DATE_SUB(@now, INTERVAL 42 HOUR), DATE_SUB(@now, INTERVAL 2 DAY), @now
+       NULL, DATE_SUB(@now, INTERVAL 2 DAY), @now
 FROM (SELECT 1) AS `g` WHERE @p1 IS NOT NULL
 UNION ALL
--- 해소됐지만 안 읽음. 이력 카드가 굵게 보인다.
-SELECT 'seedale4-0000-0000-0000-000000000004', @user_id, @p1, 'DAILY_LIGHT', 'LOW',
-       82400.0000, 96000.0000, 144000.0000,
-       DATE_SUB(@now, INTERVAL 3 DAY), DATE_SUB(@now, INTERVAL 63 HOUR),
-       NULL, DATE_SUB(@now, INTERVAL 3 DAY), @now
+SELECT 'seedale5-0000-0000-0000-000000000005', @user_id, @p1, 'TEMPERATURE', 'LOW',
+       10.2000, 18.0000, 27.0000,
+       DATE_SUB(@now, INTERVAL 4 DAY), DATE_SUB(@now, INTERVAL 93 HOUR),
+       DATE_SUB(@now, INTERVAL 3 DAY), DATE_SUB(@now, INTERVAL 4 DAY), @now
 FROM (SELECT 1) AS `g` WHERE @p1 IS NOT NULL
 UNION ALL
-SELECT 'seedale5-0000-0000-0000-000000000005', @user_id, @p1, 'PHOTOPERIOD', 'LOW',
-       4.2000, 6.4000, 9.6000,
-       DATE_SUB(@now, INTERVAL 5 DAY), DATE_SUB(@now, INTERVAL 108 HOUR),
-       DATE_SUB(@now, INTERVAL 4 DAY), DATE_SUB(@now, INTERVAL 5 DAY), @now
-FROM (SELECT 1) AS `g` WHERE @p1 IS NOT NULL
-UNION ALL
-SELECT 'seedale6-0000-0000-0000-000000000006', @user_id, @p1, 'HUMIDITY', 'HIGH',
-       91.8000, 50.0000, 70.0000,
+SELECT 'seedale6-0000-0000-0000-000000000006', @user_id, @p1, 'SOIL_MOISTURE', 'LOW',
+       28.6000, 38.0000, 60.0000,
        DATE_SUB(@now, INTERVAL 8 DAY), DATE_SUB(@now, INTERVAL 188 HOUR),
        DATE_SUB(@now, INTERVAL 7 DAY), DATE_SUB(@now, INTERVAL 8 DAY), @now
 FROM (SELECT 1) AS `g` WHERE @p1 IS NOT NULL
