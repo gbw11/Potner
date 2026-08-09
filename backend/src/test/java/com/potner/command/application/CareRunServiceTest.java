@@ -2,6 +2,9 @@ package com.potner.command.application;
 
 import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.domain.CommandPurpose;
+import com.potner.command.domain.DeviceCommand;
+import com.potner.command.domain.DeviceCommandRepository;
+import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.DeviceCommandResponse;
 import com.potner.command.dto.IssueDeviceCommandRequest;
@@ -46,6 +49,9 @@ class CareRunServiceTest {
     private PlantGrowthProfileRepository profileRepository;
 
     @Mock
+    private DeviceCommandRepository commandRepository;
+
+    @Mock
     private RobotBusyGuard busyGuard;
 
     @Mock
@@ -55,6 +61,7 @@ class CareRunServiceTest {
         return new CareRunService(
                 plantRepository,
                 profileRepository,
+                commandRepository,
                 busyGuard,
                 commandService,
                 new DeviceCommandProperties(
@@ -81,8 +88,9 @@ class CareRunServiceTest {
     }
 
     @Test
-    void relocationStartsByNavigatingToTheSunlightSpot() {
+    void relocationSendsTheRobotOutWhenItIsNotAtTheSunlightSpot() {
         givenOwnedPlant();
+        givenLastNavigate(RobotLocationType.HOME);
         givenIssueSucceeds();
 
         service(true).start(USER_ID, PLANT_ID, CommandPurpose.RELOCATION);
@@ -92,6 +100,51 @@ class CareRunServiceTest {
         verify(commandService).issueAuto(
                 eq(PLANT_ID), request.capture(), eq(CommandPurpose.RELOCATION));
         assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.SUNLIGHT);
+    }
+
+    @Test
+    void relocationBringsTheRobotBackWhenItIsAlreadyAtTheSunlightSpot() {
+        // 재배치는 이어질 단계가 없는 단발 이동이라 체인이 복귀시켜 주지 않는다. 같은 요청으로
+        // 되돌릴 수 없으면 목표 광량을 채우거나 해가 질 때까지 햇빛 자리에 서 있게 된다.
+        givenOwnedPlant();
+        givenLastNavigate(RobotLocationType.SUNLIGHT);
+        givenIssueSucceeds();
+
+        service(true).start(USER_ID, PLANT_ID, CommandPurpose.RELOCATION);
+
+        ArgumentCaptor<IssueDeviceCommandRequest> request =
+                ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
+        verify(commandService).issueAuto(
+                eq(PLANT_ID), request.capture(), eq(CommandPurpose.RELOCATION));
+        assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.HOME);
+    }
+
+    @Test
+    void relocationGoesOutWhenThereIsNoMoveHistory() {
+        // 어디 있는지 모르면 나가는 쪽으로 본다. 광량이 미달일 때 보내는 쪽이 안전하다.
+        givenOwnedPlant();
+        givenLastNavigate(null);
+        givenIssueSucceeds();
+
+        service(true).start(USER_ID, PLANT_ID, CommandPurpose.RELOCATION);
+
+        ArgumentCaptor<IssueDeviceCommandRequest> request =
+                ArgumentCaptor.forClass(IssueDeviceCommandRequest.class);
+        verify(commandService).issueAuto(eq(PLANT_ID), request.capture(), any());
+        assertThat(request.getValue().destination()).isEqualTo(RobotLocationType.SUNLIGHT);
+    }
+
+    @Test
+    void relocationIgnoresTheBackgroundSchedulerFlag() {
+        // 스케줄러만 끄고 이 요청은 쓰고 싶은 경우가 있다. 30분마다 "광량 미달이니 다시 나가라"
+        // 고 판단하면 되돌린 로봇이 곧 다시 나가기 때문이다. 이어질 체인이 없어 막을 이유도 없다.
+        givenOwnedPlant();
+        givenLastNavigate(RobotLocationType.HOME);
+        givenIssueSucceeds();
+
+        service(false).start(USER_ID, PLANT_ID, CommandPurpose.RELOCATION);
+
+        verify(commandService).issueAuto(anyString(), any(), eq(CommandPurpose.RELOCATION));
     }
 
     @Test
@@ -192,6 +245,18 @@ class CareRunServiceTest {
         PlantGrowthProfile profile = mock(PlantGrowthProfile.class);
         lenient().when(profile.getRecommendedWateringMl()).thenReturn(amount);
         lenient().when(profileRepository.findByPlantId(PLANT_ID)).thenReturn(Optional.of(profile));
+    }
+
+    private void givenLastNavigate(RobotLocationType destination) {
+        DeviceCommand command = null;
+        if (destination != null) {
+            command = mock(DeviceCommand.class);
+            lenient().when(command.getDestination()).thenReturn(destination);
+        }
+        lenient().when(commandRepository
+                        .findFirstByPlantIdAndCommandTypeAndStatusOrderByIssuedAtDesc(
+                                PLANT_ID, DeviceCommandType.NAVIGATE, DeviceCommandStatus.OK))
+                .thenReturn(Optional.ofNullable(command));
     }
 
     private void givenIssueSucceeds() {

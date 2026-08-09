@@ -2,6 +2,8 @@ package com.potner.command.application;
 
 import com.potner.command.config.DeviceCommandProperties;
 import com.potner.command.domain.CommandPurpose;
+import com.potner.command.domain.DeviceCommandRepository;
+import com.potner.command.domain.DeviceCommandStatus;
 import com.potner.command.domain.DeviceCommandType;
 import com.potner.command.dto.DeviceCommandResponse;
 import com.potner.command.dto.IssueDeviceCommandRequest;
@@ -41,6 +43,7 @@ public class CareRunService {
 
     private final PlantRepository plantRepository;
     private final PlantGrowthProfileRepository profileRepository;
+    private final DeviceCommandRepository commandRepository;
     private final RobotBusyGuard busyGuard;
     private final DeviceCommandService commandService;
     private final DeviceCommandProperties properties;
@@ -48,12 +51,14 @@ public class CareRunService {
     public CareRunService(
             PlantRepository plantRepository,
             PlantGrowthProfileRepository profileRepository,
+            DeviceCommandRepository commandRepository,
             RobotBusyGuard busyGuard,
             DeviceCommandService commandService,
             DeviceCommandProperties properties
     ) {
         this.plantRepository = plantRepository;
         this.profileRepository = profileRepository;
+        this.commandRepository = commandRepository;
         this.busyGuard = busyGuard;
         this.commandService = commandService;
         this.properties = properties;
@@ -69,7 +74,8 @@ public class CareRunService {
 
         DeviceCommandResponse issued = commandService.issueAuto(
                 plantId,
-                new IssueDeviceCommandRequest(DeviceCommandType.NAVIGATE, firstDestination(purpose), null),
+                new IssueDeviceCommandRequest(
+                        DeviceCommandType.NAVIGATE, firstDestination(plantId, purpose), null),
                 purpose
         );
         log.info(
@@ -82,14 +88,35 @@ public class CareRunService {
     /**
      * 첫 단계의 목적지다. 넷 다 이동으로 시작한다.
      *
-     * <p>펌프·팬·카메라가 스테이션에 고정이라 급수·환기·촬영은 그리로 가야 하고, 재배치는
-     * 햇빛 자리로 가는 것 자체가 목적이다.
+     * <p>펌프·팬·카메라가 스테이션에 고정이라 급수·환기·촬영은 그리로 가야 한다.
+     *
+     * <p><strong>재배치만 방향을 뒤집는다.</strong> 나머지 셋은 작업을 마치면 체인이 로봇을
+     * 대기 장소로 돌려보내지만, 재배치는 이어질 단계가 없는 단발 이동이다. 햇빛 자리는 가서
+     * 일하고 오는 곳이 아니라 머무는 곳이고, 복귀는 목표 광량을 채우거나 해가 진 뒤에
+     * {@link SunlightRelocationScheduler} 가 판단한다.
+     *
+     * <p>그 판단을 기다릴 수 없을 때 같은 요청으로 되돌릴 수 있어야 한다. 지금 햇빛 자리에
+     * 있으면 대기 장소를, 아니면 햇빛 자리를 목적지로 준다.
      */
-    private RobotLocationType firstDestination(CommandPurpose purpose) {
+    private RobotLocationType firstDestination(String plantId, CommandPurpose purpose) {
         return switch (purpose) {
             case WATERING, DRYING, CAPTURE -> RobotLocationType.WATER_STATION;
-            case RELOCATION -> RobotLocationType.SUNLIGHT;
+            case RELOCATION -> isAtSunlight(plantId)
+                    ? RobotLocationType.HOME
+                    : RobotLocationType.SUNLIGHT;
         };
+    }
+
+    /**
+     * 로봇이 햇빛 자리에 서 있는지 본다. 마지막으로 성공한 이동의 목적지로 추정한다 —
+     * 자동 재배치·환기가 쓰는 것과 같은 방식이다.
+     */
+    private boolean isAtSunlight(String plantId) {
+        return commandRepository
+                .findFirstByPlantIdAndCommandTypeAndStatusOrderByIssuedAtDesc(
+                        plantId, DeviceCommandType.NAVIGATE, DeviceCommandStatus.OK)
+                .map(command -> command.getDestination() == RobotLocationType.SUNLIGHT)
+                .orElse(false);
     }
 
     /**
@@ -97,13 +124,17 @@ public class CareRunService {
      *
      * <p>꺼진 케어를 시작하면 첫 이동만 나가고 체인을 이을 리스너가 회신을 무시해 로봇이
      * 스테이션에 서 있게 된다. 시작 자체를 막아 그 상태를 만들지 않는다.
+     *
+     * <p><strong>재배치는 플래그를 보지 않는다.</strong> 이어질 체인이 없어 중간에 멈출 것이
+     * 없고, 오히려 배경 스케줄러만 끈 채로 이 요청은 쓰고 싶은 경우가 있다 — 스케줄러가
+     * 30분마다 "광량 미달이니 다시 나가라" 고 판단하면 되돌린 로봇이 곧 다시 나간다.
      */
     private void requireEnabled(CommandPurpose purpose) {
         boolean enabled = switch (purpose) {
             case WATERING -> properties.autoWaterEnabled();
             case DRYING -> properties.autoDryingEnabled();
             case CAPTURE -> properties.autoCaptureEnabled();
-            case RELOCATION -> properties.autoSunlightEnabled();
+            case RELOCATION -> true;
         };
         if (!enabled) {
             throw new BusinessException(ErrorCode.CARE_RUN_DISABLED);
