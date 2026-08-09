@@ -138,8 +138,8 @@ final samplePlantDetail = PlantDetail(
   persona: const SpeciesPersona(
     characterName: '바질',
     flowerMeaning: '좋은 소망',
-    tags: ['현실적보호자', '편안함', '규칙적돌봄'],
-    concept: '흥분하거나 과장하지 않고 필요한 돌봄을 하나씩 챙기는 현실적 보호자',
+    tags: ['다정함', '차분함', '꾸준함'],
+    personality: '다정하고 차분해요. 서두르는 법이 없고 필요한 만큼만 챙기며 곁을 편안하게 만들어요.',
     coreValue: '규칙적인 돌봄으로 자신과 사용자의 하루를 편안하게 만드는 것',
   ),
 );

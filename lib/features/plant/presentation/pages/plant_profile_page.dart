@@ -846,10 +846,10 @@ class _PersonaCard extends StatelessWidget {
               ],
             ),
           ],
-          if (persona.concept.isNotEmpty) ...[
+          if (persona.personality.isNotEmpty) ...[
             const SizedBox(height: 14),
             Text(
-              persona.concept,
+              persona.personality,
               style: const TextStyle(
                 fontSize: 14,
                 height: 1.5,

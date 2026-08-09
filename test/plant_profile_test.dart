@@ -66,14 +66,16 @@ void main() {
     // 꽃말이 맨 앞이다. 나머지 태그는 성격 키워드다.
     expect(find.byKey(const Key('profile_persona')), findsOneWidget);
     expect(find.text('#좋은 소망'), findsOneWidget);
-    expect(find.text('#현실적보호자'), findsOneWidget);
-    expect(find.text('#편안함'), findsOneWidget);
-    expect(find.text('#규칙적돌봄'), findsOneWidget);
+    expect(find.text('#다정함'), findsOneWidget);
+    expect(find.text('#차분함'), findsOneWidget);
+    expect(find.text('#꾸준함'), findsOneWidget);
     expect(find.text('바질의 성격'), findsOneWidget);
+    // 일기 프롬프트의 역할 지시문("현실적 보호자")이 아니라 성격 문장이 나와야 한다.
     expect(
-      find.text('흥분하거나 과장하지 않고 필요한 돌봄을 하나씩 챙기는 현실적 보호자'),
+      find.text('다정하고 차분해요. 서두르는 법이 없고 필요한 만큼만 챙기며 곁을 편안하게 만들어요.'),
       findsOneWidget,
     );
+    expect(find.textContaining('보호자'), findsNothing);
   });
 
   testWidgets('성격이 없는 종이면 성격 카드를 아예 그리지 않는다', (tester) async {
