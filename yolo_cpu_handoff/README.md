@@ -53,7 +53,7 @@ export YOLO_WEIGHTS_PATH="$PWD/models/best.pt"
 정상 체크섬은 다음과 같습니다.
 
 ```text
-23dd56fa2a8e06087f4510b924f92e450c2676f02fad791e6d4c95144fb9db84  best.pt
+5ab31994de572c21c6717f6741c23c765039427c6e428fbf44d9084543bc3707  best.pt
 ```
 
 ## CLI

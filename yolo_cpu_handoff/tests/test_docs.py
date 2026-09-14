@@ -194,7 +194,7 @@ def test_readme_checksum_formats_persistence_and_manifest_are_exact():
     actual_digest = hashlib.sha256((ROOT / "models" / filename).read_bytes()).hexdigest()
 
     assert digest == actual_digest
-    assert digest == "23dd56fa2a8e06087f4510b924f92e450c2676f02fad791e6d4c95144fb9db84"
+    assert digest == "5ab31994de572c21c6717f6741c23c765039427c6e428fbf44d9084543bc3707"
     assert digest in readme
     assert "(cd models && sha256sum -c SHA256SUMS)" in readme
     assert "sha256sum -c models/SHA256SUMS" not in readme
@@ -244,11 +244,12 @@ def test_compliance_artifacts_preserve_unknown_rights_gate():
     ):
         assert required in readme
     for required in (
-        "23dd56fa2a8e06087f4510b924f92e450c2676f02fad791e6d4c95144fb9db84",
+        "5ab31994de572c21c6717f6741c23c765039427c6e428fbf44d9084543bc3707",
         "germination",
         "vegetative",
         "flowering",
-        "plant_growth_yolo",
+        "plant_growth_yolo26n",
+        "yolo26n.pt",
         "general-plant-growth-stage-model",
         "UNKNOWN",
         "데이터셋/모델 재배포",
