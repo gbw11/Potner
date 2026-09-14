@@ -31,7 +31,7 @@ def test_runtime_metadata_declares_image_and_inference_dependencies():
         dependencies = tomllib.load(pyproject_file)["project"]["dependencies"]
 
     assert "Pillow>=10.2,<12" in dependencies
-    assert "ultralytics>=8.3,<9" in dependencies
+    assert "ultralytics>=8.4.104,<9" in dependencies
 
 
 def test_package_discovery_excludes_model_artifacts():

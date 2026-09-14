@@ -4,7 +4,7 @@
 
 - 전달 파일: `models/best.pt`
 - SHA-256:
-  `23dd56fa2a8e06087f4510b924f92e450c2676f02fad791e6d4c95144fb9db84`
+  `5ab31994de572c21c6717f6741c23c765039427c6e428fbf44d9084543bc3707`
 - 형식: Ultralytics YOLO PyTorch checkpoint
 - 추론 장치: CPU 전용
 - 기본 입력 크기: `640`
@@ -28,14 +28,32 @@
 현재 작업공간에서 확인한 provenance는 다음과 같습니다.
 
 - 실행 노트북: `plant_growth_detection.ipynb`
-- 학습 설정: `runs/plant_growth_yolo/args.yaml`
-- 학습 run 이름: `plant_growth_yolo`
-- 초기 모델: `yolo11n.pt` pretrained checkpoint
+- 학습 설정: `runs/plant_growth_yolo26n/args.yaml`
+- 학습 run 이름: `plant_growth_yolo26n`
+- 초기 모델: `yolo26n.pt` pretrained checkpoint
 - 정제 데이터 설정: `cleaned_dataset/data.yaml`
 - 학습 파라미터: 최대 50 epochs, patience 15, batch 16, `imgsz=640`,
   seed 42, deterministic mode
-- 노트북은 학습 run의 `weights/best.pt`를 작업공간의 `best.pt`로 복사했고,
-  그 파일과 전달 파일의 바이트 및 SHA-256이 일치합니다.
+- 조기 종료: 42 epochs 완료, 최적 epoch 27
+- 기본 YOLO26n validation 전체 지표: Precision `0.702`, Recall `0.636`, mAP50 `0.645`,
+  mAP50-95 `0.377`
+- 기본 YOLO26n test 전체 지표: Precision `0.700`, Recall `0.484`, mAP50 `0.487`,
+  mAP50-95 `0.264`
+- 기본 YOLO26n test 클래스별 mAP50-95: germination `0.038`, vegetative `0.500`,
+  flowering `0.254`
+- 동일 test에서 기존 YOLO11n의 mAP50-95는 `0.288`로, YOLO26n의 `0.264`보다
+  높았다. YOLO26n은 경량화 요구에 따라 기본 모델로 선택했으며 이 정확도 차이를
+  운영 승인 전에 검토해야 한다.
+- 추가 미세조정 설정:
+  `test_inputs/runs/plant_growth_yolo26n_flower_ft15/args.yaml`
+- 추가 미세조정 run 이름: `plant_growth_yolo26n_flower_ft15`
+- 추가 미세조정 초기 모델: 기본 run의 `weights/best.pt`
+- 추가 미세조정 데이터 설정:
+  `test_inputs/plant_growth_flower_augmented.yaml`
+- 추가 미세조정 파라미터: 15 epochs, batch 32, `imgsz=640`, seed 42,
+  deterministic mode
+- 전달 파일은 추가 미세조정 run의 `weights/last.pt`를 `models/best.pt`로
+  복사한 것이며, 두 파일의 바이트 및 SHA-256이 일치합니다.
 - 원본 `raw_dataset/data.yaml`은 Roboflow
   `general-plant-growth-stage-model` version 2와 `CC BY 4.0` 문자열을
   기록합니다. 정제 단계는 다섯 원본 클래스 중 위 세 클래스만 재매핑했습니다.
