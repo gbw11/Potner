@@ -1,0 +1,36 @@
+name: potner_app
+description: "Potner Flutter mobile application."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  # CI에서 사용하는 Flutter 이미지(3.44.0)의 Dart 버전이 3.12.0이므로
+  # 패치 버전 하한을 맞춰 두어야 파이프라인에서 의존성 해결이 가능하다.
+  sdk: ^3.12.0
+
+dependencies:
+  dio: ^5.10.0
+  firebase_app_installations: ^0.4.2+6
+  firebase_core: ^4.12.1
+  firebase_messaging: ^16.4.3
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^3.3.2
+  flutter_secure_storage: ^10.3.1
+  go_router: ^17.3.0
+  image_picker: ^1.2.3
+  scrollable_positioned_list: ^0.3.8
+  uuid: ^4.6.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/auth/
+    - assets/images/home/

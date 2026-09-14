@@ -1,0 +1,51 @@
+# 최소 권한 원칙을 유지합니다. 익명 접속을 허용하면 안 됩니다.
+#
+# Mosquitto 는 권한 없는 publish 를 조용히 버립니다. 발행한 쪽은 성공한 줄 알고 서버
+# 로그에도 아무것도 남지 않으므로, 여기에 규칙이 빠지면 원인을 찾기가 매우 어렵습니다.
+# 토픽을 새로 쓰거나 읽기 시작할 때는 이 파일을 함께 고쳐야 합니다.
+#
+# 이 파일이 바뀌면 파이프라인이 md5 를 비교해 브로커를 재시작합니다. 그때 장치와 서버의
+# 연결이 잠깐 끊기므로, 한 번에 모아서 고치는 편이 낫습니다.
+
+user potner-server
+topic read potner/device/+/sensor/telemetry
+# 장치가 보고하는 상태 전부입니다. heartbeat(생존), state(로봇 행동), battery(잔량).
+#
+# 토픽마다 한 줄씩 쓰지 않고 묶었습니다. status 토픽이 늘 때마다 이 파일을 고쳐야 하고,
+# 그때마다 브로커가 재시작되어 장치 연결이 끊깁니다. 서버는 장치가 보고하는 것을 모두 읽는
+# 쪽이라 이 범위가 실제 필요와 같습니다. 장치는 아래 pattern 으로 자기 토픽에만 묶여 있어
+# 최소 권한이 유지됩니다.
+topic read potner/device/+/status/#
+# 명령 수행 결과. 급수 완료·실패 보고가 여기로 옵니다. 페이로드는 하드웨어팀과 협의 중입니다.
+topic read potner/device/+/result/#
+# 서버 → 로봇 명령. 표정 갱신, 스테이션 이동, 급수가 모두 이 아래로 나갑니다.
+topic write potner/device/+/command/#
+
+user potner-health
+topic write potner/health
+
+# 장치 공통 규칙입니다. %u 가 접속 계정명으로 치환되므로 기기가 늘어도 이 파일을 고치지
+# 않습니다. 각 장치는 자기 계정명과 같은 토픽만 접근할 수 있어 최소 권한이 유지됩니다.
+#
+# 전제: 브로커 계정명 == device_uid. 계정을 발급할 때 반드시 맞춰야 합니다. 어긋나면 그
+# 장치는 자기 토픽에 접근하지 못하고, publish 는 조용히 버려져 원인이 보이지 않습니다.
+#
+# 아래 raspberry-01, jetson-01 블록은 이 규칙과 겹치지만 지우지 않았습니다. ACL 규칙은
+# 누적이라 함께 두어도 무해하며, 지금 붙어 있는 장치의 계정명이 device_uid 와 다를 경우에
+# 대비한 안전장치입니다. 확인이 끝나면 두 블록을 지워도 됩니다.
+pattern write potner/device/%u/sensor/#
+pattern write potner/device/%u/status/#
+pattern write potner/device/%u/result/#
+pattern read  potner/device/%u/command/#
+
+user raspberry-01
+topic write potner/device/raspberry-01/sensor/#
+topic write potner/device/raspberry-01/status/#
+topic write potner/device/raspberry-01/result/#
+topic read potner/device/raspberry-01/command/#
+
+user jetson-01
+topic write potner/device/jetson-01/sensor/#
+topic write potner/device/jetson-01/status/#
+topic write potner/device/jetson-01/result/#
+topic read potner/device/jetson-01/command/#

@@ -1,0 +1,59 @@
+# 애플리케이션 스택과 분리된 독립 Compose 프로젝트.
+# 배포 중 Jenkins가 자기 자신을 재생성하지 않도록 반드시 분리해서 운영한다.
+name: potner-jenkins
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: potner-jenkins:lts-jdk21
+    container_name: potner-jenkins
+    restart: unless-stopped
+
+    # Docker 소켓에 접근해 애플리케이션 컨테이너를 빌드·배포하기 위한 설정
+    user: "0:0"
+
+    ports:
+      - "8082:8080"
+
+    volumes:
+      # Jenkins 설정, 플러그인, Job 정보를 보존
+      - jenkins-home:/var/jenkins_home
+
+      # Jenkins 컨테이너에서 EC2 호스트의 Docker를 제어
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # 배포 디렉토리를 호스트와 동일한 경로로 마운트
+      # Jenkins 안에서 만든 compose 경로를 호스트 Docker 데몬이 그대로 해석할 수 있어야 한다
+      - ${POTNER_DEPLOY_DIR:-/home/ubuntu/potner-infra-test}:${POTNER_DEPLOY_DIR:-/home/ubuntu/potner-infra-test}
+
+    environment:
+      TZ: Asia/Seoul
+      POTNER_DEPLOY_DIR: ${POTNER_DEPLOY_DIR:-/home/ubuntu/potner-infra-test}
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=true
+        -Xms512m
+        -Xmx2048m
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:8080/login >/dev/null || exit 1"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  jenkins-home:
+    name: potner-jenkins-home

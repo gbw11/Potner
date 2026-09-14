@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/potner?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:potner_app}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me}
+
+logging:
+  level:
+    org.hibernate.SQL: INFO
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+potner:
+  mqtt:
+    broker-url: ${MQTT_BROKER_URL:tcp://i15e104.p.ssafy.io:1884}
+    client-id: ${MQTT_CLIENT_ID:potner-backend-local-youngseok}

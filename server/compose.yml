@@ -1,0 +1,219 @@
+services:
+  mysql:
+    image: mysql:8.4.10
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE must be set}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER must be set}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - potner-network
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u\"$${MYSQL_USER}\" -p\"$${MYSQL_PASSWORD}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./infra/mosquitto/config:/mosquitto/config
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    networks:
+      - potner-network
+    environment:
+      MQTT_HEALTH_USERNAME: "${MQTT_HEALTH_USERNAME}"
+      MQTT_HEALTH_PASSWORD: "${MQTT_HEALTH_PASSWORD}"
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mosquitto_pub -h 127.0.0.1 -p 1883 -u \"$${MQTT_HEALTH_USERNAME}\" -P \"$${MQTT_HEALTH_PASSWORD}\" -t 'potner/health' -m 'ping' >/dev/null 2>&1"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # 사진으로 생장 단계(germination / vegetative / flowering)를 판정하는 CPU 추론 서비스다.
+  #
+  # 포트를 공개하지 않는다. 인수인계 패키지의 docker-compose.yml 은 8000 을 호스트로 열지만
+  # 이 엔드포인트에는 인증이 없어서 그대로 올리면 누구나 EC2 의 CPU 를 태울 수 있다.
+  # backend 가 potner-network 안에서 http://yolo:8000 으로 부른다.
+  #
+  # healthcheck 를 두지 않는다. 이미지 Dockerfile 에 이미 있어 상속된다. 다만 그 검사는
+  # /health 라서 모델이 깨져도 통과한다. 모델 적재 실패는 앱을 죽이지 않고 /ready 에서만
+  # 드러나므로, 배포 스크립트가 /ready 를 따로 확인한다.
+  yolo:
+    build:
+      context: ./yolo_cpu_handoff
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # 가중치는 이미지에 구워져 있다. 경로를 바꿀 일은 없지만 값을 비우면 뜨지 않으므로 둔다.
+      YOLO_WEIGHTS_PATH: ${YOLO_WEIGHTS_PATH:-/app/models/best.pt}
+      # 기본값 0.10 은 매우 낮다. 오탐을 줄이려면 판정 로직이 붙을 때 함께 조정한다.
+      YOLO_CONFIDENCE: ${YOLO_CONFIDENCE:-0.10}
+      YOLO_IMAGE_SIZE: ${YOLO_IMAGE_SIZE:-640}
+      # backend 의 사진 업로드 상한과 같아야 한다. 어긋나면 한쪽만 받고 다른 쪽이 거부한다.
+      YOLO_MAX_UPLOAD_MIB: ${YOLO_MAX_UPLOAD_MIB:-10}
+      # CPU 추론이라 동시 실행을 늘리면 서로 느려진다.
+      YOLO_MAX_CONCURRENCY: ${YOLO_MAX_CONCURRENCY:-1}
+      YOLO_LOG_LEVEL: ${YOLO_LOG_LEVEL:-INFO}
+    expose:
+      - "8000"
+    networks:
+      - potner-network
+    # 컨테이너가 죽을 때 좀비 프로세스가 남지 않게 한다. 인수인계 패키지의 설정을 따른다.
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:?MYSQL_DATABASE must be set}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:?MYSQL_USER must be set}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_ACCESS_TOKEN_EXPIRATION: ${JWT_ACCESS_TOKEN_EXPIRATION:-1800000}
+      JWT_REFRESH_TOKEN_EXPIRATION: ${JWT_REFRESH_TOKEN_EXPIRATION:-1209600000}
+      MQTT_ENABLED: "${MQTT_ENABLED:-false}"
+      MQTT_BROKER_URL: "${MQTT_BROKER_URL:-tcp://mosquitto:1883}"
+      MQTT_USERNAME: "${MQTT_USERNAME:-}"
+      MQTT_PASSWORD: "${MQTT_PASSWORD:-}"
+      MQTT_CLIENT_ID: "${MQTT_CLIENT_ID:-potner-backend-prod}"
+      MQTT_TOPIC: "${MQTT_TOPIC:-potner/device/+/sensor/telemetry}"
+      MQTT_QOS: "${MQTT_QOS:-1}"
+      MQTT_CONNECTION_TIMEOUT_SECONDS: "${MQTT_CONNECTION_TIMEOUT_SECONDS:-10}"
+      MQTT_KEEP_ALIVE_SECONDS: "${MQTT_KEEP_ALIVE_SECONDS:-60}"
+      MQTT_RECOVERY_INTERVAL_MS: "${MQTT_RECOVERY_INTERVAL_MS:-10000}"
+      ARRIVAL_WELCOME_WAIT_SECONDS: "${ARRIVAL_WELCOME_WAIT_SECONDS:-120}"
+      ARRIVAL_TOTAL_TIMEOUT_SECONDS: "${ARRIVAL_TOTAL_TIMEOUT_SECONDS:-300}"
+      ARRIVAL_COMMAND_TIMEOUT_SECONDS: "${ARRIVAL_COMMAND_TIMEOUT_SECONDS:-120}"
+      ARRIVAL_TIMEOUT_CHECK_INTERVAL_SECONDS: "${ARRIVAL_TIMEOUT_CHECK_INTERVAL_SECONDS:-30}"
+      # Firebase 서비스 계정 키 경로다. 비어 있으면 발송기가 no-op 으로 떨어지고 푸시만
+      # 나가지 않는다. 파이프라인이 Jenkins Credential 을 아래 firebase-credentials 볼륨에
+      # 넣은 배포에서만 값이 채워진다. 값을 직접 적을 일은 없고, 적더라도 아래 마운트 경로
+      # 안이어야 한다.
+      FIREBASE_CREDENTIALS_PATH: "${FIREBASE_CREDENTIALS_PATH:-}"
+      # SSAFY GMS 텍스트 생성. 키가 비어 있으면 일기 생성이 no-op 으로 떨어지고 나머지는
+      # 그대로 동작한다. 모델과 엔드포인트를 환경변수로 둔 이유는 비용이나 정원 문제로
+      # 모델을 바꿀 때 이미지를 다시 만들지 않아도 되게 하려는 것이다.
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://gms.ssafy.io/gmsapi/api.openai.com/v1}"
+      LLM_MODEL: "${LLM_MODEL:-gpt-4.1-mini}"
+      # 아래 photo-data 볼륨의 마운트 경로와 같아야 하므로 .env 로 빼지 않는다.
+      PHOTO_ROOT: /var/potner/photos
+      # 사진은 API 와 같은 origin 의 /media 로 나가므로 기본값이 상대 경로다. 배포마다 주입할
+      # 값이 없다. 다른 origin(CDN 등)으로 옮길 때만 .env 에서 덮어쓴다.
+      PHOTO_BASE_URL: ${PHOTO_BASE_URL:-/media}
+      # 사진 기반 생장 단계 판정이다. 기본값이 꺼짐이라 이 값을 넘기지 않으면 분류기가 no-op 으로
+      # 떨어진다. 추론 서비스는 같은 네트워크의 http://yolo:8000 이므로 주소는 기본값을 쓴다.
+      #
+      # 접두어가 VISION_ 인 이유는 위 yolo 서비스 자신의 설정이 YOLO_ 를 쓰기 때문이다.
+      # 같은 접두어면 어느 쪽 설정인지 구분되지 않는다.
+      VISION_ENABLED: "${VISION_ENABLED:-false}"
+      VISION_REQUEST_CONFIDENCE: "${VISION_REQUEST_CONFIDENCE:-0.25}"
+      # 여기 적힌 값이 application.yml 의 기본값을 덮는다. 두 곳이 어긋나면 코드를 고쳐도
+      # 배포에는 반영되지 않으므로 같이 옮긴다.
+      VISION_MIN_CONFIDENCE: "${VISION_MIN_CONFIDENCE:-0.25}"
+      # 켜면 사용자가 손대지 않아도 단계가 바뀌고 푸시가 나간다. 판정 이력으로 오탐률을 확인한
+      # 뒤에 켠다. 꺼져 있어도 판정과 저장은 돌아간다.
+      VISION_AUTO_ADVANCE_ENABLED: "${VISION_AUTO_ADVANCE_ENABLED:-false}"
+    expose:
+      - "8080"
+    volumes:
+      # 업로드된 사진이다. 배포 디렉터리 안이 아니라 named volume 이므로 배포로 덮이지 않는다.
+      - photo-data:/var/potner/photos
+      # Firebase 서비스 계정 키다. 사진과 같은 이유로 named volume 에 둔다. 배포 디렉터리
+      # 안에 두면 Sync Deploy Configs 가 덮어쓴다. 애플리케이션은 읽기만 한다.
+      - firebase-credentials:/var/potner/secrets:ro
+    networks:
+      - potner-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  nginx:
+    image: nginx:1.27.5-alpine
+    restart: unless-stopped
+    ports:
+      - "${POTNER_HTTP_PORT:-80}:80"
+    volumes:
+      - ./infra/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # 사진은 backend 를 거치지 않고 Nginx 가 정적으로 서빙한다. 쓰기는 backend 만 한다.
+      - photo-data:/var/potner/photos:ro
+    networks:
+      - potner-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  potner-network:
+    name: potner-network
+    driver: bridge
+
+volumes:
+  mysql-data:
+    name: potner-mysql-data
+  mosquitto-data:
+    name: potner-mosquitto-data
+  mosquitto-log:
+    name: potner-mosquitto-log
+  # 업로드된 사진. down -v 로 지우면 복구할 수 없다.
+  photo-data:
+    name: potner-photo-data
+  # Firebase 서비스 계정 키. 파이프라인이 Jenkins Credential 에서 채운다. down -v 로 지워도
+  # 다음 배포가 다시 채우므로 사진과 달리 복구 수단이 있다.
+  firebase-credentials:
+    name: potner-firebase-credentials

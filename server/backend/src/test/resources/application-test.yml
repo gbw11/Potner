@@ -1,0 +1,47 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+jwt:
+  secret: ${JWT_SECRET:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+  access-token-expiration: 1800000
+  refresh-token-expiration: 1209600000
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+potner:
+  photo:
+    # 테스트가 쓴 파일이 저장소에 남지 않도록 빌드 디렉터리 아래에 둔다.
+    root: build/test-photos
+    # base-url 은 덮어쓰지 않는다. 운영과 같은 기본값(/media, 상대 경로)을 검증해야 한다.
+  daily-light:
+    # 스케줄러 빈을 만들어 @Scheduled 의 cron·zone 이 실제로 유효한지 컨텍스트 시작 시점에 검증한다.
+    # 빈을 만들지 않으면 잘못된 zone 값이 테스트를 통과해 배포에서 터진다.
+    enabled: true
+    # 사실상 실행되지 않는 시각으로 두어 테스트 중 배치가 끼어들지 않게 한다.
+    # 집계 로직은 서비스를 직접 호출해 검증한다.
+    cron: "0 0 3 1 1 *"
+  diary:
+    # 광량 배치와 같은 이유로 빈을 만들되 사실상 실행되지 않는 시각을 쓴다.
+    # 빈이 없으면 @Scheduled 의 cron·zone 이 검증되지 않은 채 배포로 넘어간다.
+    enabled: true
+    cron: "0 0 3 1 1 *"
+  happiness:
+    # 표정 발행은 cron 이 아니라 fixedDelay 라 '실행되지 않는 시각'을 줄 수 없다. 대신 발행만
+    # 끈다. 빈은 그대로 만들어져 @Scheduled 설정이 검증되고, 주기 실행이 DB 를 비우는 도중에
+    # 끼어들지도 않는다. 판정과 발행 대상 조회는 테스트가 publishOnce() 를 직접 불러 검증한다.
+    publish-enabled: false

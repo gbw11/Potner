@@ -1,0 +1,23 @@
+# Python
+.venv/
+.venv-ci/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Runtime data (project root)
+data/
+captures/
+*.jpg
+*.csv
+
+# Secrets / local overrides
+.env
+*.pem
+config.local.yaml
+config/*.local.yaml
+
+# OS / editor
+.DS_Store
+.claude/

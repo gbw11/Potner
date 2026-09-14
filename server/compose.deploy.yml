@@ -1,0 +1,11 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE must be set}
+    pull_policy: never
+
+  # 태그가 yolo_cpu_handoff/ 의 tree 해시라서 그 디렉터리가 바뀌지 않으면 값이 그대로다.
+  # 그러면 compose 가 서비스 정의를 같다고 보고 컨테이너를 재생성하지 않는다. 백엔드처럼
+  # 빌드 번호를 넣으면 배포마다 추론 서비스가 재시작하며 모델을 다시 적재한다.
+  yolo:
+    image: ${YOLO_IMAGE:?YOLO_IMAGE must be set}
+    pull_policy: never

@@ -1,0 +1,255 @@
+# 실행 환경: mock | raspberry_pi | jetson
+platform: mock
+
+# 수집 주기 (초)
+interval_sec: 5
+
+# 저장
+storage:
+  type: csv
+  path: data/readings.csv
+
+# I2C 버스 번호 (라즈베리파이: 1, 젯슨 나노: 보통 1)
+i2c_bus: 1
+
+sensors:
+  # 조도·토양수분은 Pi MQTT 경로에서 제외. mock 테스트에서만 켤 수 있음.
+  light:
+    enabled: false
+    driver: bh1750
+    address: 0x23
+
+  climate:
+    enabled: true
+    driver: dht22
+    pin: 4
+    address: 0x38
+
+  soil:
+    enabled: false
+    driver: ads1115
+    address: 0x48
+    channel: 0
+    dry_raw: 20000
+    wet_raw: 8000
+
+  # 수위 센서(플로트 스위치, GND+GPIO 2선 건식 접점) — src/sensors/water_level.py
+  # 켜면 collector 가 매 주기 read_stable(다수결)로 읽고 row.water_present 에 기록,
+  # 전용 상태 토픽(mqtt.water_low_topic)으로 waterLow 불리언을 발행한다.
+  # 주의: collector 가 이 핀을 잡으면 cli/water_level 단독 실행은 GPIO busy 로 실패 —
+  #       단독 테스트는 collector 서비스를 중지한 뒤 할 것.
+  water_level:
+    enabled: false        # mock PC 기본 꺼짐 (테스트에서만 켠다)
+    driver: float_switch  # float_switch | mock (platform: mock 이면 항상 mock)
+    pin: 27               # BCM. 물리 13번 핀
+    invert: true          # 실물 확인(2026-08-03): 접점 닫힘 = 물 없음 → 해석 반전
+    # 서버 규약(Server-develop d4f9219): 텔레메트리가 아니라 전용 상태 토픽
+    # potner/device/{id}/status/water-low 로 waterLow 불리언을 보고한다.
+    # false 도 매 주기 발행 (서버 플래그 해제용, 처리 멱등).
+    report: true          # false 면 수집(CSV)은 하되 MQTT 보고만 끈다
+    hold_sec: 10           # 이 시간(초) 이상 연속 유지된 상태만 서버로 발행 (접촉 잔떨림 방지)
+    # 아래 둘은 mock 전용(platform: mock 또는 driver: mock). 실센서에는 영향 없다.
+    # 기본 mock 은 raw 접점 닫힘 고정 = "물 없음" 고정이라 PC 에서 복구 흐름을 못 본다.
+    mock_toggle: false    # true 면 읽을 때마다 닫힘/열림 교대 (잔떨림 = hold_sec 게이트 확인용)
+    mock_values: []       # 예 [false, false, true, true] — raw 접점 시퀀스, 마지막 값 유지
+
+# 로컬 규칙 판단 임계값 (LLM 호출 전 단계)
+status_rules:
+  temperature_c:
+    low: 15
+    high: 32
+  humidity_pct:
+    low: 30
+    high: 80
+
+# Spring Boot로 토양수분만 전송 (급수량 계산은 서버)
+# SPRING_BASE_URL / DEVICE_ID 환경변수로 덮어쓸 수 있음
+backend:
+  enabled: false
+  base_url: http://127.0.0.1:8080
+  soil_path: /api/v1/sensors/soil
+  device_id: pi-01
+  timeout_sec: 5
+
+# 촬영 사진을 potner 서버로 업로드 (multipart/form-data)
+#   POST http://i15e104.p.ssafy.io/api/v1/device/photos
+# 서버가 업로드 토큰 -> 로봇 -> 활성 배정 순으로 식물을 정하므로 plantId 를 보내지 않는다.
+# 파일 파트 하나(file)와 쿼리 capturedAt 만 받고, 그 외 메타데이터는 받지 않는다.
+upload:
+  enabled: false
+  base_url: http://i15e104.p.ssafy.io
+  path: /api/v1/device/photos
+  method: POST
+  timeout_sec: 20               # 사진 전송이라 센서보다 넉넉히
+  device_id: pi-01
+  # HTTP 재시도 (네트워크/서버 오류 대상. 촬영 재시도와는 별개)
+  # 4xx 는 재시도하지 않는다 — 토큰·배정 문제는 사람이 고쳐야 한다.
+  max_attempts: 3
+  retry_backoff_sec: 1.0        # 1s -> 2s (지수 백오프)
+  retry_backoff_max_sec: 8.0
+  retry_on_status: [408, 425, 429, 500, 502, 503, 504]
+  # 201 외에 성공으로 볼 상태코드.
+  # 409 PHOTO_ALREADY_EXISTS_FOR_DATE — 서버는 타임랩스 프레임 간격을 일정하게 두려고
+  # 하루 한 장만 저장한다. 같은 날 두 번째 촬영은 409 이고 이건 정상 동작이다.
+  # 실패로 다루면 서버의 자동 촬영 체인이 거기서 끊긴다.
+  success_status: [409]
+  max_bytes: 10485760           # 서버 허용 10 MiB. 넘으면 JPEG 품질을 낮춰 재인코딩
+  file_field: file              # 다른 이름이면 서버가 400
+  metadata_mode: none           # 이 서버는 바디 메타데이터를 받지 않는다
+  metadata_field: metadata
+  metadata_content_type: application/json
+  # capturedAt 은 쿼리로 보낸다. '+09:00' 의 '+' 가 쿼리에서 공백으로 깨지므로
+  # iso8601_z 로 UTC Z 형식으로 정규화한다 (CaptureResult.timestamp 는 로컬 오프셋 형식).
+  timestamp_mode: iso8601_z
+  query_fields: [capturedAt]
+  # 이 서버로는 capturedAt 만 나간다. 나머지는 null 로 꺼 둔다.
+  field_map:
+    capturedAt: capturedAt
+    requestId: null
+    deviceId: null
+    fileName: null
+    contentType: null
+    fileSize: null
+    width: null
+    height: null
+    driver: null
+  required_fields: [capturedAt]
+  extra_fields: {}
+  auth:
+    scheme: header
+    header: X-Device-Token      # 로봇 등록 시 1회만 나오는 uploadToken
+    token_env: POTNER_UPLOAD_TOKEN  # 값은 .env 에만. yaml/git 에 넣지 말 것
+
+events:
+  path: data/events.jsonl
+
+# 애플리케이션 로그 (표준 logging + 회전 파일). 모듈은 logging.getLogger(__name__) 만 쓴다.
+logging:
+  level: INFO          # DEBUG | INFO | WARNING | ERROR
+  console: true
+  path: data/app.log   # null 이면 파일 로그 비활성 (콘솔만)
+  max_bytes: 1048576   # 1MB 마다 회전
+  backup_count: 5      # app.log.1 ~ app.log.5
+
+# 말투 생성 / 자유 대화 (판단은 로컬, 문장만 LLM)
+# SSAFY GMS: .env 의 OPENAI_API_KEY + OPENAI_BASE_URL 사용
+llm:
+  enabled: true
+  provider: gms          # gms | openai | mock
+  model: gpt-4.1-nano    # 저비용 테스트. 필요시 gpt-5-nano
+  max_tokens: 200
+  api_key_env: OPENAI_API_KEY
+  base_url: https://gms.ssafy.io/gmsapi/api.openai.com/v1
+
+# 음성: 지금은 콘솔 입출력. 이후 whisper / TTS API로 교체
+voice:
+  tts: console
+  stt: console
+
+# SunFounder Camera Rev1.3 (OV5647) — CSI
+# PC(mock): 더미 PNG. Pi: picamera2
+camera:
+  enabled: true
+  driver: auto          # auto | mock | picamera2
+  path: data/camera     # 이미지 + index.jsonl
+  width: 1920           # FHD
+  height: 1080
+  camera_num: 0
+  # 밝기 (어두우면 exposure_value / brightness 를 올리세요)
+  settle_sec: 1.0
+  exposure_value: 1.0   # EV 보정 (+면 밝아짐, 권장 0.5~1.5)
+  brightness: 0.12
+  contrast: 1.1
+  saturation: 1.05
+  # 화이트밸런스: auto | incandescent | tungsten | fluorescent | indoor | daylight | cloudy
+  awb_mode: auto
+  # 자동 AWB 로 색 캐스트(예: 녹색빛)가 안 잡히면 [red, blue] 게인을 고정한다.
+  # 실측: python -m cli.capture_photo --analyze-color
+  # colour_gains: [1.8, 1.4]
+  capture_with_read: false
+  capture_every_n: 1
+  # 촬영 "후" 결과 이미지 밝기 검사 (src/vision/quality.py)
+  # 위의 exposure_value/brightness 는 촬영 파라미터, 여기는 결과물 판정 기준이다.
+  quality:
+    enabled: true
+    min_mean_brightness: 40     # 평균 luma(0~255) 하한 — 미만이면 저조도
+    max_mean_brightness: 215    # 평균 luma 상한 — 초과면 과노출
+    dark_pixel_level: 16        # 이 값 이하 픽셀 = 뭉개진 검정
+    bright_pixel_level: 240     # 이 값 이상 픽셀 = 날아간 흰색
+    max_dark_ratio: 0.6         # 검정 픽셀 허용 비율 (초과 시 저조도)
+    max_bright_ratio: 0.5       # 흰색 픽셀 허용 비율 (초과 시 과노출)
+    sample_step: 4              # N픽셀마다 1개 샘플링 (1 이면 전수 검사)
+    # warn: 경고만 남기고 업로드까지 진행 | reject: 후속 분석/업로드 차단
+    # reject 로 되돌리지 말 것 — 탈락하면 result/capture 가 ERROR 로 나가고,
+    # 서버는 ERROR 를 받으면 그날 자동 촬영 체인을 멈춘다 (raspberry_pi.yaml 과 동일 정책).
+    on_failure: warn
+  # 촬영 실패 시 자동 재시도 (src/vision/capture_flow.py)
+  # 재시도 대상: 카메라 오류 / 촬영 실패 / 이미지 저장 실패 / 밝기 검사 탈락
+  # 재시도 안 함: 잘못된 requestId·페이로드, 카메라 비활성(camera.enabled=false)
+  #               — 다시 찍어도 결과가 같다
+  # 이 섹션을 통째로 지우면 재시도 없이 1회만 촬영한다 (구버전 동작).
+  retry:
+    enabled: true
+    max_attempts: 3             # 최초 촬영 포함 총 시도 횟수 (1 이면 재시도 없음)
+    delay_sec: 1.0              # 재시도 전 대기 (초)
+    backoff: true               # true: 1s → 2s → 4s 지수 증가 | false: 매번 delay_sec
+    backoff_max_sec: 8.0        # 백오프 상한 (0 이하면 상한 없음)
+    retry_on_quality: true      # 밝기 탈락(저조도/과노출)도 재촬영할지
+    verify_saved_file: true     # 촬영 후 파일이 실제로 저장됐는지(존재·크기>0) 확인
+    # true 로 하면 재촬영으로 버려진 중간 실패 이미지를 삭제한다. 마지막 1장은 항상 남긴다
+    # (서버 회신에 path 를 싣는다). 삭제해도 index.jsonl 항목은 남으므로 주의.
+    discard_failed_images: false
+    # 재시도 중에는 카메라 락을 계속 쥔다 → 그 사이 들어온 촬영 명령은 BUSY 로 회신된다.
+    # 최악 소요 = max_attempts x (촬영시간 + delay). 값을 키울 때 이 점을 고려할 것.
+
+# 급수용 다이어프램 펌프 — L298N 경유 (PC mock 모드에선 가동 로그만 출력)
+pump:
+  enabled: true
+  driver: mock           # l298n | relay | mock (platform: mock 이면 항상 mock)
+  in1_pin: 17
+  in2_pin: 18
+  ena_pin: null          # ENA 점퍼 장착 시 null
+  speed: 1.0
+  flow_ml_per_sec: 25.0
+  startup_sec: 0.0
+  min_run_sec: 0.3       # 이보다 짧게 돌면 물이 사실상 안 나온다 (소량 요청은 여기까지 늘림)
+  max_run_sec: 30
+  default_ml: 100
+  # 과급수 방지 게이트. 급수량 자체는 위 보정값이 정하고, 여기서는 "지금 줘도 되는가"만 본다.
+  # CLI 는 --force 로 우회 가능(실험용), 서버 명령은 우회 불가.
+  safety:
+    enabled: true
+    max_ml_per_dose: 500   # 1회 요청 상한 (넘으면 이 값까지만 급수)
+    min_interval_sec: 300  # 직전 급수 후 재급수 최소 간격 (중복 명령 차단)
+    daily_max_ml: 1000     # 최근 24시간 누적 상한
+    soil_wet_pct: 70       # 토양수분이 이 값 이상이면 급수 스킵 (센서 없으면 이 축만 비활성)
+    state_path: data/water_history.json  # 재시작해도 누적량 유지
+
+# 송풍용 시로코 팬 — MOSFET 모듈 경유 (PC mock 모드에선 속도 로그만 출력)
+fan:
+  enabled: true
+  driver: mock           # mosfet | mock (platform: mock 이면 항상 mock)
+  pin: 23
+  pwm_hz: 100
+  default_speed_pct: 100 # cli/fan.py 에서 --speed 생략 시 풍량 (수동 테스트용, MQTT 와 무관)
+  # 앱 송풍 버튼을 눌렀을 때의 동작 — 서버가 보내는 값은 쓰지 않고 항상 이 값으로 가동한다
+  # 실기 실측: duty 를 낮추면 기동 토크가 부족해 진동만 한다 (70% = 진동만) → 100% 고정
+  blow_speed_pct: 100    # 풍량 % (0~100)
+  blow_run_sec: 10       # 가동 시간 (초)
+
+# potner MQTT (Pi에서 사용, mock에선 보통 비활성)
+# main.py 가 interval_sec 마다 센서값 송신 + 30초 주기 heartbeat 발행
+# device_id 는 토픽·페이로드·서버 등록 deviceUid 와 같은 문자열이어야 한다 (대소문자 구분)
+mqtt:
+  enabled: false
+  host: i15e104.p.ssafy.io
+  port: 1884
+  qos: 1
+  device_id: raspberry-01
+  username: raspberry-01
+  password: ""
+  heartbeat_interval_sec: 30
+  telemetry_topic: potner/device/raspberry-01/sensor/telemetry
+  heartbeat_topic: potner/device/raspberry-01/status/heartbeat
+  # 급수 스테이션 물부족 보고 (sensors.water_level 활성 시, waterLow 불리언)
+  water_low_topic: potner/device/raspberry-01/status/water-low

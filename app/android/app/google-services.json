@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "748246946245",
+    "project_id": "potner-b276a",
+    "storage_bucket": "potner-b276a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:748246946245:android:798be60da11f444d197bac",
+        "android_client_info": {
+          "package_name": "com.potner.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdWwCXzZzFTWns7jyBdzJXGeKeg7AuZM0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

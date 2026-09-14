@@ -1,0 +1,23 @@
+[Unit]
+Description=Potner Raspberry Pi collector (climate MQTT, heartbeat, water/capture)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=e104
+Group=e104
+WorkingDirectory=/home/e104/S15P11E104
+# MQTT_PASSWORD 등 — 저장소 루트 .env (git 추적 안 함)
+EnvironmentFile=-/home/e104/S15P11E104/.env
+# 보드 시리얼로 device_id 가 바뀌지 않게 비움
+Environment=DEVICE_ID=
+ExecStart=/home/e104/S15P11E104/.venv/bin/python -u main.py --config config/raspberry_pi.yaml
+Restart=always
+RestartSec=5
+
+# 카메라·GPIO 접근
+SupplementaryGroups=video gpio i2c
+
+[Install]
+WantedBy=multi-user.target

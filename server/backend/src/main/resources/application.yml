@@ -1,0 +1,352 @@
+spring:
+  application:
+    name: potner
+  profiles:
+    default: local
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+  jackson:
+    time-zone: UTC
+  servlet:
+    multipart:
+      # potner.photo.max-upload-bytes 보다 크게 둔다. 이 값이 더 작으면 Spring 이 먼저 거부해
+      # PHOTO_TOO_LARGE 대신 형식이 다른 일반 오류가 나가고 원인 파악이 어려워진다.
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:12MB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:12MB}
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: false
+
+info:
+  app:
+    name: potner
+
+jwt:
+  secret: ${JWT_SECRET:}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:1800000}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
+
+potner:
+  mqtt:
+    enabled: ${MQTT_ENABLED:false}
+    broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
+    username: ${MQTT_USERNAME:}
+    password: ${MQTT_PASSWORD:}
+    client-id: ${MQTT_CLIENT_ID:potner-backend-local}
+    topic: ${MQTT_TOPIC:potner/device/+/sensor/telemetry}
+    qos: ${MQTT_QOS:1}
+    connection-timeout-seconds: ${MQTT_CONNECTION_TIMEOUT_SECONDS:10}
+    keep-alive-seconds: ${MQTT_KEEP_ALIVE_SECONDS:60}
+    recovery-interval-ms: ${MQTT_RECOVERY_INTERVAL_MS:10000}
+    heartbeat:
+      topic: ${MQTT_HEARTBEAT_TOPIC:potner/device/+/status/heartbeat}
+      offline-timeout-seconds: ${MQTT_HEARTBEAT_OFFLINE_TIMEOUT_SECONDS:90}
+      offline-check-interval-seconds: ${MQTT_HEARTBEAT_OFFLINE_CHECK_INTERVAL_SECONDS:30}
+    # 젯슨이 보내는 로봇 행동 상태다. 같은 상태를 주기적으로 반복 발행하므로 처리가 멱등해야
+    # 하고, 상태가 바뀔 때만 저장한다.
+    robot-state:
+      topic: ${MQTT_ROBOT_STATE_TOPIC:potner/device/+/status/state}
+    # 배터리 잔량 구독이다. 어느 장치를 신뢰하는지는 potner.device.battery-reporter-type 이 정한다.
+    battery:
+      topic: ${MQTT_BATTERY_TOPIC:potner/device/+/status/battery}
+    # 급수 스테이션 물 부족 보고 구독이다. 스테이션 수위 센서를 읽는 라즈베리가 보낸다.
+    # 부족으로 바뀔 때만 사용자에게 푸시가 나가고, 보충(false) 보고가 플래그를 내린다.
+    water-low:
+      topic: ${MQTT_WATER_LOW_TOPIC:potner/device/+/status/water-low}
+    # 서버 → 로봇 명령이다. 수신 토픽과 접두사를 맞추고 command/ 아래로 모은다.
+    # {deviceUid} 와 {command} 는 발행할 때 치환한다.
+    command:
+      topic-template: ${MQTT_COMMAND_TOPIC_TEMPLATE:potner/device/{deviceUid}/command/{command}}
+      # 구독 클라이언트와 ID 가 같으면 브로커가 앞선 세션을 끊는다. 둘이 서로를 끊으며 무한
+      # 재접속에 빠져 센서 수집까지 멈추므로 접미사로 갈라 둔다.
+      client-id-suffix: ${MQTT_COMMAND_CLIENT_ID_SUFFIX:-command}
+      qos: ${MQTT_COMMAND_QOS:1}
+    # 장치가 명령 수행 결과를 회신하는 토픽이다. 와일드카드로 받는 이유는 명령 종류가 늘 때마다
+    # 구독을 추가하면 브로커 재접속이 필요하기 때문이다. 어떤 결과인지는 토픽 파서가 가린다.
+    # 브로커 ACL 의 장치 쓰기 권한(pattern write .../result/#)과 서버 읽기 권한이 이미 이 경로다.
+    command-result:
+      topic: ${MQTT_COMMAND_RESULT_TOPIC:potner/device/+/result/#}
+  # 장치 명령의 타임아웃이다. potner.mqtt.* 아래가 아닌 이유는 battery-reporter-type 과 같다 —
+  # 브로커를 끈 환경에서도 명령 이력 조회 서비스는 떠야 한다.
+  device-command:
+    # 가장 오래 걸리는 명령이 기준이다. 이동은 로봇이 Nav2 에 300초, 스테이션 도킹에 90초를
+    # 따로 쓴다(로봇 potner_params.yaml 의 navigate_timeout / docking_timeout). 그보다 짧게
+    # 잡으면 정상 주행이 타임아웃으로 기록된다 — 급수 30초만 보고 120 으로 두고 있었다.
+    #
+    # 늦게 온 회신이 TIMED_OUT 을 덮어써서 체인 자체는 이어지지만(DeviceCommandStatus.isTerminal
+    # 에 TIMED_OUT 이 빠져 있다), 그 사이 RobotBusyGuard 가 로봇을 유휴로 본다. ISSUED 만 세기
+    # 때문이다. 그러면 10분 주기 환기 스케줄러가 주행 중인 로봇에 새 이동을 던지고 BUSY 로
+    # 거절당한 실패가 이력에 남는다.
+    #
+    # 너무 길면 죽은 장치가 다음 명령을 그 시간만큼 막는다. 로봇의 상한 300 + 도킹 90 에
+    # 무선 왕복 여유를 더한 값이다.
+    timeout-seconds: ${DEVICE_COMMAND_TIMEOUT_SECONDS:420}
+    timeout-check-interval-seconds: ${DEVICE_COMMAND_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
+    # 송풍 1회 기본 가동 시간(초). 말리기는 짧은 가동과 수분 재측정의 반복이라 짧게 잡는다.
+    fan-run-seconds: ${DEVICE_COMMAND_FAN_RUN_SECONDS:30}
+    # 수분 부족 알림 → 이동 → 급수 → 복귀 자동 체인. 끄면 진행 중인 체인도 다음 회신에서
+    # 멈추므로, 오작동하는 로봇은 재배포 없이 이 값만 내리면 세울 수 있다.
+    auto-water-enabled: ${DEVICE_COMMAND_AUTO_WATER_ENABLED:true}
+    # 하루 목표 광량을 채우도록 로봇을 햇빛 자리로 보내고, 채우면 그늘로 되돌린다.
+    auto-sunlight-enabled: ${DEVICE_COMMAND_AUTO_SUNLIGHT_ENABLED:true}
+    sunlight-check-interval-seconds: ${DEVICE_COMMAND_SUNLIGHT_CHECK_INTERVAL_SECONDS:1800}
+    # 햇빛 자리로 보내는 시간대(서비스 타임존). 창이 닫히면 목표 미달이어도 되돌린다.
+    sunlight-window-start-hour: ${DEVICE_COMMAND_SUNLIGHT_WINDOW_START_HOUR:8}
+    sunlight-window-end-hour: ${DEVICE_COMMAND_SUNLIGHT_WINDOW_END_HOUR:17}
+    # 사용자가 직접 이동시킨 로봇은 이 시간(분) 동안 자동 재배치가 건드리지 않는다.
+    manual-placement-hold-minutes: ${DEVICE_COMMAND_MANUAL_PLACEMENT_HOLD_MINUTES:60}
+    # 하루 한 장 성장 사진 자동 촬영. 꺼지면 포토 로그·타임랩스·생장 단계 판정·자동 개화가
+    # 모두 함께 멈춘다 — 사진 업로드가 그 전부의 유일한 입구다.
+    auto-capture-enabled: ${DEVICE_COMMAND_AUTO_CAPTURE_ENABLED:true}
+    capture-check-interval-seconds: ${DEVICE_COMMAND_CAPTURE_CHECK_INTERVAL_SECONDS:1800}
+    # 촬영 시간대(서비스 타임존). 어두우면 사진이 쓸모없고 생장 단계 추론이 오탐을 낸다.
+    # 일기 배치(21시)보다 충분히 앞서야 그날 사진이 일기에 실린다.
+    capture-window-start-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_START_HOUR:10}
+    capture-window-end-hour: ${DEVICE_COMMAND_CAPTURE_WINDOW_END_HOUR:16}
+    # 낮 동안 일정한 간격으로 스테이션에 데려가 팬으로 주변 공기를 순환시킨다. 곰팡이와
+    # 웃자람을 막는 원예의 기본이고, 습도와 무관하게 매일 필요하다 — 이유는
+    # AutoDryingScheduler 주석에 있다. 끄면 급수 뒤 송풍도 함께 멈춘다.
+    auto-drying-enabled: ${DEVICE_COMMAND_AUTO_DRYING_ENABLED:true}
+    # 조건을 얼마나 자주 보는가. 아래 간격과 다르다 — 이 값이 성기면 환기가 끝난 로봇이
+    # 그만큼 스테이션에 방치된다. 시연에서 즉석으로 보여주려면 30 정도로 낮춘다.
+    drying-check-interval-seconds: ${DEVICE_COMMAND_DRYING_CHECK_INTERVAL_SECONDS:600}
+    # 송풍 사이를 얼마나 벌리는가. 하루 가동 횟수를 실제로 정하는 값이다.
+    # 9000초(2시간 30분) × 시간대 14시간 = 하루 약 6회. 급수 뒤 송풍도 이 간격을 리셋한다.
+    drying-interval-seconds: ${DEVICE_COMMAND_DRYING_INTERVAL_SECONDS:9000}
+    # 환기 시간대(서비스 타임존). 밤에는 기공이 닫혀 증산이 없어 얻는 것이 적고 팬 소음이
+    # 남는다. 창 밖에서도 복귀는 돈다 — 로봇을 스테이션에 밤새 세워 두지 않는다.
+    drying-window-start-hour: ${DEVICE_COMMAND_DRYING_WINDOW_START_HOUR:8}
+    drying-window-end-hour: ${DEVICE_COMMAND_DRYING_WINDOW_END_HOUR:22}
+    # 이 온도(℃) 아래에서는 환기하지 않는다. 찬 바람은 냉해를 부르고 저온에서는 곰팡이
+    # 위험도 낮다. 온도를 못 읽으면 막지 않고 진행한다 — 센서 고장이 기능 정지가 되면 안 된다.
+    drying-min-temperature-c: ${DEVICE_COMMAND_DRYING_MIN_TEMPERATURE_C:15}
+    # 평소에는 위 간격이 횟수를 정하므로 여기 닿지 않는다. 설정을 잘못 잡았거나 급수가 잦은
+    # 날 송풍이 겹칠 때 팬이 끝없이 도는 것을 막는 안전장치다.
+    max-auto-drying-runs-per-day: ${DEVICE_COMMAND_MAX_AUTO_DRYING_RUNS_PER_DAY:6}
+  # 앱의 방향 버튼으로 로봇을 직접 미는 조작이다. 목적지 이동과 달리 지도 좌표를 보지 않으므로
+  # SLAM 지도가 없는 자리에서도 바퀴가 도는지 확인할 수 있다.
+  drive:
+    # 사람 옆에서 움직이는 장치의 속도다. 걸어서 따라잡을 수 있는 값으로 둔다. 앱이 정하지
+    # 않는 이유는 조작하는 쪽이 상한을 올릴 수 있어서는 안 되기 때문이다.
+    linear-mps: ${DRIVE_LINEAR_MPS:0.12}
+    angular-rps: ${DRIVE_ANGULAR_RPS:0.6}
+    # 버튼 한 번에 움직이는 시간(ms). 짧게 끊는 것이 안전장치다 - 앱이 죽거나 와이파이가 끊겨
+    # 정지 명령이 못 나가도 로봇이 이 시간 뒤에는 스스로 멈춘다.
+    step-millis: ${DRIVE_STEP_MILLIS:600}
+  # 로봇 LLM 대화 이력 저장소다. 젯슨 로컬 JSON 하나뿐이던 이력을 서버로 옮긴다.
+  conversation:
+    # 앱 채팅 화면이 한 번에 받는 발화 수. 카톡처럼 위로 올릴 때 커서로 더 받는다.
+    default-page-size: ${CONVERSATION_DEFAULT_PAGE_SIZE:50}
+    # 요청이 이보다 크게 달라고 하면 이 값으로 줄인다. 발화는 무한히 쌓이는 데이터라
+    # 한 번에 다 달라고 하면 응답이 수십 MB 가 될 수 있다.
+    max-page-size: ${CONVERSATION_MAX_PAGE_SIZE:200}
+    # 젯슨이 재시작 뒤 복원할 때 받는 발화 수. 프롬프트에는 최근 10턴만 쓰이므로
+    # 그보다 넉넉하면 되고, 크게 잡으면 토큰 비용만 는다.
+    device-restore-size: ${CONVERSATION_DEVICE_RESTORE_SIZE:40}
+  arrival:
+    # GREETING 도착 뒤 사용자를 기다리는 시간과 이동·대기·HOME 복귀를 합친 전체 상한이다.
+    welcome-wait-seconds: ${ARRIVAL_WELCOME_WAIT_SECONDS:120}
+    total-timeout-seconds: ${ARRIVAL_TOTAL_TIMEOUT_SECONDS:300}
+    # WELCOME_START의 OK는 GREETING 도착을 뜻하므로 대기 시간을 포함하지 않는다.
+    command-timeout-seconds: ${ARRIVAL_COMMAND_TIMEOUT_SECONDS:120}
+    timeout-check-interval-seconds: ${ARRIVAL_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
+    # 백그라운드 Work 재시도가 너무 늦게 도착해 로봇을 갑자기 움직이는 것을 막는다.
+    event-max-age-seconds: ${ARRIVAL_EVENT_MAX_AGE_SECONDS:600}
+    # 휴대전화 시계가 조금 빠른 경우는 허용하되 큰 시각 오류는 명령 발행 전에 거절한다.
+    future-event-skew-seconds: ${ARRIVAL_FUTURE_EVENT_SKEW_SECONDS:300}
+  device:
+    # 배터리 잔량을 보고하도록 정한 장치다. robot.battery_percent 가 컬럼 하나라 두 장치가
+    # 보내면 서로 덮어쓴다. 배터리 센서가 라즈베리로 옮겨가면 RASPBERRY_PI 로 바꾼다.
+    #
+    # potner.mqtt.* 에 두지 않는다. 그쪽은 브로커를 켠 환경에서만 로드되어, 브로커를 끈
+    # 환경에서도 떠야 하는 도메인 서비스가 주입받으면 컨텍스트가 뜨지 않는다.
+    battery-reporter-type: ${DEVICE_BATTERY_REPORTER_TYPE:JETSON_ORIN}
+  daily-light:
+    enabled: ${DAILY_LIGHT_ENABLED:true}
+    cron: "${DAILY_LIGHT_CRON:0 0 2 * * *}"
+    # @Scheduled 의 zone 은 TimeZone.getTimeZone 으로 해석되므로 맨 오프셋('+09:00')을 받지 않는다.
+    # IANA 지역 ID 또는 'GMT+09:00' 형태여야 한다.
+    # potner.sensor.zone-offset 과 같은 지역을 가리켜야 한다. 그쪽은 SQL 시각 연산에 쓰이므로 고정 오프셋이다.
+    zone: "${DAILY_LIGHT_ZONE:Asia/Seoul}"
+    light-on-threshold-lux: ${DAILY_LIGHT_ON_THRESHOLD_LUX:500}
+    # 표본 하나가 대표할 수 있는 최대 시간이다. 정상 수집에서는 아무 일도 하지 않고
+    # (간격이 이 값보다 짧아 그대로 쓰인다) 장치가 끊겼을 때만 개입한다.
+    #
+    # 젯슨이 조도를 10초마다 보내므로 6배인 60 으로 둔다. 이전 값 600 은 젯슨이 10분간
+    # 죽어도 마지막 값이 그 10분을 다 채워, 끊김을 정상 데이터로 위장했다. 60 이면 1분만
+    # 인정되고 나머지는 커버리지에서 빠져 min-coverage-pct 판정에 드러난다.
+    #
+    # 발행 주기가 바뀌면 이 값도 함께 봐야 한다. 주기보다 작으면 초과분이 잘려 누적 광량이
+    # 계통적으로 과소 계산된다.
+    max-gap-seconds: ${DAILY_LIGHT_MAX_GAP_SECONDS:60}
+    min-coverage-pct: ${DAILY_LIGHT_MIN_COVERAGE_PCT:80}
+    photoperiod-tolerance-ratio: ${DAILY_LIGHT_PHOTOPERIOD_TOLERANCE_RATIO:0.2}
+    max-history-days: ${DAILY_LIGHT_MAX_HISTORY_DAYS:90}
+  happiness:
+    # 로봇 디스플레이 표정 발행. 브로커가 꺼져 있으면 발행기가 no-op 으로 떨어지므로 이 값을
+    # 끄지 않아도 되지만, 판정 로그까지 끄고 싶을 때 쓴다.
+    publish-enabled: ${HAPPINESS_PUBLISH_ENABLED:true}
+    publish-interval-seconds: ${HAPPINESS_PUBLISH_INTERVAL_SECONDS:30}
+    # 목표 조도(illuminance_target_lux)의 이 비율을 넘으면 '충분한 광량'으로 본다.
+    # 목표값을 그대로 쓰면 안 된다. 시드가 야외 기준(바질 발아기 10,000 lux)이라 실내에서는
+    # 창가라도 못 넘어 표정이 영영 나오지 않는다. 형광등은 300~500 lux 라 절반 기준으로도
+    # 넘지 못하므로 실내등을 햇볕으로 오인하지 않는다. 시연 장소 밝기에 맞춰 조절한다.
+    sunlight-lux-ratio: ${HAPPINESS_SUNLIGHT_LUX_RATIO:0.5}
+    # 디스플레이가 달린 장치다. 하드웨어 구성이 바뀌면 RASPBERRY_PI 로 돌릴 수 있다.
+    display-device-type: ${HAPPINESS_DISPLAY_DEVICE_TYPE:JETSON_ORIN}
+    # 일별 점수 감점·가점 폭이다. 알림 하나면 95점이 된다. 감점 폭은 기획 감각의 문제라
+    # 코드를 고치지 않고 조절할 수 있어야 한다.
+    alert-penalty: ${HAPPINESS_ALERT_PENALTY:5}
+    bloom-bonus: ${HAPPINESS_BLOOM_BONUS:5}
+  alert:
+    sample-size: ${ALERT_SAMPLE_SIZE:3}
+    hysteresis-ratio: ${ALERT_HYSTERESIS_RATIO:0.1}
+    max-page-size: ${ALERT_MAX_PAGE_SIZE:100}
+    # 배수트레이 알림 임계값 = 식물별 권장 급수량 × 이 배수. 고정 ml 이 아닌 이유는 트레이 용량이
+    # 화분 크기에 따라 다르기 때문이다. 사실상 "급수 몇 회마다 비우기" 다.
+    # 시연에서 즉석으로 보여주려면 1 로 낮춘다 — 급수 한 번에 알림이 뜬다.
+    drainage-tray-watering-multiplier: ${ALERT_DRAINAGE_TRAY_WATERING_MULTIPLIER:8}
+  photo:
+    # 배포 sync 경로 밖의 named volume 이어야 한다. 배포 파이프라인이 배포 디렉토리를 매번
+    # 덮어쓰므로 그 안에 두면 배포마다 사진이 사라진다. docker compose down -v 도 이 볼륨을 지운다.
+    root: ${PHOTO_ROOT:./data/photos}
+    # Nginx 가 root 를 이 경로로 공개한다. 기본값이 절대 URL 이 아닌 이유는 사진이 API 와 같은
+    # origin 에서 나가기 때문이다. 앱이 자기 API base URL 에 붙이면 되므로 서버가 도메인을
+    # 알 필요가 없고, 배포마다 주입할 값도 없다. 다른 origin 으로 옮길 때만 덮어쓴다.
+    base-url: ${PHOTO_BASE_URL:/media}
+    playback-max-pixels: ${PHOTO_PLAYBACK_MAX_PIXELS:1280}
+    thumbnail-max-pixels: ${PHOTO_THUMBNAIL_MAX_PIXELS:400}
+    max-upload-bytes: ${PHOTO_MAX_UPLOAD_BYTES:10485760}
+    # 카메라가 스테이션에 거꾸로 달려 있어 장치 사진이 180도 뒤집혀 올라온다. 표시하는 쪽이
+    # 아니라 저장할 때 바로잡는다 — 화면이 네 곳(포토 로그·상세·타임랩스·성장 비교)이라
+    # 표시에서 고치면 네 번 고쳐야 하고, 생장 단계 추론이 읽는 재생본도 뒤집힌 채 남는다.
+    # 사용자가 올리는 대표 사진에는 적용하지 않는다. 카메라를 바로 달면 0 으로 끈다.
+    device-rotate-degrees: ${PHOTO_DEVICE_ROTATE_DEGREES:180}
+    # 원래는 하루 한 장이었다(타임랩스 프레임 간격을 일정하게 유지). 촬영 파이프라인을 확인하려면
+    # 하루를 기다려야 해서 허용으로 바꿨다. 자동 촬영은 "오늘 사진이 없으면" 조건이라 이 값과
+    # 무관하게 하루 한 번이고, 수동 촬영만 늘어난다. 되돌리려면 false.
+    allow-multiple-per-day: ${PHOTO_ALLOW_MULTIPLE_PER_DAY:true}
+  vision:
+    # 추론이 별도 컨테이너라 로컬과 임시 CI 컨테이너에는 떠 있지 않다. 기본값을 꺼짐으로 두어
+    # 그 환경에서 분류기가 no-op 으로 떨어지게 한다. 운영 배포에서만 켠다.
+    #
+    # 환경변수 접두어가 VISION_ 인 이유는 추론 컨테이너 자신의 설정이 YOLO_ 를 쓰기 때문이다.
+    # 같은 접두어면 어느 쪽 설정인지 구분되지 않는다. 여기는 모두 부르는 쪽의 설정이다.
+    enabled: ${VISION_ENABLED:false}
+    # 포트를 호스트로 열지 않으므로 도커 네트워크 안의 서비스명으로 부른다.
+    base-url: ${VISION_BASE_URL:http://yolo:8000}
+    connect-timeout-seconds: ${VISION_CONNECT_TIMEOUT_SECONDS:5}
+    # CPU 추론이고 동시 실행이 1 이라 앞선 요청이 있으면 그만큼 더 기다린다. 짧게 잡으면
+    # 정상 대기를 실패로 처리한다.
+    read-timeout-seconds: ${VISION_READ_TIMEOUT_SECONDS:35}
+    # 추론 서비스에 넘길 신뢰도 하한이다. 그쪽 기본값 0.10 은 매우 낮아 오탐이 그대로 올라온다.
+    request-confidence: ${VISION_REQUEST_CONFIDENCE:0.25}
+    # 모델 학습 크기와 같아야 판정이 흔들리지 않는다.
+    image-size: ${VISION_IMAGE_SIZE:640}
+    # 올라온 검출 중 무엇을 믿을지의 하한이다. request-confidence 와 역할이 다르다.
+    #
+    # 실사로 재고 0.25 로 내렸다. 화분 사진 4장(발아 2 · 영양생장 1 · 개화 1)에 밝기·블러·
+    # 반전·회전을 걸어 24가지로 돌렸고, 배포 중인 모델이 24/24 를 맞혔다. 그 중 가장 낮은
+    # 정답 점수가 0.277(개화, 좌우반전)이라 0.25 가 전부를 통과시키는 가장 높은 값이다.
+    #
+    # 0.60 은 실물에서 한 장도 통과하지 못한다 — 야외 군락 사진으로 학습한 모델이라 화분
+    # 하나를 찍으면 점수가 그만큼 나오지 않는다. 그 값으로 두면 판정은 맞는데 기록도 알림도
+    # 나가지 않아 기능이 꺼진 것과 같다.
+    #
+    # request-confidence 보다 낮출 수는 없다. 그쪽이 추론 서비스에 넘기는 하한이라 더 낮은
+    # 검출은 여기 닿기 전에 잘린다. 둘을 같이 내려야 실제로 내려간다.
+    min-confidence: ${VISION_MIN_CONFIDENCE:0.25}
+    # 켜면 사용자가 손대지 않아도 단계가 바뀌고 푸시가 나간다. 오탐이 그대로 사용자에게 도달하며
+    # 되돌릴 수단이 없으므로, 판정 이력을 보고 min-confidence 를 확정한 뒤에 켠다.
+    # 꺼져 있어도 판정과 저장은 그대로 돌아가 그동안 정확도를 관찰할 수 있다.
+    auto-advance-enabled: ${VISION_AUTO_ADVANCE_ENABLED:false}
+    # 개화 판정으로 개화 기록을 자동으로 남긴다. 단계 승급과 달리 기본값이 켜짐인 이유는
+    # 개화 기록에 삭제 API 가 있어 오탐을 사용자가 정리할 수 있기 때문이다.
+    auto-bloom-enabled: ${VISION_AUTO_BLOOM_ENABLED:true}
+    # 최근 이 기간(일) 안에 개화 기록이 있으면 자동 기록을 건너뛴다. 판정이 촬영 각도에 따라
+    # 개화 ↔ 영양생장 사이를 오갈 때 기록이 반복 생성되는 것을 막는다.
+    bloom-cooldown-days: ${VISION_BLOOM_COOLDOWN_DAYS:7}
+    # 발아 판정을 사용자에게 알린다. 단계 승급으로는 알릴 수 없다 — 발아기가 생장 단계의 맨
+    # 아래라 올라갈 곳이 없어 판정이 정확해도 조용히 끝난다. 개화 기록과 같은 이유로 기본 켜짐.
+    auto-sprout-enabled: ${VISION_AUTO_SPROUT_ENABLED:true}
+    # 최근 이 기간(일) 안에 확신 판정이 있으면 새싹 알림을 건너뛴다. 사진이 매일 올라오고 발아
+    # 상태는 며칠 이어지므로 걸러 두지 않으면 같은 알림이 매일 간다. 0 이면 판정될 때마다
+    # 알린다 — 시연에서 반복해 보여줄 때 쓴다.
+    sprout-cooldown-days: ${VISION_SPROUT_COOLDOWN_DAYS:30}
+  push:
+    # 비어 있으면 발송기가 no-op 으로 떨어진다. 기능을 끄는 플래그를 따로 두지 않는 이유는
+    # CI 임시 컨테이너에 Firebase 키가 없기 때문이다. 초기화가 예외를 던지면 Health Check 가
+    # 실패해 배포 자체가 막히므로, 구현만 갈아끼우고 발송 경로는 항상 살려 둔다.
+    # 배포 디렉토리 안을 가리키면 안 된다. Sync Deploy Configs 가 매 배포마다 덮어쓰는 경로다.
+    credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+    core-pool-size: ${PUSH_CORE_POOL_SIZE:2}
+    max-pool-size: ${PUSH_MAX_POOL_SIZE:4}
+    # 넘치면 발송을 버린다. 센서 수집 스레드를 막지 않기 위한 상한이다.
+    queue-capacity: ${PUSH_QUEUE_CAPACITY:200}
+  diary:
+    enabled: ${DIARY_ENABLED:true}
+    # 하루를 마무리하는 시각에 그날 일기를 쓴다. 사용자가 자기 전에 읽는 흐름이다.
+    #
+    # 그 대가로 광량 판정이 일기에 들어가지 않는다. 누적 광량은 하루가 끝나야 확정되어
+    # 새벽 2시 배치가 전일분을 집계하므로, 오늘 것은 이 시각에 아직 없다.
+    # 알림과 사진은 그날 것이 이미 있어 그대로 쓰인다.
+    cron: "${DIARY_CRON:0 0 21 * * *}"
+    # @Scheduled 의 zone 은 맨 오프셋을 받지 않는다. IANA 지역 ID 여야 하며
+    # 잘못 넣으면 애플리케이션이 시작하지 않는다. potner.daily-light.zone 과 같은 제약이다.
+    zone: "${DIARY_ZONE:Asia/Seoul}"
+  llm:
+    # SSAFY GMS 는 OpenAI API 앞에 붙은 프록시라 요청·응답 형식이 OpenAI 와 같다.
+    # 라즈베리 수집기도 같은 엔드포인트를 쓴다.
+    base-url: ${LLM_BASE_URL:https://gms.ssafy.io/gmsapi/api.openai.com/v1}
+    # 비어 있으면 no-op 으로 떨어진다. 기능을 끄는 플래그를 두지 않는 이유는 푸시와 같다.
+    # 임시 CI 컨테이너에는 키가 없고, 초기화가 예외를 던지면 배포가 막힌다.
+    api-key: ${LLM_API_KEY:}
+    # 모델을 바꾸면 GmsChatClient 의 max_tokens 파라미터 이름도 확인해야 한다.
+    # o 시리즈나 gpt-5 계열은 max_completion_tokens 를 쓴다.
+    model: ${LLM_MODEL:gpt-4.1-mini}
+    # 일기 본문 목표가 180~250자다. 한국어는 토큰당 글자 수가 적어 500 으로는 제목·JSON 구조와
+    # 합쳐 잘릴 수 있다. 잘리면 GmsChatClient 가 경고를 남기고 그 일기는 버려진다.
+    max-output-tokens: ${LLM_MAX_OUTPUT_TOKENS:900}
+    connect-timeout-seconds: ${LLM_CONNECT_TIMEOUT_SECONDS:5}
+    # 하루 한 번 도는 배치가 다음 날까지 묶여 있으면 스케줄러가 겹친다.
+    read-timeout-seconds: ${LLM_READ_TIMEOUT_SECONDS:30}
+  sensor:
+    zone-offset: "${SENSOR_ZONE_OFFSET:+09:00}"
+    freshness-threshold-minutes: ${SENSOR_FRESHNESS_THRESHOLD_MINUTES:15}
+    max-hour-interval-days: ${SENSOR_MAX_HOUR_INTERVAL_DAYS:14}
+    max-day-interval-days: ${SENSOR_MAX_DAY_INTERVAL_DAYS:365}

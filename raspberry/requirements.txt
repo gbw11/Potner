@@ -1,0 +1,17 @@
+PyYAML>=6.0
+smbus2>=0.4.3
+python-dotenv>=1.0.0
+pytest>=8.0.0
+
+# Board-only packages (not needed for Windows mock mode):
+# adafruit-circuitpython-dht
+# Adafruit-Blinka
+# On Raspberry Pi for OV5647 / SunFounder CSI camera:
+#   sudo apt install -y python3-picamera2
+# (use venv with --system-site-packages)
+paho-mqtt>=2.0.0
+
+# 이미지 밝기 검사(src/vision/quality.py): PNG 는 표준 라이브러리로 처리하지만
+# 실기 JPEG 검사에는 디코더가 필요. Pi 는 apt 권장: sudo apt install -y python3-pil
+# (미설치여도 import·PNG 검사는 동작하고, JPEG 검사 시점에만 ERROR 로그를 남긴다)
+Pillow>=10.0.0
