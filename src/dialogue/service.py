@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from ..collector import Collector
@@ -13,6 +14,8 @@ from ..status.models import PlantStatus
 from ..status.rules import evaluate_status
 from ..transport import SpringSoilPublisher, build_spring_publisher
 from ..voice.console import create_stt, create_tts
+
+log = logging.getLogger(__name__)
 
 
 class PlantService:
@@ -67,11 +70,23 @@ class PlantService:
             return status
         return self._last_status
 
+    def _llm_text(self, prompt: str) -> Optional[str]:
+        """LLM 문장 생성. 실패하면 None 을 돌려 호출부의 템플릿 폴백에 맡긴다.
+
+        Pi 가 네트워크보다 먼저 뜨거나 GMS 가 끊겨도 브리핑/리포트는 나와야 한다
+        (chat_once 가 이미 쓰던 폴백 정책을 brief/report 에도 맞춘 것).
+        """
+        if not self.llm.available():
+            return None
+        try:
+            return self.llm.complete(prompt)
+        except Exception as exc:  # noqa: BLE001 — 폴백: 말투만 잃고 판단은 로컬로 유지
+            log.warning(f"LLM 호출 실패, 템플릿으로 폴백합니다: {exc}")
+            return None
+
     def brief(self, *, speak: bool = True) -> str:
         _, status, _ = self.tick()
-        text: Optional[str] = None
-        if self.llm.available():
-            text = self.llm.complete(briefing_user_prompt(status.to_prompt_dict()))
+        text = self._llm_text(briefing_user_prompt(status.to_prompt_dict()))
         if not text:
             text = render_briefing(status)
         if speak:
@@ -81,11 +96,7 @@ class PlantService:
     def report(self, *, limit: int = 40, speak: bool = True) -> str:
         status = self.current_status()
         events = self.event_store.recent(limit=limit)
-        text: Optional[str] = None
-        if self.llm.available():
-            text = self.llm.complete(
-                report_user_prompt(events, status.to_prompt_dict())
-            )
+        text = self._llm_text(report_user_prompt(events, status.to_prompt_dict()))
         if not text:
             text = render_report(events, status)
         if speak:
@@ -131,7 +142,13 @@ class PlantService:
         print("식물 대화 모드 - 종료: exit / quit / 종료")
         print(f"LLM={'on' if self.llm.available() else 'off(template)'}")
         while True:
-            user_text = self.stt.listen("나: ")
+            try:
+                user_text = self.stt.listen("나: ")
+            except (EOFError, KeyboardInterrupt):
+                # Ctrl+D / Ctrl+C / 파이프 입력 끝 — "종료" 를 친 것과 같게 다룬다
+                print()
+                print("대화 종료")
+                break
             if not user_text:
                 continue
             if user_text.lower() in {"exit", "quit", "q"} or user_text in {"종료", "나가기"}:

@@ -113,9 +113,15 @@ def main(argv: list[str] | None = None) -> int:
     watch.add_argument("--interval", type=float, default=0.1, help="폴링 간격 초 (기본 0.1)")
 
     args = parser.parse_args(argv)
-    if args.command == "read":
-        return cmd_read(args)
-    return cmd_watch(args)
+    try:
+        if args.command == "read":
+            return cmd_read(args)
+        return cmd_watch(args)
+    except ImportError as exc:
+        # PC 에서 --mock 없이 실행한 경우가 대부분 — traceback 대신 안내만 남긴다
+        print(f"오류: {exc}", file=sys.stderr)
+        print("하드웨어 없이 흐름만 확인하려면 --mock 을 붙이세요.", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

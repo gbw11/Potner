@@ -48,6 +48,10 @@ sensors:
     # false 도 매 주기 발행 (서버 플래그 해제용, 처리 멱등).
     report: true          # false 면 수집(CSV)은 하되 MQTT 보고만 끈다
     hold_sec: 10           # 이 시간(초) 이상 연속 유지된 상태만 서버로 발행 (접촉 잔떨림 방지)
+    # 아래 둘은 mock 전용(platform: mock 또는 driver: mock). 실센서에는 영향 없다.
+    # 기본 mock 은 raw 접점 닫힘 고정 = "물 없음" 고정이라 PC 에서 복구 흐름을 못 본다.
+    mock_toggle: false    # true 면 읽을 때마다 닫힘/열림 교대 (잔떨림 = hold_sec 게이트 확인용)
+    mock_values: []       # 예 [false, false, true, true] — raw 접점 시퀀스, 마지막 값 유지
 
 # 로컬 규칙 판단 임계값 (LLM 호출 전 단계)
 status_rules:

@@ -219,6 +219,17 @@ def test_cli_no_invert_flag_restores_no_semantics(fake_gpiozero, capsys):
     assert payload["water_present"] is False  # 열림 + NO 원래 해석 = 물 없음
 
 
+def test_cli_read_without_gpiozero_exits_cleanly_with_mock_hint(monkeypatch, capsys):
+    """PC 에서 --mock 없이 실행하면 traceback 대신 안내 + 종료코드 2 가 나와야 한다."""
+    from cli.water_level import main
+
+    monkeypatch.setitem(sys.modules, "gpiozero", None)  # import 시 ImportError 유발
+    assert main(["read"]) == 2
+    err = capsys.readouterr().err
+    assert "gpiozero" in err
+    assert "--mock" in err
+
+
 def test_cli_read_uses_read_stable_majority(fake_gpiozero, capsys):
     """read 서브커맨드는 단발 read 가 아니라 read_stable 다수결로 판정해야 한다.
 
