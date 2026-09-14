@@ -104,9 +104,18 @@ potner:
   # 장치 명령의 타임아웃이다. potner.mqtt.* 아래가 아닌 이유는 battery-reporter-type 과 같다 —
   # 브로커를 끈 환경에서도 명령 이력 조회 서비스는 떠야 한다.
   device-command:
-    # 급수는 펌프 1회 최대 30초 + 무선 왕복 여유다. 너무 짧으면 정상 급수가 타임아웃으로
-    # 기록되고, 너무 길면 죽은 장치가 다음 명령을 그 시간만큼 막는다.
-    timeout-seconds: ${DEVICE_COMMAND_TIMEOUT_SECONDS:120}
+    # 가장 오래 걸리는 명령이 기준이다. 이동은 로봇이 Nav2 에 300초, 스테이션 도킹에 90초를
+    # 따로 쓴다(로봇 potner_params.yaml 의 navigate_timeout / docking_timeout). 그보다 짧게
+    # 잡으면 정상 주행이 타임아웃으로 기록된다 — 급수 30초만 보고 120 으로 두고 있었다.
+    #
+    # 늦게 온 회신이 TIMED_OUT 을 덮어써서 체인 자체는 이어지지만(DeviceCommandStatus.isTerminal
+    # 에 TIMED_OUT 이 빠져 있다), 그 사이 RobotBusyGuard 가 로봇을 유휴로 본다. ISSUED 만 세기
+    # 때문이다. 그러면 10분 주기 환기 스케줄러가 주행 중인 로봇에 새 이동을 던지고 BUSY 로
+    # 거절당한 실패가 이력에 남는다.
+    #
+    # 너무 길면 죽은 장치가 다음 명령을 그 시간만큼 막는다. 로봇의 상한 300 + 도킹 90 에
+    # 무선 왕복 여유를 더한 값이다.
+    timeout-seconds: ${DEVICE_COMMAND_TIMEOUT_SECONDS:420}
     timeout-check-interval-seconds: ${DEVICE_COMMAND_TIMEOUT_CHECK_INTERVAL_SECONDS:30}
     # 송풍 1회 기본 가동 시간(초). 말리기는 짧은 가동과 수분 재측정의 반복이라 짧게 잡는다.
     fan-run-seconds: ${DEVICE_COMMAND_FAN_RUN_SECONDS:30}
@@ -270,8 +279,18 @@ potner:
     # 모델 학습 크기와 같아야 판정이 흔들리지 않는다.
     image-size: ${VISION_IMAGE_SIZE:640}
     # 올라온 검출 중 무엇을 믿을지의 하한이다. request-confidence 와 역할이 다르다.
-    # 실측 오탐률을 본 뒤 조정한다.
-    min-confidence: ${VISION_MIN_CONFIDENCE:0.60}
+    #
+    # 실사로 재고 0.25 로 내렸다. 화분 사진 4장(발아 2 · 영양생장 1 · 개화 1)에 밝기·블러·
+    # 반전·회전을 걸어 24가지로 돌렸고, 배포 중인 모델이 24/24 를 맞혔다. 그 중 가장 낮은
+    # 정답 점수가 0.277(개화, 좌우반전)이라 0.25 가 전부를 통과시키는 가장 높은 값이다.
+    #
+    # 0.60 은 실물에서 한 장도 통과하지 못한다 — 야외 군락 사진으로 학습한 모델이라 화분
+    # 하나를 찍으면 점수가 그만큼 나오지 않는다. 그 값으로 두면 판정은 맞는데 기록도 알림도
+    # 나가지 않아 기능이 꺼진 것과 같다.
+    #
+    # request-confidence 보다 낮출 수는 없다. 그쪽이 추론 서비스에 넘기는 하한이라 더 낮은
+    # 검출은 여기 닿기 전에 잘린다. 둘을 같이 내려야 실제로 내려간다.
+    min-confidence: ${VISION_MIN_CONFIDENCE:0.25}
     # 켜면 사용자가 손대지 않아도 단계가 바뀌고 푸시가 나간다. 오탐이 그대로 사용자에게 도달하며
     # 되돌릴 수단이 없으므로, 판정 이력을 보고 min-confidence 를 확정한 뒤에 켠다.
     # 꺼져 있어도 판정과 저장은 그대로 돌아가 그동안 정확도를 관찰할 수 있다.

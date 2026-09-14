@@ -141,7 +141,9 @@ services:
       # 같은 접두어면 어느 쪽 설정인지 구분되지 않는다.
       VISION_ENABLED: "${VISION_ENABLED:-false}"
       VISION_REQUEST_CONFIDENCE: "${VISION_REQUEST_CONFIDENCE:-0.25}"
-      VISION_MIN_CONFIDENCE: "${VISION_MIN_CONFIDENCE:-0.60}"
+      # 여기 적힌 값이 application.yml 의 기본값을 덮는다. 두 곳이 어긋나면 코드를 고쳐도
+      # 배포에는 반영되지 않으므로 같이 옮긴다.
+      VISION_MIN_CONFIDENCE: "${VISION_MIN_CONFIDENCE:-0.25}"
       # 켜면 사용자가 손대지 않아도 단계가 바뀌고 푸시가 나간다. 판정 이력으로 오탐률을 확인한
       # 뒤에 켠다. 꺼져 있어도 판정과 저장은 돌아간다.
       VISION_AUTO_ADVANCE_ENABLED: "${VISION_AUTO_ADVANCE_ENABLED:-false}"
